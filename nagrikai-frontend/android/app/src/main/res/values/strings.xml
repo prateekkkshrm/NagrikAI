@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">NagrikAI</string>
+    <string name="title_activity_main">NagrikAI</string>
+    <string name="package_name">com.nagrikai.app</string>
+    <string name="custom_url_scheme">com.nagrikai.app</string>
+</resources>

@@ -1,8 +1,24 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Capacitor } from "@capacitor/core";
+import { Geolocation } from "@capacitor/geolocation";
+import { translateDOM } from "./translations";
+import { supabase } from "./supabaseClient";
+import {
+  MapContainer,
+  TileLayer,
+  Circle,
+  CircleMarker,
+  Popup,
+  Polyline,
+  useMap
+} from "react-leaflet";
+
+import "leaflet/dist/leaflet.css";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, Bell, Check,
   CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clock3,
-  CloudSun, Compass, Copy, FileText, Filter, Globe2, Headphones, Home,
+  CloudSun, Cloud, CloudRain, CloudLightning, CloudSnow, CloudDrizzle,
+  Compass, Copy, FileText, Filter, Globe2, Headphones, Home,
   Info, Languages, Layers, LocateFixed, LockKeyhole, Map, MapPin, Menu,
   Mic, MicOff, Moon, Navigation, Plus, Search, Send, Settings, Shield,
   ShieldCheck, SlidersHorizontal, Sparkles, Sun, TrendingUp, User, Users,
@@ -28,14 +44,25 @@ const navItems = [
 
 function App() {
   const [screen, setScreen] = useState("Splash");
-  const [language, setLanguage] = useState("English");
-  const [phone, setPhone] = useState("98765 43210");
-  const [otp, setOtp] = useState(["2","4","8","0","1","6"]);
+  const [language, setLanguage] = useState(() => localStorage.getItem("nagrikai-language") || "English");
+  const [phone, setPhone] = useState("");
+  const [otp, setOtp] = useState(["","","","","",""]);
+  const [authLoading, setAuthLoading] = useState(false);
   const [category, setCategory] = useState("Roads");
   const [severity, setSeverity] = useState("High");
   const [filters, setFilters] = useState(["Potholes & damaged roads","Waterlogging"]);
   const [distance, setDistance] = useState("2 km");
   const [issue, setIssue] = useState("Pothole on Alpha II main road");
+  const [description, setDescription] = useState("");
+  const [photo, setPhoto] = useState(null);
+  const [userLocation, setUserLocation] = useState(null);
+  const [locationStatus, setLocationStatus] = useState("idle");
+  const [locationError, setLocationError] = useState("");
+  const [locationDetails, setLocationDetails] = useState(null);
+  const autoLocationStarted = useRef(false);
+  const [weatherData, setWeatherData] = useState(null);
+  const [weatherStatus, setWeatherStatus] = useState("idle");
+  const [weatherError, setWeatherError] = useState("");
   const [toast, setToast] = useState("");
   const [query, setQuery] = useState("");
   const [recording, setRecording] = useState(false);
@@ -44,6 +71,99 @@ function App() {
   const [accessibility, setAccessibility] = useState({motion:true, contrast:true, text:false, voice:false});
   const [reportCount, setReportCount] = useState(8);
   const [selectedTab, setSelectedTab] = useState("Home");
+
+  useEffect(() => {
+    localStorage.setItem("nagrikai-language", language);
+    document.documentElement.lang = language === "Hindi" ? "hi" : "en";
+    const root = document.querySelector(".app-shell");
+    if (!root) return;
+    translateDOM(root, language);
+    const observer = new MutationObserver(() => translateDOM(root, language));
+    observer.observe(root, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["placeholder", "title", "aria-label"] });
+    return () => observer.disconnect();
+  }, [language]);
+  
+  useEffect(() => {
+  if (!userLocation) {
+    setWeatherData(null);
+    setWeatherStatus("idle");
+    setWeatherError("");
+    return;
+  }
+
+  const controller = new AbortController();
+  let active = true;
+
+  const loadWeather = async () => {
+    try {
+      setWeatherStatus(current =>
+        current === "success" ? "refreshing" : "loading"
+      );
+      setWeatherError("");
+
+      const params = new URLSearchParams({
+        latitude: String(userLocation.lat),
+        longitude: String(userLocation.lng),
+
+        current:
+          "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,rain,showers,weather_code,wind_speed_10m",
+
+        hourly:
+          "temperature_2m,precipitation_probability,precipitation,rain,weather_code",
+
+        daily:
+          "temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,weather_code,sunrise,sunset",
+
+        forecast_days: "3",
+        timezone: "auto"
+      });
+
+      const response = await fetch(
+        `https://api.open-meteo.com/v1/forecast?${params.toString()}`,
+        { signal: controller.signal }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Weather service returned ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (data.error) {
+        throw new Error(data.reason || "Weather data unavailable.");
+      }
+
+      if (active) {
+        setWeatherData(data);
+        setWeatherStatus("success");
+      }
+
+    } catch (error) {
+      if (error.name === "AbortError") return;
+
+      console.error("Weather API error:", error);
+
+      if (active) {
+        setWeatherStatus("error");
+        setWeatherError(error.message || "Unable to load weather.");
+      }
+    }
+  };
+
+  loadWeather();
+
+  const refreshInterval = window.setInterval(
+    loadWeather,
+    15 * 60 * 1000
+  );
+
+  return () => {
+    active = false;
+    controller.abort();
+    window.clearInterval(refreshInterval);
+  };
+
+}, [userLocation]);
 
   const go = (name) => {
     setScreen(name);
@@ -56,24 +176,204 @@ function App() {
     window.clearTimeout(window.__toastTimer);
     window.__toastTimer = window.setTimeout(() => setToast(""), 2400);
   };
+  const detectUserLocation = () => {
+  if (!navigator.geolocation) {
+    setLocationStatus("error");
+    setLocationError("Location is not supported by this browser.");
+    setLocationDetails(null);
+    notify("Your browser does not support GPS.");
+    return;
+  }
+
+  setLocationStatus("loading");
+  setLocationError("");
+
+  navigator.geolocation.getCurrentPosition(
+    (position) => {
+      const location = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        accuracy: position.coords.accuracy
+      };
+
+      setUserLocation(location);
+      setLocationStatus("success");
+      fetch(
+  `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${location.lat}&longitude=${location.lng}&localityLanguage=en`
+)
+  .then(response => {
+    if (!response.ok) {
+      throw new Error("Location lookup failed");
+    }
+    return response.json();
+  })
+  .then(data => {
+    setLocationDetails({
+      city: data.city || data.locality || "",
+      locality: data.locality || "",
+      state: data.principalSubdivision || "",
+      country: data.countryName || ""
+    });
+  })
+  .catch(error => {
+    console.error("Reverse geocoding error:", error);
+    setLocationDetails(null);
+  });
+
+      notify(
+        `Location detected. Accuracy: ±${Math.round(location.accuracy)} metres`
+      );
+    },
+
+    (error) => {
+      let message = "Unable to detect your location.";
+
+      if (error.code === 1) {
+        message = "Location permission denied. Enable it in browser settings.";
+      } else if (error.code === 2) {
+        message = "Your location is currently unavailable.";
+      } else if (error.code === 3) {
+        message = "Location request timed out. Please try again.";
+      }
+
+      setLocationStatus("error");
+      setLocationError(message);
+      notify(message);
+    },
+
+    {
+      enableHighAccuracy: true,
+      timeout: 20000,
+      maximumAge: 0
+    }
+  );
+};
+useEffect(() => {
+  if (autoLocationStarted.current) return;
+
+  autoLocationStarted.current = true;
+  detectUserLocation();
+}, []);
+
+  const handleSendOtp = async () => {
+  const digits = phone.replace(/\D/g, "");
+
+if (!/^[6-9]\d{9}$/.test(digits)) {
+  notify("Enter a valid 10-digit Indian mobile number.");
+  return;
+}
+
+const formattedPhone = `+91${digits}`;
+
+  setAuthLoading(true);
+
+  try {
+    const { error } = await supabase.auth.signInWithOtp({
+      phone: formattedPhone
+    });
+
+    if (error) throw error;
+
+    go("OTP verification");
+    notify("OTP request successful. Enter your test OTP.");
+  } catch (error) {
+    notify(error.message || "Unable to request OTP.");
+  } finally {
+    setAuthLoading(false);
+  }
+};
+const handleVerifyOtp = async () => {
+  const digits = phone.replace(/\D/g, "");
+  const token = otp.join("");
+
+  if (!/^[6-9]\d{9}$/.test(digits)) {
+    notify("Invalid mobile number.");
+    go("Login");
+    return;
+  }
+
+  if (!/^\d{6}$/.test(token)) {
+    notify("Enter all 6 OTP digits.");
+    return;
+  }
+
+  setAuthLoading(true);
+
+  try {
+    const { data, error } = await supabase.auth.verifyOtp({
+      phone: `+91${digits}`,
+      token,
+      type: "sms"
+    });
+
+    if (error) throw error;
+
+    if (!data.session) {
+      throw new Error("Authentication session was not created.");
+    }
+
+    go("Home");
+    notify("Phone number verified successfully.");
+
+  } catch (error) {
+    setOtp(["", "", "", "", "", ""]);
+    notify("Incorrect or expired OTP. Please try again.");
+
+  } finally {
+    setAuthLoading(false);
+  }
+};
   const toggleFilter = (name) => setFilters(v => v.includes(name) ? v.filter(x => x !== name) : [...v,name]);
   const submitReport = () => { setReportCount(v=>v+1); go("Report submitted"); };
   const nav = (id) => { setSelectedTab(id); go(id); };
 
   return <div className="app-shell">
     <div className="device">
-      <div className="status"><span>9:41 ▮▮▮</span><span>5G ◉ ▰</span></div>
+      <div className="status"><span>9:41 ▮▮▮</span><div className="status-right"><span>5G ◉ ▰</span><button className="language-toggle" onClick={() => setLanguage(v => v === "English" ? "Hindi" : "English")} aria-label="Change language">{language === "English" ? "हिंदी" : "EN"}</button></div></div>
       <main className="screen-content">
         {screen === "Splash" && <Splash go={go}/>}
-        {screen === "Welcome" && <Welcome go={go}/>}
+        {screen === "Welcome" && (
+           <Welcome
+            go={go}
+            userLocation={userLocation}
+            locationDetails={locationDetails}
+            locationStatus={locationStatus}
+            onLocate={detectUserLocation}
+           />
+         )}
         {screen === "Language" && <Language language={language} setLanguage={setLanguage} go={go}/>}
-        {screen === "Login" && <Login phone={phone} setPhone={setPhone} go={go} notify={notify}/>}
-        {screen === "OTP verification" && <OTP otp={otp} setOtp={setOtp} go={go} notify={notify}/>}
-        {screen === "Home" && <HomeScreen go={go} reportCount={reportCount} notify={notify}/>}
-        {screen === "Explore map" && <ExploreMap go={go} query={query} setQuery={setQuery}/>}
+        {screen === "Login" && <Login phone={phone} setPhone={setPhone} go={go} notify={notify} onSendOtp={handleSendOtp} authLoading={authLoading}/>}
+        {screen === "OTP verification" && <OTP phone={phone} otp={otp} setOtp={setOtp} go={go} notify={notify} onVerify={handleVerifyOtp} authLoading={authLoading}/>}
+        {screen === "Home" && (
+          <HomeScreen
+           go={go}
+           language={language}
+           reportCount={reportCount}
+           notify={notify}
+           userLocation={userLocation}
+           locationDetails={locationDetails}
+           locationStatus={locationStatus}
+           onLocate={detectUserLocation}
+           weatherData={weatherData}
+           weatherStatus={weatherStatus}
+           weatherError={weatherError}
+
+         />
+        )}
+        {screen === "Explore map" && (
+        <ExploreMap
+         go={go}
+         query={query}
+         setQuery={setQuery}
+         userLocation={userLocation}
+         locationStatus={locationStatus}
+         locationError={locationError}
+         onLocate={detectUserLocation}
+         />
+         )}
         {screen === "Map filters" && <MapFilters filters={filters} toggleFilter={toggleFilter} distance={distance} setDistance={setDistance} go={go}/>}
-        {screen === "Capture report" && <CaptureReport issue={issue} setIssue={setIssue} category={category} setCategory={setCategory} go={go} notify={notify}/>}
-        {screen === "Review report" && <ReviewReport issue={issue} category={category} severity={severity} setSeverity={setSeverity} go={go}/>}
+        {screen === "Capture report" && <CaptureReport issue={issue} setIssue={setIssue} description={description} setDescription={setDescription} photo={photo} setPhoto={setPhoto} category={category} setCategory={setCategory} go={go} notify={notify}/>}
+        {screen === "Review report" && <ReviewReport issue={issue} description={description} photo={photo} category={category} severity={severity} setSeverity={setSeverity} go={go}/>}
         {screen === "Possible duplicate" && <Duplicate go={go} issue={issue}/>}
         {screen === "Report submitted" && <Submitted go={go}/>}
         {screen === "Issue details" && <IssueDetails go={go} issue={issue}/>}
@@ -81,7 +381,16 @@ function App() {
         {screen === "Responsible authority" && <Authority go={go}/>}
         {screen === "Complaint handoff" && <Handoff go={go} notify={notify}/>}
         {screen === "Reference tracking" && <Tracking go={go}/>}
-        {screen === "Weather & air" && <Weather go={go}/>}
+        {screen === "Weather & air" && (
+        <Weather
+        go={go}
+        userLocation={userLocation}
+        locationDetails={locationDetails}
+        weatherData={weatherData}
+        weatherStatus={weatherStatus}
+        weatherError={weatherError}
+        />
+        )}
         {screen === "Ask NagrikAI" && <AskAI go={go} query={query} setQuery={setQuery}/>}
         {screen === "Voice assistant" && <Voice recording={recording} setRecording={setRecording} go={go}/>}
         {screen === "Civic navigation" && <NavigationScreen go={go}/>}
@@ -116,6 +425,19 @@ function Button({children,onClick,secondary=false,disabled=false}) {
 }
 function Card({children,className=""}) { return <section className={`panel ${className}`}>{children}</section>; }
 function Label({children}) { return <div className="eyebrow">{children}</div>; }
+function useCurrentTime() {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNow(new Date());
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
+  return now;
+}
 function Field({label,value,onChange,placeholder}) { return <label className="field"><span>{label}</span><input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}/></label>; }
 function BottomNav({selected,nav}) {
   return <nav className="bottom-nav">{navItems.map(({id,label,icon:Icon})=><button key={id} className={`${selected===id?"selected":""} ${id==="Capture report"?"report-nav":""}`} onClick={()=>nav(id)}><Icon size={17}/><small>{label}</small></button>)}</nav>;
@@ -123,36 +445,2706 @@ function BottomNav({selected,nav}) {
 function Splash({go}) {
   return <div className="center-page splash"><div className="brand-mark">N</div><h1>NagrikAI</h1><p>Your City. Your Voice.<br/>Your Intelligence.</p><div className="micro-line">GREATER NOIDA&nbsp; / &nbsp;CIVIC INTELLIGENCE</div><div className="bottom-action"><Button onClick={()=>go("Welcome")}>Get started</Button></div></div>;
 }
-function Welcome({go}) {
-  return <div className="page"><Label>YOUR CITY, DECODED.</Label><div className="city-hero"><div className="tiny-coord">28.4744° N&nbsp; 77.5040° E</div><div className="brand-mark">N</div><b>GREATER NOIDA</b><div className="stat-row"><span>AIR 186</span><span>CITY 72</span><span>24° C</span></div></div><h1>A smarter city starts<br/>with you.</h1><p className="muted">Spot what matters. Report with proof.<br/>Let civic intelligence handle the noise.</p><Card><p>01 &nbsp; See beyond the traffic</p><p>02 &nbsp; Turn evidence into action</p><p>03 &nbsp; Know what changed — and what didn't</p></Card><div className="bottom-action"><Button onClick={()=>go("Language")}>Continue</Button></div></div>;
+function Welcome({
+  go,
+  userLocation,
+  locationDetails,
+  locationStatus,
+  onLocate
+}) {
+  const now = useCurrentTime();
+
+
+  const dateText = new Intl.DateTimeFormat(undefined, {
+    weekday: "long",
+    day: "numeric",
+    month: "short",
+    year: "numeric"
+  }).format(now);
+
+  const timeText = now.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+
+  const placeName = locationDetails
+    ? [
+        locationDetails.locality,
+        locationDetails.city,
+        locationDetails.state
+      ].filter((value, index, array) =>
+        value && array.indexOf(value) === index
+      ).join(", ")
+    : userLocation
+      ? "Resolving your location..."
+      : "Location not detected";
+
+  const coordinates = userLocation
+    ? `${Math.abs(userLocation.lat).toFixed(4)}° ${userLocation.lat >= 0 ? "N" : "S"} · ${Math.abs(userLocation.lng).toFixed(4)}° ${userLocation.lng >= 0 ? "E" : "W"}`
+    : "Enable location to personalise your experience";
+
+  return (
+    <div className="page">
+      <Label>YOUR CITY, DECODED.</Label>
+
+      <div className="city-hero">
+        <div className="tiny-coord">{coordinates}</div>
+
+        <div className="brand-mark">N</div>
+
+        <b>{placeName.toUpperCase()}</b>
+
+        <div className="stat-row">
+          <span>{dateText}</span>
+          <span>{timeText}</span>
+        </div>
+      </div>
+
+      {!userLocation && (
+        <Button
+          secondary
+          onClick={onLocate}
+          disabled={locationStatus === "loading"}
+        >
+          {locationStatus === "loading"
+            ? "Detecting location..."
+            : "Detect my location"}
+        </Button>
+      )}
+
+      <h1>A smarter city starts<br />with you.</h1>
+
+      <p className="muted">
+        Spot what matters. Report with proof.<br />
+        Let civic intelligence handle the noise.
+      </p>
+
+      <Card>
+        <p>01 &nbsp; See beyond the traffic</p>
+        <p>02 &nbsp; Turn evidence into action</p>
+        <p>03 &nbsp; Know what changed — and what didn't</p>
+      </Card>
+
+      <div className="bottom-action">
+        <Button onClick={() => go("Language")}>Continue</Button>
+      </div>
+    </div>
+  );
 }
 function Language({language,setLanguage,go}) {
-  return <div className="page"><StatusBarTitle title="Choose your language" back={()=>go("Welcome")}/><Label>01 / 03 &nbsp; PERSONALISE</Label><h1>Your city.<br/>Your language.</h1><p className="muted">Choose how NagrikAI speaks to you. You can change this anytime.</p>{["English","हिन्दी"].map(v=><button className={`choice ${language===v?"chosen":""}`} onClick={()=>setLanguage(v)} key={v}><span>{v}</span><small>{v==="English"?"Selected language":"हिन्दी • सरल भाषा में"}</small>{language===v&&<Check size={17}/>}</button>)}<p className="hint">All conversations support both English and Hindi, including voice input.</p><div className="bottom-action"><Button onClick={()=>go("Login")}>Continue in {language}</Button></div></div>;
+  return <div className="page"><StatusBarTitle title="Choose your language" back={()=>go("Welcome")}/><Label>01 / 03 &nbsp; PERSONALISE</Label><h1>Your city.<br/>Your language.</h1><p className="muted">Choose how NagrikAI speaks to you. You can change this anytime.</p>{["English","Hindi"].map(v=><button className={`choice ${language===v?"chosen":""}`} onClick={()=>setLanguage(v)} key={v}><span>{v==="Hindi"?"हिन्दी":"English"}</span><small>{language===v?"Selected language":"भाषा चुनें"}</small>{language===v&&<Check size={17}/>}</button>)}<p className="hint">All conversations support both English and Hindi, including voice input.</p><div className="bottom-action"><Button onClick={()=>go("Login")}>Continue in {language === "Hindi" ? "हिन्दी" : "English"}</Button></div></div>;
 }
-function Login({phone,setPhone,go,notify}) {
-  return <div className="page"><StatusBarTitle title="Welcome to NagrikAI" back={()=>go("Language")}/><Label>02 / 03 &nbsp; SECURE SIGN-IN</Label><h1>One number.<br/>A stronger voice.</h1><p className="muted">Track your reports and get updates that actually matter.</p><Field label="MOBILE NUMBER" value={phone} onChange={setPhone}/><Button onClick={()=>{go("OTP verification");notify("Verification code sent");}}>Send verification code</Button><Card><b>Your number stays private.</b><p className="muted">Public reports never show your phone number. Your location is shared only with your consent.</p></Card><p className="hint">By continuing, you accept the Terms of Service and Privacy Policy.</p><Button secondary onClick={()=>go("Home")}>Explore without signing in</Button></div>;
+function Login({phone,setPhone,go,notify,onSendOtp,authLoading}) {
+  return <div className="page"><StatusBarTitle title="Welcome to NagrikAI" back={()=>go("Language")}/><Label>02 / 03 &nbsp; SECURE SIGN-IN</Label><h1>One number.<br/>A stronger voice.</h1><p className="muted">Track your reports and get updates that actually matter.</p><Field
+  label="MOBILE NUMBER"
+  value={phone}
+  onChange={value => setPhone(value.replace(/\D/g, "").slice(0, 10))}
+  placeholder="Enter 10-digit mobile number"
+/>
+<Button onClick={onSendOtp} disabled={authLoading || phone.length !== 10}>
+  {authLoading ? "Sending..." : "Send verification code"}
+</Button>
+<Card><b>Your number stays private.</b><p className="muted">Public reports never show your phone number. Your location is shared only with your consent.</p></Card><p className="hint">By continuing, you accept the Terms of Service and Privacy Policy.</p><Button secondary onClick={()=>go("Home")}>Explore without signing in</Button></div>;
 }
-function OTP({otp,setOtp,go,notify}) {
-  return <div className="page"><StatusBarTitle title="Verify your number" back={()=>go("Login")}/><Label>03 / 03 &nbsp; VERIFY</Label><h1>Check your messages.</h1><p className="muted">Enter the 6-digit code sent to<br/>+91 98765 43210</p><div className="otp-row">{otp.map((v,i)=><input key={i} maxLength="1" value={v} onChange={e=>setOtp(a=>a.map((x,j)=>i===j?e.target.value.slice(-1):x))}/>)}</div><Button onClick={()=>{go("Home");notify("Phone number verified");}}>Verify & enter city</Button><Button secondary onClick={()=>notify("A new code has been sent")}>Resend code</Button><Card><b>A little security. A lot of trust.</b><p className="muted">Your reports stay connected to you. Your identity stays yours.</p></Card></div>;
+function OTP({phone,otp,setOtp,go,notify,onVerify,authLoading}) {
+
+  const handleOtpChange = (event, index) => {
+    const entered = event.target.value.replace(/\D/g, "");
+    const digits = entered.slice(0, 6 - index);
+
+    const next = [...otp];
+
+    if (!digits) {
+      next[index] = "";
+      setOtp(next);
+      return;
+    }
+
+    digits.split("").forEach((digit, offset) => {
+      next[index + offset] = digit;
+    });
+
+    setOtp(next);
+
+    const inputs = event.currentTarget.parentElement.querySelectorAll("input");
+    inputs[Math.min(index + digits.length, 5)]?.focus();
+  };
+
+  const handleOtpKeyDown = (event, index) => {
+    const inputs = event.currentTarget.parentElement.querySelectorAll("input");
+
+    if (event.key === "Backspace" && !otp[index] && index > 0) {
+      event.preventDefault();
+
+      const next = [...otp];
+      next[index - 1] = "";
+      setOtp(next);
+
+      inputs[index - 1]?.focus();
+    }
+
+    if (event.key === "ArrowLeft" && index > 0) {
+      inputs[index - 1]?.focus();
+    }
+
+    if (event.key === "ArrowRight" && index < 5) {
+      inputs[index + 1]?.focus();
+    }
+  };
+
+  const handleOtpPaste = (event) => {
+    event.preventDefault();
+
+    const pasted = event.clipboardData
+      .getData("text")
+      .replace(/\D/g, "")
+      .slice(0, 6);
+
+    if (!pasted) return;
+
+    const next = Array.from(
+      { length: 6 },
+      (_, index) => pasted[index] || ""
+    );
+
+    setOtp(next);
+
+    const inputs = event.currentTarget.parentElement.querySelectorAll("input");
+    inputs[Math.min(pasted.length, 5)]?.focus();
+  };
+
+  return (
+    <div className="page">
+
+      <StatusBarTitle
+        title="Verify your number"
+        back={() => go("Login")}
+      />
+
+      <Label>03 / 03 &nbsp; VERIFY</Label>
+
+      <h1>Check your messages.</h1>
+
+      <p className="muted">
+        Enter the 6-digit code sent to
+        <br />
+        +91-{phone}
+      </p>
+
+      <div className="otp-row">
+
+        {otp.map((value, index) => (
+          <input
+            key={index}
+            type="text"
+            inputMode="numeric"
+            autoComplete={index === 0 ? "one-time-code" : "off"}
+            autoFocus={index === 0}
+            maxLength={1}
+            value={value}
+            aria-label={`OTP digit ${index + 1}`}
+            onChange={(event) => handleOtpChange(event, index)}
+            onKeyDown={(event) => handleOtpKeyDown(event, index)}
+            onPaste={handleOtpPaste}
+          />
+        ))}
+
+      </div>
+
+      <Button
+        onClick={onVerify}
+        disabled={authLoading || otp.join("").length !== 6}
+      >
+        {authLoading ? "Verifying..." : "Verify & enter city"}
+      </Button>
+
+      <Button
+        secondary
+        onClick={() => notify("Please request a new verification code.")}
+      >
+        Resend code
+      </Button>
+
+      <Card>
+        <b>A little security. A lot of trust.</b>
+        <p className="muted">
+          Your reports stay connected to you.
+          Your identity stays yours.
+        </p>
+      </Card>
+
+    </div>
+  );
 }
-function HomeScreen({go,reportCount,notify}) {
-  return <div className="page"><div className="home-heading"><div><Label>SUNDAY, 15 NOV 2026 • ALPHA II</Label><h2>Greater Noida</h2></div><button className="icon-btn" onClick={()=>go("Notifications")}><Bell size={18}/></button></div><Card className="weather-card"><div><strong>24°</strong><span>Mostly sunny</span></div><small>Hazy sunshine<br/>H 27° / L 16°</small><p className="muted">AIR QUALITY • MODERATE</p></Card><Card className="insight"><b className="green">✦ Your city, in 20 seconds</b><p>Pari Chowk is moving slowly. AQI is rising. Take the Knowledge Park route and keep outdoor workouts light.</p></Card><Card><div className="split"><b>CITY HEALTH INDEX</b><span className="green">↑ 4 this week</span></div><strong className="score">72 <small>/ 100</small></strong><div className="progress"><i style={{width:"72%"}}/></div><small className="muted">Improving</small></Card><Label>NEAR YOU • 2 ACTIVE ALERTS</Label><Card className="alert-card" onClick={()=>go("Issue details")}><b>Pothole · Alpha II main road</b><small>240 m away • 12 confirmations</small><span className="severity">High</span></Card><div className="quick-grid">{["Safer route","City trends","Ask AI"].map((x,i)=><button key={x} onClick={()=>go(["Civic navigation","City analytics","Ask NagrikAI"][i])}>{x}</button>)}</div><p className="hint">Sample city data • Updated just now</p></div>;
+function WeatherVisual({ code, temperature, isDay = 1, size = 26 }) {
+  let Icon = CloudSun;
+  let color = "#70C8FF";
+  let animation = "weather-float";
+
+  if (code === 0) {
+    Icon = isDay ? Sun : Moon;
+    color = temperature >= 30 ? "#FFB547" : "#FFD34E";
+    animation = "weather-pulse";
+  } else if ([1, 2].includes(code)) {
+    Icon = CloudSun;
+    color = "#70C8FF";
+  } else if ([3, 45, 48].includes(code)) {
+    Icon = Cloud;
+    color = "#A9C9E8";
+  } else if ([51, 53, 55, 56, 57].includes(code)) {
+    Icon = CloudDrizzle;
+    color = "#75C8FF";
+    animation = "weather-rain";
+  } else if ([61, 63, 65, 80, 81, 82].includes(code)) {
+    Icon = CloudRain;
+    color = "#55B7FF";
+    animation = "weather-rain";
+  } else if ([71, 73, 75, 77, 85, 86].includes(code)) {
+    Icon = CloudSnow;
+    color = "#B9E8FF";
+  } else if ([95, 96, 99].includes(code)) {
+    Icon = CloudLightning;
+    color = "#C4A5FF";
+    animation = "weather-pulse";
+  }
+
+  if (temperature <= 10 && code < 45) {
+    color = "#8CDFFF";
+  }
+
+  return (
+    <Icon
+      size={size}
+      strokeWidth={1.8}
+      className={`weather-visual ${animation}`}
+      style={{
+        color,
+        filter: `drop-shadow(0 0 8px ${color}70)`
+      }}
+    />
+  );
 }
-function MiniMap({onClick}) {
-  return <div className="mini-map" onClick={onClick}><div className="map-grid"/><div className="road r1"/><div className="road r2"/><div className="road r3"/><div className="road r4"/><span className="map-label l1">ALPHA II</span><span className="map-label l2">KNOWLEDGE PARK</span><i className="pin p1">7</i><i className="pin p2">1</i><i className="pin p3">3</i></div>;
+function HomeScreen({
+  go,
+  language,
+  reportCount,
+  notify,
+  userLocation,
+  locationDetails,
+  locationStatus,
+  onLocate,
+  weatherData,
+  weatherStatus,
+  weatherError
+}) {
+  const now = useCurrentTime();
+
+
+  const [newsArticles, setNewsArticles] = useState([]);
+  const [newsStatus, setNewsStatus] = useState("idle");
+  const [newsError, setNewsError] = useState("");
+
+  const [expandedNewsUrl, setExpandedNewsUrl] = useState("");
+  const [newsDetails, setNewsDetails] = useState({});
+  const [newsDetailStatus, setNewsDetailStatus] = useState({});
+
+  const newsTerms = [
+  locationDetails?.locality,
+  locationDetails?.city,
+  locationDetails?.state
+]
+  .filter(value => typeof value === "string" && value.trim())
+  .map(value => value.trim());
+
+const isGautamBudhNagar = newsTerms.some(
+  value => value.toLowerCase().includes("gautam budh nagar")
+);
+
+if (isGautamBudhNagar) {
+  newsTerms.push("Noida", "Greater Noida");
 }
-function ExploreMap({go,query,setQuery}) {
-  return <div className="page"><div className="home-heading"><h2>Explore your city</h2><button className="icon-btn" onClick={()=>go("Notifications")}><Bell size={17}/></button></div><div className="search"><Search size={16}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search a place, street or issue"/></div><div className="filter-row"><button>Traffic</button><button className="on">Hazards</button><button onClick={()=>go("Map filters")}>Filters 2</button></div><MiniMap onClick={()=>go("Issue details")}/><Card className="alert-card"><b>Pothole near Alpha II market</b><small>240 m away • High severity • 12 verified</small><div className="split"><span className="green">View issue</span><span onClick={()=>go("Civic navigation")}>Directions →</span></div></Card><p className="hint">Simulated map & traffic • Not for live navigation</p></div>;
+
+const uniqueNewsTerms = [...new Set(newsTerms)];
+
+const newsLocation = uniqueNewsTerms.join(", ");
+
+  useEffect(() => {
+
+    const controller = new AbortController();
+    let active = true;
+    let hasLoaded = false;
+
+    const translateHeadline = async (title) => {
+      const cacheKey = `nagrikai-news-hi:${title}`;
+
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) return cached;
+
+      const params = new URLSearchParams({
+        q: title,
+        langpair: "en|hi"
+      });
+
+      const response = await fetch(
+        `https://api.mymemory.translated.net/get?${params}`,
+        { signal: controller.signal }
+      );
+
+      if (!response.ok) {
+        throw new Error("Hindi translation service unavailable.");
+      }
+
+      const result = await response.json();
+
+      if (
+        Number(result.responseStatus) !== 200 ||
+        !result.responseData?.translatedText
+      ) {
+        throw new Error(
+          result.responseDetails || "Hindi translation unavailable."
+        );
+      }
+
+      const translated = result.responseData.translatedText;
+
+      localStorage.setItem(cacheKey, translated);
+
+      return translated;
+    };
+
+    const loadNews = async () => {
+      try {
+        setNewsStatus(hasLoaded ? "refreshing" : "loading");
+        setNewsError("");
+
+        const query = "sourcecountry:IN sourcelang:English";`(${uniqueNewsTerms
+  .map(term => `"${term.replace(/"/g, "")}"`)
+  .join(" OR ")}) sourcelang:english`;
+
+        const params = new URLSearchParams({
+          query,
+          mode: "ArtList",
+          format: "json",
+          maxrecords: "6",
+          timespan: "3d",
+          sort: "DateDesc"
+        });
+
+        const response = await fetch(
+          `https://api.gdeltproject.org/api/v2/doc/doc?${params}`,
+          { signal: controller.signal }
+        );
+
+        if (!response.ok) {
+          throw new Error(`News service returned ${response.status}.`);
+        }
+
+        const data = await response.json();
+
+        if (!Array.isArray(data.articles)) {
+          throw new Error("Unexpected news service response.");
+        }
+
+        const articles = data.articles
+          .filter(item => item.title && item.url)
+          .slice(0, 6)
+          .map(item => {
+            let source = item.domain || "News publisher";
+
+            try {
+              source = item.domain ||
+                new URL(item.url).hostname.replace(/^www\./, "");
+            } catch {
+              // Retain the available publisher name.
+            }
+
+            return {
+              title: item.title,
+              displayTitle: item.title,
+              url: item.url,
+              source,
+              seenDate: item.seendate || null,
+              translationFailed: false
+            };
+          });
+
+        let translatedArticles = articles;
+
+        if (language === "Hindi") {
+          translatedArticles = await Promise.all(
+            articles.map(async article => {
+              try {
+                return {
+                  ...article,
+                  displayTitle: await translateHeadline(article.title)
+                };
+              } catch (error) {
+                if (error.name === "AbortError") throw error;
+
+                return {
+                  ...article,
+                  displayTitle: "इस समाचार का हिंदी अनुवाद उपलब्ध नहीं है।",
+                  translationFailed: true
+                };
+              }
+            })
+          );
+        }
+
+        if (!active) return;
+
+        setNewsArticles(translatedArticles);
+        setNewsStatus("success");
+        setNewsError("");
+        hasLoaded = true;
+
+      } catch (error) {
+        if (error.name === "AbortError") return;
+        if (!active) return;
+
+        console.error("NagrikAI news error:", error);
+
+        setNewsStatus("error");
+        setNewsError(error.message || "Unable to load news.");
+      }
+    };
+
+    loadNews();
+
+    const refresh = window.setInterval(
+      loadNews,
+      15 * 60 * 1000
+    );
+
+    return () => {
+      active = false;
+      controller.abort();
+      window.clearInterval(refresh);
+    };
+
+   }, [language]);
+
+  const formatNewsDate = value => {
+    if (!value) return "समय उपलब्ध नहीं है";
+
+    const match = String(value).match(
+      /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/
+    );
+
+const handleNewsClick = async (article) => {
+  if (expandedNewsUrl === article.url) {
+    setExpandedNewsUrl("");
+    return;
+  }
+
+  setExpandedNewsUrl(article.url);
+
+  if (
+    newsDetails[article.url] ||
+    newsDetailStatus[article.url] === "loading"
+  ) {
+    return;
+  }
+
+  setNewsDetailStatus(prev => ({
+    ...prev,
+    [article.url]: "loading"
+  }));
+
+  try {
+    const hostname = new URL(article.url).hostname.replace(/^www\./, "");
+
+    const stopWords = new Set([
+      "the", "and", "for", "with", "from", "that",
+      "this", "have", "has", "was", "were", "will",
+      "after", "before", "over", "into", "about",
+      "says", "said", "their", "they", "there",
+      "been", "being", "what", "when", "where"
+    ]);
+
+    const keywords = article.title
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter(word => word.length > 3 && !stopWords.has(word))
+      .slice(0, 3);
+
+    if (!keywords.length) {
+      throw new Error("Could not identify article search terms.");
+    }
+
+    const params = new URLSearchParams({
+      query: `domain:${hostname} ${keywords.join(" ")}`,
+      mode: "artlist",
+      format: "json",
+      maxrecords: "10",
+      timespan: "24h",
+      sort: "DateDesc"
+    });
+
+    const response = await fetch(
+      `https://api.gdeltproject.org/api/v2/context/context?${params}`
+    );
+
+    if (!response.ok) {
+      throw new Error("Unable to retrieve article context.");
+    }
+
+    const data = await response.json();
+
+    const articles = Array.isArray(data.articles)
+      ? data.articles
+      : [];
+
+    const normalizeUrl = value => {
+      try {
+        const parsed = new URL(value);
+        return (
+          parsed.hostname.toLowerCase().replace(/^www\./, "") +
+          parsed.pathname.replace(/\/+$/, "")
+        );
+      } catch {
+        return "";
+      }
+    };
+
+    const matchedArticle = articles.find(
+      item => normalizeUrl(item.url) === normalizeUrl(article.url)
+    );
+
+    const rawContext = (
+      matchedArticle?.context ||
+      matchedArticle?.sentence ||
+      ""
+    ).trim().slice(0, 450);
+
+    let summary = rawContext;
+
+    if (!rawContext) {
+      summary = language === "Hindi"
+        ? "इस समाचार का विस्तृत संदर्भ अभी उपलब्ध नहीं है।"
+        : "No matching article context is available from the news index.";
+    }
+
+    if (rawContext && language === "Hindi") {
+      const cacheKey = `nagrikai-news-context-hi:${rawContext}`;
+
+      try {
+        const cached = localStorage.getItem(cacheKey);
+
+        if (cached) {
+          summary = cached;
+        } else {
+          const translationParams = new URLSearchParams({
+            q: rawContext,
+            langpair: "en|hi"
+          });
+
+          const translationResponse = await fetch(
+            `https://api.mymemory.translated.net/get?${translationParams}`
+          );
+
+          const translationData = await translationResponse.json();
+
+          if (
+            !translationResponse.ok ||
+            Number(translationData.responseStatus) !== 200 ||
+            !translationData.responseData?.translatedText
+          ) {
+            throw new Error("Hindi translation unavailable.");
+          }
+
+          summary = translationData.responseData.translatedText;
+          localStorage.setItem(cacheKey, summary);
+        }
+      } catch (translationError) {
+        console.error("Article translation error:", translationError);
+        summary = "इस समाचार का हिंदी संदर्भ अभी उपलब्ध नहीं है। मूल लेख के लिए स्रोत लिंक खोलें।";
+      }
+    }
+
+    setNewsDetails(prev => ({
+      ...prev,
+      [article.url]: {
+        summary,
+        hasContext: Boolean(rawContext),
+        source: article.source,
+        date: article.seenDate
+      }
+    }));
+
+    setNewsDetailStatus(prev => ({
+      ...prev,
+      [article.url]: "success"
+    }));
+
+  } catch (error) {
+    console.error("Article details error:", error);
+
+    setNewsDetailStatus(prev => ({
+      ...prev,
+      [article.url]: "error"
+    }));
+  }
+};
+
+
+    const date = match
+      ? new Date(
+          `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}Z`
+        )
+      : new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      return "Time unavailable";
+    }
+
+    return date.toLocaleString(
+      language === "Hindi" ? "hi-IN" : "en-IN",
+      {
+        day: "numeric",
+        month: "short",
+        hour: "numeric",
+        minute: "2-digit"
+      }
+    );
+  };
+
+
+  const dateText = new Intl.DateTimeFormat(undefined, {
+    weekday: "long",
+    day: "numeric",
+    month: "short",
+    year: "numeric"
+  }).format(now);
+
+  const timeText = now.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+
+  const placeName = locationDetails
+    ? [
+        locationDetails.locality,
+        locationDetails.city,
+        locationDetails.state
+      ].filter((value, index, array) =>
+        value && array.indexOf(value) === index
+      ).join(", ")
+    : userLocation
+      ? "Resolving your location..."
+      : "Location not detected";
+  
+    const currentWeather = weatherData?.current;
+  const dailyWeather = weatherData?.daily;
+  const hourlyWeather = weatherData?.hourly;
+
+  const weatherLabels = {
+    0: "Clear sky",
+    1: "Mainly clear",
+    2: "Partly cloudy",
+    3: "Overcast",
+    45: "Fog",
+    48: "Fog",
+    51: "Light drizzle",
+    53: "Drizzle",
+    55: "Heavy drizzle",
+    61: "Light rain",
+    63: "Moderate rain",
+    65: "Heavy rain",
+    71: "Snow",
+    80: "Rain showers",
+    81: "Rain showers",
+    82: "Heavy rain showers",
+    95: "Thunderstorm",
+    96: "Thunderstorm",
+    99: "Heavy thunderstorm"
+  };
+
+  const conditionText = currentWeather
+    ? weatherLabels[currentWeather.weather_code] || "Weather conditions"
+    : weatherStatus === "loading"
+      ? "Loading weather..."
+      : weatherStatus === "error"
+        ? "Weather unavailable"
+        : "Waiting for weather data";
+
+  const hourlyStart = hourlyWeather?.time && currentWeather
+    ? Math.max(
+        0,
+        hourlyWeather.time.findIndex(t => t >= currentWeather.time)
+      )
+    : 0;
+
+  const upcomingHours = hourlyWeather?.time
+    ? Array.from({ length: 4 }, (_, i) => hourlyStart + i)
+        .filter(i => i < hourlyWeather.time.length)
+    : [];
+
+  return (
+    <div className="page">
+
+      <div className="home-heading">
+        <div>
+          <Label>{dateText.toUpperCase()} • {timeText}</Label>
+          <h2>{placeName}</h2>
+        </div>
+
+        <button
+          className="icon-btn"
+          onClick={() => go("Notifications")}
+        >
+          <Bell size={18} />
+        </button>
+      </div>
+
+      {!userLocation && (
+        <Button
+          secondary
+          onClick={onLocate}
+          disabled={locationStatus === "loading"}
+        >
+          {locationStatus === "loading"
+            ? "Detecting location..."
+            : "Detect my location"}
+        </Button>
+      )}
+
+            <Card className="weather-card">
+        <div>
+          <strong>
+            {currentWeather
+              ? `${Math.round(currentWeather.temperature_2m)}°`
+              : weatherStatus === "loading" ? "..." : "—"}
+          </strong>
+
+          {currentWeather && (
+  <WeatherVisual
+    code={currentWeather.weather_code}
+    temperature={currentWeather.temperature_2m}
+    isDay={currentWeather.is_day}
+    size={36}
+  />
+)}
+
+          <span>{conditionText}</span>
+        </div>
+
+        <small>
+          {currentWeather
+            ? `Feels like ${Math.round(currentWeather.apparent_temperature)}°`
+            : weatherError || "Waiting for your local weather forecast."}
+        </small>
+
+        {currentWeather && dailyWeather && (
+          <p>
+            H {Math.round(dailyWeather.temperature_2m_max[0])}°
+            {" / "}
+            L {Math.round(dailyWeather.temperature_2m_min[0])}°
+          </p>
+        )}
+
+        {currentWeather && (
+          <p className="muted">
+            Humidity: {currentWeather.relative_humidity_2m}%
+            {" • "}
+            Wind: {currentWeather.wind_speed_10m} km/h
+          </p>
+        )}
+
+        <p className="muted">
+          AIR QUALITY • Awaiting verified monitoring-station data
+        </p>
+
+        {weatherStatus === "error" && (
+          <p className="amber">{weatherError}</p>
+        )}
+
+        <button
+  className="forecast-link"
+  onClick={() => go("Weather & air")}
+>
+  View complete forecast <ChevronRight size={15} />
+</button>
+      </Card>
+            {currentWeather && upcomingHours.length > 0 && (
+        <>
+          <Label>UPCOMING HOURLY FORECAST</Label>
+
+          <div className="forecast">
+            {upcomingHours.map(index => (
+              <div key={hourlyWeather.time[index]}>
+                <small>
+                  {index === hourlyStart
+                    ? "NOW"
+                    : new Date(
+                        hourlyWeather.time[index]
+                      ).toLocaleTimeString([], {
+                        hour: "numeric"
+                      })}
+                </small>
+
+                <WeatherVisual
+  code={hourlyWeather.weather_code[index]}
+  temperature={hourlyWeather.temperature_2m[index]}
+  isDay={currentWeather?.is_day}
+  size={23}
+/>
+
+                <b>
+                  {Math.round(hourlyWeather.temperature_2m[index])}°
+                </b>
+
+                <small>
+                  {hourlyWeather.precipitation_probability?.[index] ?? "—"}%
+                  rain
+                </small>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      
+<Label>{language === "Hindi"
+  ? "भारत • GDELT News • हर 15 मिनट में अपडेट"
+  : "India-wide • GDELT News • Updates every 15 minutes"}</Label>
+
+<Card className="insight news-panel">
+  <div className="split">
+    <b className="green">
+      {language === "Hindi" ? "ताज़ा सुर्खियाँ" : "LATEST HEADLINES"}
+    </b>
+
+    <small className="muted">
+      {newsStatus === "loading"
+        ? language === "Hindi" ? "खबरें खोज रहे हैं..." : "Fetching..."
+        : newsStatus === "refreshing"
+          ? language === "Hindi" ? "अपडेट हो रहा है..." : "Updating..."
+          : newsStatus === "success"
+            ? language === "Hindi" ? "लाइव फ़ीड" : "Live feed"
+            : language === "Hindi" ? "उपलब्ध नहीं" : "Unavailable"}
+    </small>
+  </div>
+
+  {newsStatus === "loading" && newsArticles.length === 0 && (
+    <p className="muted">
+      {language === "Hindi"
+        ? `${newsLocation} की खबरें खोजी जा रही हैं...`
+        : `Finding recent news for ${newsLocation}...`}
+    </p>
+  )}
+
+  {newsError && <p className="amber">{newsError}</p>}
+
+  {newsArticles.map((article, index) => {
+    const isExpanded = expandedNewsUrl === article.url;
+    const detailStatus = newsDetailStatus[article.url];
+    const details = newsDetails[article.url];
+
+    return (
+      <div className="news-item" key={article.url}>
+        <button
+          className="news-headline-button"
+          onClick={() => handleNewsClick(article)}
+        >
+          <span className="news-number">
+            {String(index + 1).padStart(2, "0")}
+          </span>
+
+          <span className="news-headline-text">
+            {article.displayTitle}
+          </span>
+
+          <ChevronDown
+            size={17}
+            className={isExpanded ? "news-chevron expanded" : "news-chevron"}
+          />
+        </button>
+
+        {article.translationFailed && (
+          <small className="amber">
+            {language === "Hindi"
+              ? "हिंदी अनुवाद उपलब्ध नहीं है"
+              : "Translation unavailable"}
+          </small>
+        )}
+
+        <div className="news-meta">
+          <span>{article.source}</span>
+          <span>•</span>
+          <span>
+            {language === "Hindi" ? "इंडेक्स समय: " : "Indexed: "}
+            {formatNewsDate(article.seenDate)}
+          </span>
+        </div>
+
+        {isExpanded && (
+          <div className="news-details">
+            {detailStatus === "loading" && (
+              <p className="muted">
+                {language === "Hindi"
+                  ? "लेख का संदर्भ प्राप्त किया जा रहा है..."
+                  : "Retrieving article context..."}
+              </p>
+            )}
+
+            {detailStatus === "error" && (
+              <p className="amber">
+                {language === "Hindi"
+                  ? "लेख का सारांश अभी उपलब्ध नहीं है। मूल समाचार स्रोत देखें।"
+                  : "Article context is unavailable. Please open the original source."}
+              </p>
+            )}
+
+            {details && (
+              <>
+                <b className="green">
+                  {language === "Hindi"
+                    ? "लेख का संदर्भ"
+                    : "ARTICLE CONTEXT"}
+                </b>
+
+                <p>{details.summary}</p>
+
+                {!details.hasContext && (
+                  <small className="muted">
+                    {language === "Hindi"
+                      ? "स्रोत से मिलान किया गया संदर्भ उपलब्ध नहीं था।"
+                      : "No matching article context was returned by the source."}
+                  </small>
+                )}
+              </>
+            )}
+
+            <a
+              className="news-source-link"
+              href={article.url}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {language === "Hindi"
+                ? `पूरा समाचार पढ़ें · ${article.source}`
+                : `Read full article · ${article.source}`}
+              <ArrowRight size={13} />
+            </a>
+          </div>
+        )}
+
+        <a
+          className="news-small-source"
+          href={article.url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {language === "Hindi" ? "स्रोत देखें" : "View source"}
+        </a>
+      </div>
+    );
+  })}
+
+  {newsStatus === "success" && newsArticles.length === 0 && (
+    <p className="muted">
+      {language === "Hindi"
+        ? "इस स्थान के लिए हाल की खबरें नहीं मिलीं।"
+        : "No recent headlines matched this location."}
+    </p>
+  )}
+
+  {newsStatus === "error" && newsArticles.length === 0 && (
+    <p className="muted">
+      {language === "Hindi"
+        ? "अभी स्थानीय खबरें लोड नहीं हो सकीं।"
+        : "Local headlines could not be loaded right now."}
+    </p>
+  )}
+
+  <p className="hint">
+    {language === "Hindi"
+      ? `स्थान: ${newsLocation} • GDELT News • हर 15 मिनट में अपडेट`
+      : `Location: ${newsLocation} • GDELT News • Updates every 15 minutes`}
+  </p>
+</Card>
+
+        
+
+  <Card>
+    <div className="split">
+      <b>CITY HEALTH INDEX</b>
+      <span className="muted">Awaiting verified data</span>
+    </div>
+
+    </Card>
+
+      
+
+      <Card>
+        <div className="split">
+          <b>CITY HEALTH INDEX</b>
+          <span className="muted">Awaiting verified data</span>
+        </div>
+
+        <strong className="score">—</strong>
+
+        <small className="muted">
+          Calculated from verified civic reports and resolution data.
+        </small>
+      </Card>
+
+      <Label>NEAR YOU • LIVE CIVIC REPORTS</Label>
+
+      <Card>
+        <b>No live reports loaded yet</b>
+        <small>
+          Verified reports near your current location will appear here.
+        </small>
+      </Card>
+
+      <div className="quick-grid">
+        {["Safer route", "City trends", "Ask AI"].map((x, i) => (
+          <button
+            key={x}
+            onClick={() =>
+              go([
+                "Civic navigation",
+                "City analytics",
+                "Ask NagrikAI"
+              ][i])
+            }
+          >
+            {x}
+          </button>
+        ))}
+      </div>
+
+      <p className="hint">
+        Live data connections are being integrated.
+        Unavailable data is not replaced with sample figures.
+      </p>
+
+    </div>
+  );
 }
+
+function RouteViewport({ routeCoordinates }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (routeCoordinates.length > 1) {
+      map.fitBounds(routeCoordinates, {
+        padding: [40, 40]
+      });
+    }
+  }, [map, routeCoordinates]);
+
+    return null;
+}
+
+function decodeValhallaShape(encoded, precision = 6) {
+  let index = 0;
+  let lat = 0;
+  let lng = 0;
+  const coordinates = [];
+  const factor = Math.pow(10, precision);
+
+  while (index < encoded.length) {
+    let result = 0;
+    let shift = 0;
+    let byte;
+
+    do {
+      byte = encoded.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+
+    lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+
+    result = 0;
+    shift = 0;
+
+    do {
+      byte = encoded.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+
+    lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+
+    coordinates.push([lat / factor, lng / factor]);
+  }
+
+  return coordinates;
+}
+
+function ExploreMap({
+  go,
+  query,
+  setQuery,
+  userLocation,
+  locationStatus,
+  locationError,
+  onLocate
+}) {
+  const position = userLocation
+    ? [userLocation.lat, userLocation.lng]
+    : null;
+
+   
+  const [destination, setDestination] = useState("");
+  const [startLocation, setStartLocation] = useState("");
+  const [selectedStart, setSelectedStart] = useState(null);
+  const [startSuggestions, setStartSuggestions] = useState([]);
+  const [startSuggestionsLoading, setStartSuggestionsLoading] = useState(false);
+  const [useCurrentLocation, setUseCurrentLocation] = useState(true); 
+  const [routeCoordinates, setRouteCoordinates] = useState([]);
+  const routeCoordinatesRef = useRef(routeCoordinates);
+
+useEffect(() => {
+  routeCoordinatesRef.current = routeCoordinates;
+}, [routeCoordinates]);
+  const [travelMode, setTravelMode] = useState("drive");
+  const [destinationPoint, setDestinationPoint] = useState(null);
+  const [routeInfo, setRouteInfo] = useState(null);
+  const [routeOptions, setRouteOptions] = useState([]);
+  const routeOptionsRef = useRef(routeOptions);
+
+useEffect(() => {
+  routeOptionsRef.current = routeOptions;
+}, [routeOptions]);
+  const [journeyActive, setJourneyActive] = useState(false);
+  const [arrivalReached, setArrivalReached] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [livePosition, setLivePosition] = useState(position);
+
+  useEffect(() => {
+  if (!journeyActive) {
+    setLivePosition(
+      userLocation
+        ? [userLocation.lat, userLocation.lng]
+        : null
+    );
+  }
+}, [userLocation?.lat, userLocation?.lng, journeyActive]);
+  
+  const [currentManeuver, setCurrentManeuver] = useState(0);
+  const [remainingDistance, setRemainingDistance] = useState(null);
+  const [remainingTime, setRemainingTime] = useState(null);
+  const watchIdRef = useRef(null);
+  const lastSpokenManeuverRef = useRef(-1);
+  const rerouteInProgressRef = useRef(false);
+  const lastRerouteAtRef = useRef(0); 
+  const arrivalConfirmationsRef = useRef(0);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeError, setRouteError] = useState("");
+
+  const [destinationSuggestions, setDestinationSuggestions] = useState([]);
+const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+const [selectedDestination, setSelectedDestination] = useState(null);
+
+useEffect(() => {
+  const searchText = destination.trim();
+
+  if (searchText.length < 2 || selectedDestination) {
+    setDestinationSuggestions([]);
+    setSuggestionsLoading(false);
+    return;
+  }
+
+  const controller = new AbortController();
+
+  const timer = setTimeout(async () => {
+    setSuggestionsLoading(true);
+
+    try {
+      const params = new URLSearchParams({
+        q: searchText,
+        limit: "10",
+        lang: "en"
+      });
+
+      if (userLocation) {
+        params.set("lat", userLocation.lat);
+        params.set("lon", userLocation.lng);
+        params.set("zoom", "14");
+      }
+
+      const response = await fetch(
+        `https://photon.komoot.io/api/?${params.toString()}`,
+        { signal: controller.signal }
+      );
+
+      if (!response.ok) {
+        throw new Error("Location search failed.");
+      }
+
+      const data = await response.json();
+
+      const results = (data.features || []).map(feature => {
+        const [lng, lat] = feature.geometry.coordinates;
+        const p = feature.properties;
+
+        const label = [
+          p.name,
+          p.street,
+          p.district || p.suburb,
+          p.city,
+          p.state
+        ].filter(Boolean).filter((value, index, arr) =>
+          arr.indexOf(value) === index
+        ).join(", ");
+
+        let distance = Infinity;
+
+        if (userLocation) {
+          const toRad = value => value * Math.PI / 180;
+          const dLat = toRad(lat - userLocation.lat);
+          const dLng = toRad(lng - userLocation.lng);
+
+          const a =
+            Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRad(userLocation.lat)) *
+            Math.cos(toRad(lat)) *
+            Math.sin(dLng / 2) ** 2;
+
+          distance = 6371 * 2 *
+            Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        }
+
+        return {
+          label: label || p.name || "Unnamed location",
+          lat,
+          lng,
+          distance
+        };
+      });
+
+      results.sort((a, b) => a.distance - b.distance);
+
+      setDestinationSuggestions(results);
+    } catch (error) {
+      if (error.name !== "AbortError") {
+        setDestinationSuggestions([]);
+      }
+    } finally {
+      if (!controller.signal.aborted) {
+        setSuggestionsLoading(false);
+      }
+    }
+  }, 350);
+
+  return () => {
+    clearTimeout(timer);
+    controller.abort();
+  };
+}, [destination, userLocation, selectedDestination]);
+
+useEffect(() => {
+  const searchText = startLocation.trim();
+
+  if (
+    searchText.length < 2 ||
+    selectedStart ||
+    useCurrentLocation
+  ) {
+    setStartSuggestions([]);
+    setStartSuggestionsLoading(false);
+    return;
+  }
+
+  const controller = new AbortController();
+
+  const timer = setTimeout(async () => {
+    setStartSuggestionsLoading(true);
+
+    try {
+      const params = new URLSearchParams({
+        q: searchText,
+        limit: "10",
+        lang: "en"
+      });
+
+      if (userLocation) {
+        params.set("lat", userLocation.lat);
+        params.set("lon", userLocation.lng);
+        params.set("zoom", "14");
+      }
+
+      const response = await fetch(
+        `https://photon.komoot.io/api/?${params.toString()}`,
+        { signal: controller.signal }
+      );
+
+      if (!response.ok) {
+        throw new Error("Location search failed.");
+      }
+
+      const data = await response.json();
+
+      const results = (data.features || []).map(feature => {
+        const [lng, lat] = feature.geometry.coordinates;
+        const p = feature.properties;
+
+        const label = [
+          p.name,
+          p.street,
+          p.district || p.suburb,
+          p.city,
+          p.state
+        ].filter(Boolean).filter((value, index, arr) =>
+          arr.indexOf(value) === index
+        ).join(", ");
+
+        let distance = Infinity;
+
+        if (userLocation) {
+          const toRad = value => value * Math.PI / 180;
+          const dLat = toRad(lat - userLocation.lat);
+          const dLng = toRad(lng - userLocation.lng);
+
+          const a =
+            Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRad(userLocation.lat)) *
+            Math.cos(toRad(lat)) *
+            Math.sin(dLng / 2) ** 2;
+
+          distance = 6371 * 2 *
+            Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        }
+
+        return {
+          label: label || p.name || "Unnamed location",
+          lat,
+          lng,
+          distance
+        };
+      });
+
+      results.sort((a, b) => a.distance - b.distance);
+      setStartSuggestions(results);
+
+    } catch (error) {
+      if (error.name !== "AbortError") {
+        setStartSuggestions([]);
+      }
+    } finally {
+      if (!controller.signal.aborted) {
+        setStartSuggestionsLoading(false);
+      }
+    }
+  }, 350);
+
+  return () => {
+    clearTimeout(timer);
+    controller.abort();
+  };
+}, [startLocation, userLocation, selectedStart, useCurrentLocation]);
+
+  const findRoute = async () => {
+    if (useCurrentLocation && !userLocation) {
+  setRouteError("Please detect your current location first.");
+  return;
+}
+
+if (!useCurrentLocation && !selectedStart) {
+  setRouteError("Please search and select a starting location.");
+  return;
+}
+
+    if (!destination.trim()) {
+      setRouteError("Enter a destination.");
+      return;
+    }
+
+    setRouteLoading(true);
+    setRouteError("");
+    setRouteCoordinates([]);
+    setDestinationPoint(null);
+    setRouteInfo(null);
+    setRouteOptions([]);
+
+    try {
+      let endLat;
+let endLng;
+let destinationLabel;
+
+if (selectedDestination) {
+  endLat = selectedDestination.lat;
+  endLng = selectedDestination.lng;
+  destinationLabel = selectedDestination.label;
+} else {
+  const searchUrl =
+    `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(destination.trim())}`;
+
+  const searchResponse = await fetch(searchUrl);
+
+  if (!searchResponse.ok) {
+    throw new Error("Destination search is temporarily unavailable.");
+  }
+
+  const places = await searchResponse.json();
+
+  if (!places.length) {
+    throw new Error("Destination not found. Select a suggestion or try another address.");
+  }
+
+  endLat = Number(places[0].lat);
+  endLng = Number(places[0].lon);
+  destinationLabel = places[0].display_name;
+}
+
+const startLat = useCurrentLocation
+  ? userLocation.lat
+  : selectedStart.lat;
+
+const startLng = useCurrentLocation
+  ? userLocation.lng
+  : selectedStart.lng;
+
+    const modes = [
+  { id: "drive", costing: "auto", label: "Car" },
+  { id: "bike", costing: "motor_scooter", label: "Two-wheeler" },
+  { id: "walk", costing: "pedestrian", label: "Walking" }
+];
+
+const options = await Promise.all(
+  modes.map(async (mode) => {
+    const response = await fetch(
+      "https://valhalla1.openstreetmap.de/route",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          locations: [
+            { lat: startLat, lon: startLng },
+            { lat: endLat, lon: endLng }
+          ],
+          costing: mode.costing,
+          units: "kilometers",
+          directions_options: {
+            units: "kilometers",
+            language: "en"
+          }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`${mode.label} route is unavailable.`);
+    }
+
+    const data = await response.json();
+
+    if (
+      data.trip?.status !== 0 ||
+      !data.trip.legs?.length
+    ) {
+      throw new Error(`${mode.label} route could not be calculated.`);
+    }
+    
+    const leg = data.trip.legs[0];
+    console.log("NagrikAI maneuver data:", leg.maneuvers?.slice(0, 3));
+    const summary = data.trip.summary || leg.summary;
+
+    return {
+      id: mode.id,
+      label: mode.label,
+      distance: Number(summary.length).toFixed(1),
+      duration: Math.round(summary.time / 60),
+      coordinates: decodeValhallaShape(leg.shape),
+      maneuvers: leg.maneuvers || [],
+      destination: destinationLabel
+    };
+  })
+);
+
+setRouteOptions(options);
+
+const defaultRoute = options.find(
+  (option) => option.id === "drive"
+);
+
+setTravelMode("drive");
+setRouteCoordinates(defaultRoute.coordinates);
+setDestinationPoint([endLat, endLng]);
+
+setRouteInfo({
+  distance: defaultRoute.distance,
+  duration: defaultRoute.duration,
+  destination: destinationLabel
+});
+    } catch (error) {
+      setRouteError(error.message || "Something went wrong.");
+    } finally {
+      setRouteLoading(false);
+    }
+  };
+
+  const startJourney = () => {
+    arrivalConfirmationsRef.current = 0;
+  const selectedRoute = routeOptionsRef.current.find(
+  (option) => option.id === travelMode
+);
+
+  if (!selectedRoute) {
+    setRouteError("Please calculate a route first.");
+    return;
+  }
+
+  if (!useCurrentLocation) {
+    setRouteError("Live navigation requires your current location as the starting point.");
+    return;
+  }
+
+  if (!navigator.geolocation) {
+    setRouteError("GPS is not supported by this browser.");
+    return;
+  }
+
+  setRouteError("");
+  setCurrentManeuver(0);
+  setRemainingDistance(selectedRoute.distance);
+  setRemainingTime(selectedRoute.duration);
+  lastSpokenManeuverRef.current = -1;
+  setJourneyActive(true);
+
+  watchIdRef.current = navigator.geolocation.watchPosition(
+    (location) => {
+  const currentPosition = [
+    location.coords.latitude,
+    location.coords.longitude
+  ];
+
+  setLivePosition(currentPosition);
+
+  const activeRouteCoordinates = routeCoordinatesRef.current;
+
+if (!activeRouteCoordinates.length) return;
+
+  const distanceBetween = (a, b) => {
+    const toRad = (value) => value * Math.PI / 180;
+    const earthRadius = 6371;
+
+    const dLat = toRad(b[0] - a[0]);
+    const dLng = toRad(b[1] - a[1]);
+
+    const value =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(a[0])) *
+      Math.cos(toRad(b[0])) *
+      Math.sin(dLng / 2) ** 2;
+
+    return earthRadius * 2 *
+      Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
+  };
+
+if (
+  destinationPoint &&
+  distanceBetween(currentPosition, destinationPoint) <= 0.06
+) {
+  arrivalConfirmationsRef.current += 1;
+
+  if (arrivalConfirmationsRef.current >= 3) {
+    stopJourney();
+    setArrivalReached(true);
+  }
+
+  return;
+}
+
+arrivalConfirmationsRef.current = 0;
+
+  let nearestIndex = 0;
+  let nearestDistance = Infinity;
+
+  activeRouteCoordinates.forEach((point, index) => {
+  const distance = distanceBetween(currentPosition, point);
+
+  if (distance < nearestDistance) {
+    nearestDistance = distance;
+    nearestIndex = index;
+  }
+});
+
+const now = Date.now();
+
+if (
+  nearestDistance > 0.08 &&
+  !rerouteInProgressRef.current &&
+  now - lastRerouteAtRef.current > 15000 &&
+  destinationPoint
+) {
+  rerouteInProgressRef.current = true;
+  lastRerouteAtRef.current = now;
+
+  const costing = {
+    drive: "auto",
+    bike: "motor_scooter",
+    walk: "pedestrian"
+  }[travelMode];
+
+  fetch("https://valhalla1.openstreetmap.de/route", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      locations: [
+        {
+          lat: currentPosition[0],
+          lon: currentPosition[1]
+        },
+        {
+          lat: destinationPoint[0],
+          lon: destinationPoint[1]
+        }
+      ],
+      costing,
+      units: "kilometers",
+      directions_options: {
+        units: "kilometers",
+        language: "en"
+      }
+    })
+  })
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error("Rerouting unavailable");
+      }
+      return response.json();
+    })
+    .then((data) => {
+      const leg = data.trip?.legs?.[0];
+
+      if (data.trip?.status !== 0 || !leg) return;
+
+      const summary = data.trip.summary || leg.summary;
+      const newCoordinates = decodeValhallaShape(leg.shape);
+
+      const updatedRoute = {
+        id: travelMode,
+        label: selectedRoute.label,
+        distance: Number(summary.length).toFixed(1),
+        duration: Math.round(summary.time / 60),
+        coordinates: newCoordinates,
+        maneuvers: leg.maneuvers || [],
+        destination: selectedRoute.destination
+      };
+
+      const updatedOptions = routeOptionsRef.current.map((option) =>
+  option.id === travelMode ? updatedRoute : option
+);
+
+routeOptionsRef.current = updatedOptions;
+setRouteOptions(updatedOptions);
+
+      routeCoordinatesRef.current = newCoordinates;
+      setRouteCoordinates(newCoordinates);
+      setRouteInfo({
+        distance: updatedRoute.distance,
+        duration: updatedRoute.duration,
+        destination: updatedRoute.destination
+      });
+
+      setCurrentManeuver(0);
+      lastSpokenManeuverRef.current = -1;
+    })
+    .catch(() => {
+      setRouteError("Automatic rerouting failed. Please try again.");
+    })
+    .finally(() => {
+      rerouteInProgressRef.current = false;
+    });
+    return;
+}
+
+let remainingKm = 0;
+
+  for (let i = nearestIndex; i < activeRouteCoordinates.length - 1; i++) {
+  remainingKm += distanceBetween(
+    activeRouteCoordinates[i],
+    activeRouteCoordinates[i + 1]
+  );
+}
+
+  const selectedRoute = routeOptionsRef.current.find(
+  (option) => option.id === travelMode
+);
+
+  if (!selectedRoute) return;
+
+  const totalKm = Number(selectedRoute.distance);
+  const remainingMinutes = totalKm > 0
+    ? Math.round(
+        selectedRoute.duration * remainingKm / totalKm
+      )
+    : 0;
+
+  setRemainingDistance(remainingKm.toFixed(1));
+  setRemainingTime(remainingMinutes);
+
+  const maneuvers = selectedRoute.maneuvers || [];
+
+  const nextIndex = maneuvers.findIndex(
+    (maneuver) =>
+      maneuver.end_shape_index >= nearestIndex
+  );
+
+  const maneuverIndex = nextIndex === -1
+    ? Math.max(0, maneuvers.length - 1)
+    : nextIndex;
+
+  setCurrentManeuver(maneuverIndex);
+
+  if (
+    voiceEnabled &&
+    maneuverIndex !== lastSpokenManeuverRef.current &&
+    maneuvers[maneuverIndex]?.instruction &&
+    "speechSynthesis" in window
+  ) {
+    window.speechSynthesis.cancel();
+
+    const announcement = new SpeechSynthesisUtterance(
+      maneuvers[maneuverIndex].instruction
+    );
+
+    announcement.lang = "en-IN";
+    announcement.rate = 1;
+
+    window.speechSynthesis.speak(announcement);
+
+    lastSpokenManeuverRef.current = maneuverIndex;
+  }
+},
+    () => {
+      setJourneyActive(false);
+      setRouteError("Unable to track your GPS location.");
+    },
+    {
+      enableHighAccuracy: true,
+      maximumAge: 1000,
+      timeout: 15000
+    }
+  );
+};
+const stopJourney = () => {
+  if (watchIdRef.current !== null) {
+    navigator.geolocation.clearWatch(watchIdRef.current);
+    watchIdRef.current = null;
+  }
+
+  if ("speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
+  }
+
+  setJourneyActive(false);
+  setLivePosition(position);
+  setCurrentManeuver(0);
+  lastSpokenManeuverRef.current = -1;
+};
+useEffect(() => {
+  return () => {
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+  };
+}, []);
+if (journeyActive || arrivalReached) {
+  const activeRoute = routeOptions.find(
+    (option) => option.id === travelMode
+  );
+
+  const activeInstruction =
+    activeRoute?.maneuvers?.[currentManeuver]?.instruction ||
+    "Continue on your route";
+
+  return (
+    <div style={{
+      position: "fixed",
+      inset: 0,
+      zIndex: 9999,
+      background: "#080f18",
+      overflow: "hidden"
+    }}>
+      <div style={{
+        position: "absolute",
+        inset: 0
+      }}>
+        <MapContainer
+          center={livePosition || position}
+          zoom={17}
+          minZoom={3}
+          maxZoom={20}
+          zoomControl={false}
+          scrollWheelZoom={true}
+          style={{ height: "100%", width: "100%" }}
+        >
+          <LiveMapFollow
+            position={livePosition}
+            active={journeyActive}
+          />
+          <MapRecenter position={livePosition} />
+
+          <TileLayer
+            attribution='&copy; OpenStreetMap contributors &copy; CARTO'
+            url={`https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${import.meta.env.VITE_CARTO_API_KEY}`}
+          />
+
+          {routeCoordinates.length > 1 && (
+            <>
+              <Polyline
+                positions={routeCoordinates}
+                pathOptions={{
+                  color: "#102b46",
+                  weight: 11,
+                  opacity: 0.9
+                }}
+              />
+              <Polyline
+                positions={routeCoordinates}
+                pathOptions={{
+                  color: "#16a9e0",
+                  weight: 6
+                }}
+              />
+            </>
+          )}
+
+          {livePosition && (
+            <CircleMarker
+              center={livePosition}
+              radius={10}
+              pathOptions={{
+                color: "#ffffff",
+                fillColor: "#16a9e0",
+                fillOpacity: 1,
+                weight: 3
+              }}
+            >
+              <Popup>Your current location</Popup>
+            </CircleMarker>
+          )}
+
+          {destinationPoint && (
+            <CircleMarker
+              center={destinationPoint}
+              radius={9}
+              pathOptions={{
+                color: "#ffffff",
+                fillColor: "#ff5252",
+                fillOpacity: 1,
+                weight: 2
+              }}
+            >
+              <Popup>Destination</Popup>
+            </CircleMarker>
+          )}
+        </MapContainer>
+      </div>
+
+      <div style={{
+        position: "absolute",
+        top: "max(18px, env(safe-area-inset-top))",
+        left: "14px",
+        right: "14px",
+        zIndex: 1000,
+        padding: "18px",
+        borderRadius: "18px",
+        background: "rgba(12, 25, 39, 0.96)",
+        border: "1px solid #16a9e0",
+        color: "#ffffff",
+        boxShadow: "0 8px 30px #0008"
+      }}>
+        {arrivalReached ? (
+  <>
+    <small style={{color:"#36d6a0"}}>DESTINATION REACHED</small>
+    <h2 style={{margin:"9px 0",fontSize:"23px"}}>
+      🎉 You have arrived!
+    </h2>
+    <small style={{color:"#aab9c7"}}>{routeInfo?.destination}</small>
+  </>
+) : (
+  <>
+    <small style={{color:"#36d6a0"}}>NAVIGATING TO DESTINATION</small>
+    <h2 style={{margin:"9px 0",fontSize:"21px"}}>{activeInstruction}</h2>
+    <small style={{color:"#aab9c7"}}>{routeInfo?.destination}</small>
+  </>
+)}
+      </div>
+
+      <div style={{
+        position: "absolute",
+        right: "16px",
+        bottom: "230px",
+        zIndex: 1000
+      }}>
+        <button
+          onClick={() => {
+            if (livePosition) {
+              window.dispatchEvent(
+                new CustomEvent("nagrikai-recenter")
+              );
+            }
+          }}
+          style={{
+            width: "48px",
+            height: "48px",
+            borderRadius: "50%",
+            border: "1px solid #16a9e0",
+            background: "#142b3b",
+            color: "#ffffff",
+            fontSize: "20px"
+          }}
+        >
+          ◎
+        </button>
+      </div>
+
+      <div style={{
+        position: "absolute",
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 1000,
+        padding: "20px",
+        paddingBottom: "max(22px, env(safe-area-inset-bottom))",
+        borderRadius: "22px 22px 0 0",
+        background: "#101d2a",
+        borderTop: "1px solid #263f52",
+        color: "#ffffff",
+        boxShadow: "0 -8px 30px #0008"
+      }}>
+        <div style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: "12px"
+        }}>
+          <div>
+            <small style={{ color: "#9fb1c0" }}>
+              ARRIVAL IN
+            </small>
+            <h2 style={{ color: "#36d6a0", margin: "5px 0" }}>
+              {remainingTime} min
+            </h2>
+          </div>
+
+          <div>
+            <small style={{ color: "#9fb1c0" }}>
+              DISTANCE LEFT
+            </small>
+            <h2 style={{ margin: "5px 0" }}>
+              {remainingDistance} km
+            </h2>
+          </div>
+
+          <div>
+            <small style={{ color: "#9fb1c0" }}>
+              MODE
+            </small>
+            <h2 style={{ margin: "5px 0" }}>
+              {activeRoute?.label || "Drive"}
+            </h2>
+          </div>
+        </div>
+
+        <div style={{
+          display: "flex",
+          gap: "10px",
+          marginTop: "16px"
+        }}>
+          <button
+            onClick={() => setVoiceEnabled(!voiceEnabled)}
+            style={{
+              flex: 1,
+              padding: "13px 8px",
+              borderRadius: "12px",
+              border: "1px solid #16a9e0",
+              background: voiceEnabled ? "#123b43" : "#263442",
+              color: "#ffffff",
+              fontWeight: "700"
+            }}
+          >
+            {voiceEnabled ? "🔊 Voice ON" : "🔇 Voice OFF"}
+          </button>
+
+          <button
+            onClick={() => {
+  if (arrivalReached) {
+    setArrivalReached(false);
+  } else {
+    stopJourney();
+  }
+}}
+            style={{
+              flex: 1,
+              padding: "13px 8px",
+              borderRadius: "12px",
+              border: "1px solid #ff647c",
+              background: "linear-gradient(135deg, #e84b65, #a72e58)",
+              color: "#ffffff",
+              borderRadius: "12px",
+              fontWeight: "800"
+            }}
+          >
+            {arrivalReached ? "Back to Explore" : "End Journey"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+return (
+    <div className="page">
+      
+      <div className="home-heading">
+        <h2>Explore your city</h2>
+        <button className="icon-btn" onClick={() => go("Notifications")}>
+          <Bell size={17} />
+        </button>
+      </div>
+
+      
+
+      <Card>
+        <div className="split">
+          <b>Your starting location</b>
+          <button
+            className="green"
+            onClick={onLocate}
+            disabled={locationStatus === "loading"}
+          >
+            <LocateFixed size={17} />
+            {locationStatus === "loading" ? "Locating..." : "Locate me"}
+          </button>
+        </div>
+
+        {userLocation && (
+          <>
+            <p>Latitude: {userLocation.lat.toFixed(6)}</p>
+            <p>Longitude: {userLocation.lng.toFixed(6)}</p>
+            <small className="muted">
+              GPS accuracy: ±{Math.round(userLocation.accuracy)} metres
+            </small>
+          </>
+        )}
+
+        {locationError && <p className="amber">{locationError}</p>}
+
+        {!userLocation && (
+          <p className="muted">
+            Allow location access to display your actual position.
+          </p>
+        )}
+      </Card>
+
+      <Card>
+        <b>Plan your route</b>
+
+<div className="field" style={{ marginTop: "12px", marginBottom: "12px", position: "relative" }}>
+  <Label>STARTING POINT</Label>
+
+
+<label style={{
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "12px",
+  padding: "12px 14px",
+  background: "#151e28",
+  border: "1px solid #293744",
+  borderRadius: "10px",
+  marginBottom: "12px",
+  cursor: "pointer"
+}}>
+  <span style={{
+    display: "flex",
+    alignItems: "center",
+    gap: "9px",
+    color: "#e8eef2",
+    fontSize: "12px",
+    fontWeight: 500
+  }}>
+    <MapPin size={16} color="#2bd9a0" />
+    Use my current GPS location
+  </span>
+
+  <span style={{
+    position: "relative",
+    width: "40px",
+    height: "22px",
+    flexShrink: 0,
+    borderRadius: "20px",
+    background: useCurrentLocation ? "#2bd9a0" : "#344452",
+    transition: "background 0.2s"
+  }}>
+    <input
+      type="checkbox"
+      checked={useCurrentLocation}
+      onChange={e => {
+        setUseCurrentLocation(e.target.checked);
+        setSelectedStart(null);
+        setStartLocation("");
+        setStartSuggestions([]);
+      }}
+      style={{
+        position: "absolute",
+        inset: 0,
+        width: "100%",
+        height: "100%",
+        opacity: 0,
+        cursor: "pointer",
+        zIndex: 2,
+        margin: 0
+      }}
+    />
+    <span style={{
+      position: "absolute",
+      top: "3px",
+      left: useCurrentLocation ? "21px" : "3px",
+      width: "16px",
+      height: "16px",
+      borderRadius: "50%",
+      background: "#ffffff",
+      transition: "left 0.2s"
+    }} />
+  </span>
+</label>
+
+
+  {!useCurrentLocation && (
+    <>
+      <input
+        value={startLocation}
+        onChange={e => {
+          setStartLocation(e.target.value);
+          setSelectedStart(null);
+        }}
+        placeholder="Search starting location"
+      />
+
+      {startSuggestionsLoading && (
+        <small className="muted">Searching locations...</small>
+      )}
+
+      {startSuggestions.map((place, index) => (
+        <button
+          key={`${place.lat}-${place.lng}-${index}`}
+          type="button"
+          onClick={() => {
+            setStartLocation(place.label);
+            setSelectedStart(place);
+            setStartSuggestions([]);
+          }}
+          style={{
+            display: "block",
+            width: "100%",
+            padding: "12px",
+            textAlign: "left",
+            background: "#151e28",
+            color: "#f3f6f8",
+            border: "1px solid #293744",
+            cursor: "pointer"
+          }}
+        >
+          {place.label}
+          <small style={{ display: "block", color: "#9aaab7" }}>
+            {Number.isFinite(place.distance)
+              ? `${place.distance.toFixed(1)} km away`
+              : "Location"}
+          </small>
+        </button>
+      ))}
+    </>
+  )}
+</div>
+<div className="field" style={{ marginTop: "12px", position: "relative" }}>
+  <Label>DESTINATION</Label>
+
+  <input
+    value={destination}
+    onChange={e => {
+      setDestination(e.target.value);
+      setSelectedDestination(null);
+    }}
+    onKeyDown={e => {
+      if (e.key === "Enter" && selectedDestination) {
+        findRoute();
+      }
+    }}
+    placeholder="Search hostel, apartment, street or place"
+  />
+
+  {suggestionsLoading && (
+    <small className="muted">Searching locations...</small>
+  )}
+
+  {destinationSuggestions.length > 0 && (
+    <div style={{
+      marginTop: "6px",
+      background: "#151e28",
+      border: "1px solid #344452",
+      borderRadius: "10px",
+      overflow: "hidden"
+    }}>
+      {destinationSuggestions.map((place, index) => (
+        <button
+          key={`${place.lat}-${place.lng}-${index}`}
+          type="button"
+          onClick={() => {
+            setDestination(place.label);
+            setSelectedDestination(place);
+            setDestinationSuggestions([]);
+          }}
+          style={{
+            display: "block",
+            width: "100%",
+            padding: "12px",
+            textAlign: "left",
+            background: "transparent",
+            color: "#f3f6f8",
+            border: "none",
+            borderBottom: "1px solid #293744",
+            cursor: "pointer"
+          }}
+        >
+          <span>{place.label}</span>
+          <small style={{
+            display: "block",
+            color: "#9aaab7",
+            marginTop: "4px"
+          }}>
+            {Number.isFinite(place.distance)
+              ? `${place.distance.toFixed(1)} km away`
+              : "Location"}
+          </small>
+        </button>
+      ))}
+    </div>
+  )}
+</div>
+
+<Button
+  onClick={findRoute}
+  disabled={
+    routeLoading ||
+    (useCurrentLocation && !userLocation) ||
+    (!useCurrentLocation && !selectedStart)
+  }
+>
+          {routeLoading ? "Finding route..." : "Find route"}
+        </Button>
+
+        {routeError && <p className="amber">{routeError}</p>}
+
+        {routeInfo && (
+  <div style={{ marginTop: "12px" }}>
+    <b className="green">Choose your travel mode</b>
+
+    <div className="quick-grid" style={{ marginTop: "12px" }}>
+      {routeOptions.map((option) => (
+        <button
+          key={option.id}
+          onClick={() => {
+            setTravelMode(option.id);
+            setRouteCoordinates(option.coordinates);
+            setRouteInfo({
+              distance: option.distance,
+              duration: option.duration,
+              destination: option.destination
+            });
+          }}
+          style={{
+            border: travelMode === option.id
+              ? "2px solid #16a9e0"
+              : "1px solid #25333e",
+            background: travelMode === option.id
+              ? "#142b3b"
+              : "transparent",
+            padding: "12px",
+            borderRadius: "10px",
+            textAlign: "left"
+          }}
+        >
+          <b>{option.label}</b>
+          <p style={{ margin: "6px 0 0" }}>
+            {option.distance} km
+          </p>
+          <small className="muted">
+            Approx. {option.duration} min
+          </small>
+        </button>
+      ))}
+    </div>
+
+        <button
+      onClick={startJourney}
+      disabled={journeyActive}
+      style={{
+        width: "100%",
+        marginTop: "14px",
+        padding: "14px",
+        borderRadius: "10px",
+        border: "none",
+        background: "#16a9e0",
+        color: "#ffffff",
+        fontWeight: "700",
+        cursor: "pointer"
+      }}
+    >
+      {journeyActive ? "Journey Active" : "Start Journey"}
+        </button>
+
+    {journeyActive && (
+      <div style={{
+        marginTop: "16px",
+        padding: "16px",
+        borderRadius: "12px",
+        background: "#142b3b",
+        border: "1px solid #16a9e0"
+      }}>
+        <b className="green">LIVE NAVIGATION</b>
+
+        <h3 style={{ margin: "12px 0" }}>
+          {routeOptions.find(
+            (option) => option.id === travelMode
+          )?.maneuvers?.[currentManeuver]?.instruction
+            || "Continue on your route"}
+        </h3>
+
+        <div className="quick-grid">
+          <div>
+            <small className="muted">Distance remaining</small>
+            <h3>{remainingDistance} km</h3>
+          </div>
+          <div>
+            <small className="muted">Estimated time</small>
+            <h3>{remainingTime} min</h3>
+          </div>
+        </div>
+
+        <button
+          onClick={() => setVoiceEnabled(!voiceEnabled)}
+          style={{ marginTop: "12px" }}
+        >
+          {voiceEnabled ? "Voice guidance: ON" : "Voice guidance: OFF"}
+        </button>
+
+        <button
+          onClick={stopJourney}
+          style={{
+            width: "100%",
+            marginTop: "12px",
+            padding: "12px",
+            background: "#b83232",
+            color: "white",
+            border: "none",
+            borderRadius: "8px",
+            fontWeight: "bold"
+          }}
+        >
+          End Journey
+        </button>
+      </div>
+    )}
+
+    <small className="muted">
+      Destination: {routeInfo.destination}
+    </small>
+  </div>
+)}
+      </Card>
+
+      <Label>LIVE MAP</Label>
+
+      {position ? (
+        <div style={{
+          height: "360px",
+          width: "100%",
+          borderRadius: "12px",
+          overflow: "hidden",
+          border: "1px solid #25333e"
+        }}>
+          <MapContainer
+            center={position}
+            zoom={11}
+            minZoom={3}
+            maxZoom={19}
+            scrollWheelZoom={true}
+            style={{ height: "100%", width: "100%" }}
+          >
+
+            <RouteViewport routeCoordinates={routeCoordinates} />
+            <LiveMapFollow     
+             position={livePosition}
+             active={journeyActive} />
+
+             
+
+<TileLayer
+  attribution='&copy; OpenStreetMap contributors &copy; CARTO'
+  url={`https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${import.meta.env.VITE_CARTO_API_KEY}`}
+/>
+
+{routeCoordinates.length > 1 && (
+  <>
+    <Polyline
+      positions={routeCoordinates}
+      pathOptions={{
+        color: "#102b46",
+        weight: 10,
+        opacity: 0.8
+      }}
+    />
+    <Polyline
+      positions={routeCoordinates}
+      pathOptions={{
+        color: "#16a9e0",
+        weight: 6,
+        opacity: 1
+      }}
+    />
+  </>
+)}
+
+<CircleMarker
+  center={position}
+  radius={8}
+  pathOptions={{
+    color: "#ffffff",
+    fillColor: "#20c997",
+    fillOpacity: 1,
+    weight: 2
+  }}
+>
+  <Popup>Your starting location</Popup>
+</CircleMarker>
+
+{destinationPoint && (
+  <CircleMarker
+    center={destinationPoint}
+    radius={9}
+    pathOptions={{
+      color: "#ffffff",
+      fillColor: "#ff5252",
+      fillOpacity: 1,
+      weight: 2
+    }}
+  >
+    <Popup>Your destination</Popup>
+  </CircleMarker>
+)}
+
+<RouteViewport routeCoordinates={routeCoordinates} />
+          </MapContainer>
+        </div>
+      ) : (
+        <div className="camera-placeholder" style={{ height: "240px" }}>
+          <MapPin size={32} />
+          <b>Map location unavailable</b>
+          <small>Enable GPS to load your actual map.</small>
+          <Button onClick={onLocate} disabled={locationStatus === "loading"}>
+            Enable location
+          </Button>
+        </div>
+      )}
+
+      <p className="hint">
+        Map data: OpenStreetMap. Route calculation: OSRM.
+        Traffic conditions are not included in this route yet.
+      </p>
+
+      <Button secondary onClick={() => go("Map filters")}>
+        Map filters
+      </Button>
+    </div>
+  );
+}
+function MapRecenter({ position }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const recenter = () => {
+      if (position) {
+        map.setView(position, 18, {
+          animate: true
+        });
+      }
+    };
+
+    window.addEventListener("nagrikai-recenter", recenter);
+
+    return () => {
+      window.removeEventListener("nagrikai-recenter", recenter);
+    };
+  }, [map, position]);
+
+  return null;
+}
+
+function LiveMapFollow({ position, active }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (active && position) {
+      map.setView(position, 17, {
+        animate: true
+      });
+    }
+  }, [map, position, active]);
+
+  return null;
+}
+
+
 function MapFilters({filters,toggleFilter,distance,setDistance,go}) {
   const opts=["Potholes & damaged roads","Waterlogging","Waste & sanitation","Street lighting"];
   return <div className="page"><StatusBarTitle title="Map layers & filters" back={()=>go("Explore map")}/><h1>A clearer view of your city.</h1><Label>SHOW ON MAP</Label><Card>{opts.map(x=><button className="filter-option" onClick={()=>toggleFilter(x)} key={x}><span>{x}</span><span className={filters.includes(x)?"green":""}>{filters.includes(x)?"✓":"○"}</span></button>)}</Card><Label>INTELLIGENCE LAYERS</Label><Card>{["Traffic flow","Issue density heatmap","Predicted waterlogging"].map((x,i)=><div className="filter-option" key={x}><span>{x}</span><span className="green">{i<2?"On":"Off"}</span></div>)}</Card><Label>DISTANCE</Label><div className="filter-row">{["500 m","2 km","5 km","City"].map(x=><button className={distance===x?"on":""} onClick={()=>setDistance(x)} key={x}>{x}</button>)}</div><Button onClick={()=>go("Explore map")}>Apply filters</Button><p className="hint">Heatmaps show sample report density, not verified risk.</p></div>;
 }
-function CaptureReport({issue,setIssue,category,setCategory,go,notify}) {
-  return <div className="page"><StatusBarTitle title="Report an issue" back={()=>go("Home")}/><Label>01 / 03 &nbsp; CAPTURE EVIDENCE</Label><div className="camera-placeholder"><Camera size={32}/><b>Capture a clear photo</b><small>Keep the issue centred in the frame</small></div><Field label="ISSUE TITLE" value={issue} onChange={setIssue}/><Label>CATEGORY</Label><div className="chip-wrap">{["Roads","Water","Waste","Street lighting","Other"].map(x=><button className={`chip ${category===x?"on":""}`} key={x} onClick={()=>setCategory(x)}>{x}</button>)}</div><Card><div className="split"><b>Alpha II main road, Greater Noida</b><MapPin size={16}/></div><small className="muted">28.4744, 77.5040 • GPS is approximate</small></Card><Button onClick={()=>{notify("Photo attached (demo)");go("Review report");}}>Capture photo</Button><Button secondary onClick={()=>go("Review report")}><ImageIcon size={15}/> Choose from gallery</Button><p className="hint">Camera & GPS are simulated. Add device permissions and upload APIs for production.</p></div>;
+function CaptureReport({issue,setIssue,description,setDescription,photo,setPhoto,category,setCategory,go,notify}) {
+  const cameraInputRef = useRef(null);
+  const galleryInputRef = useRef(null);
+
+  const handlePhotoSelect = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      notify("Please select a valid image.");
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      notify("Image must be 10 MB or smaller.");
+      return;
+    }
+
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      setPhoto({
+        file,
+        previewUrl: reader.result
+      });
+      notify("Photo selected successfully");
+      go("Review report");
+    };
+
+    reader.onerror = () => {
+      notify("Unable to read image. Please try again.");
+    };
+
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div className="page">
+      <StatusBarTitle title="Report an issue" back={()=>go("Home")}/>
+
+      <Label>01 / 03 &nbsp; CAPTURE EVIDENCE</Label>
+
+      <div className="camera-placeholder">
+        <Camera size={32}/>
+        <b>Capture a clear photo</b>
+        <small>{photo?.file?.name || "Keep the issue centred in the frame"}</small>
+      </div>
+
+      <Field label="ISSUE TITLE" value={issue} onChange={setIssue}/>
+
+      <label className="field">
+        <span>ISSUE DESCRIPTION</span>
+        <textarea
+          value={description}
+          onChange={e=>setDescription(e.target.value)}
+          maxLength={1000}
+          rows={4}
+          placeholder="Describe the problem..."
+        />
+      </label>
+
+      <Label>CATEGORY</Label>
+
+      <div className="chip-wrap">
+        {["Roads","Water","Waste","Street lighting","Other"].map(x=>(
+          <button
+            className={`chip ${category===x?"on":""}`}
+            key={x}
+            onClick={()=>setCategory(x)}
+          >
+            {x}
+          </button>
+        ))}
+      </div>
+
+      <Card>
+        <div className="split">
+          <b>Alpha II main road, Greater Noida</b>
+          <MapPin size={16}/>
+        </div>
+        <small className="muted">28.4744, 77.5040 • GPS is approximate</small>
+      </Card>
+
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handlePhotoSelect}
+        style={{display:"none"}}
+      />
+
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handlePhotoSelect}
+        style={{display:"none"}}
+      />
+
+      <Button onClick={()=>cameraInputRef.current?.click()}>
+        Capture photo
+      </Button>
+
+      <Button secondary onClick={()=>galleryInputRef.current?.click()}>
+        <ImageIcon size={15}/> Choose from gallery
+      </Button>
+
+      <p className="hint">
+        Select an actual image from your camera or gallery. Maximum size: 10 MB.
+      </p>
+    </div>
+  );
 }
-function ReviewReport({issue,category,severity,setSeverity,go}) {
-  return <div className="page"><StatusBarTitle title="Review your report" back={()=>go("Capture report")}/><Label>02 / 03 &nbsp; AI-ASSISTED REVIEW</Label><div className="camera-thumb"><Camera size={24}/><small>Evidence preview</small></div><Card><b className="green">✦ Pothole detected</b><p>94% model confidence • 3 damage clusters</p><small className="muted">You can correct the AI before submitting.</small></Card><Card><b>Category</b><p>{category}</p><b>Severity</b><div className="chip-wrap">{["Low","Medium","High"].map(x=><button className={`chip ${severity===x?"on":""}`} onClick={()=>setSeverity(x)} key={x}>{x}</button>)}</div><b>Issue description</b><p>{issue}</p></Card><Button onClick={()=>go("Possible duplicate")}>Check nearby duplicates</Button><Button secondary onClick={()=>go("Capture report")}>Retake photo</Button></div>;
+function ReviewReport({issue,description,photo,category,severity,setSeverity,go}) {
+  return <div className="page"><StatusBarTitle title="Review your report" back={()=>go("Capture report")}/><Label>02 / 03 &nbsp; AI-ASSISTED REVIEW</Label><div className="camera-thumb">
+  {photo?.previewUrl ? (
+    <img
+      src={photo.previewUrl}
+      alt="Selected report evidence"
+      style={{
+        width:"100%",
+        height:"100%",
+        objectFit:"cover",
+        borderRadius:"12px"
+      }}
+    />
+  ) : (
+    <>
+      <Camera size={24}/>
+      <small>No photo selected</small>
+    </>
+  )}
+</div>
+<Card><b className="green">✦ Pothole detected</b><p>94% model confidence • 3 damage clusters</p><small className="muted">You can correct the AI before submitting.</small></Card><Card><b>Category</b><p>{category}</p><b>Severity</b><div className="chip-wrap">{["Low","Medium","High"].map(x=><button className={`chip ${severity===x?"on":""}`} onClick={()=>setSeverity(x)} key={x}>{x}</button>)}</div>{description && <><b>Issue description</b><p>{description}</p></>}</Card><Button onClick={()=>go("Possible duplicate")}>Check nearby duplicates</Button><Button secondary onClick={()=>go("Capture report")}>Retake photo</Button></div>;
 }
 function Duplicate({go,issue}) {
   return <div className="page"><StatusBarTitle title="A match nearby" back={()=>go("Review report")}/><Label>03 / 03 &nbsp; AVOID DUPLICATE REPORTS</Label><h1>Same problem.<br/>Stronger together.</h1><p className="muted">A similar report is 18 m from your location. Add your evidence to give it more weight.</p><Card><b>#GN-2048 · Pothole, Alpha II</b><p>Similarity <b className="green">91%</b></p><small className="muted">Reported 12 Nov • 12 community confirmations</small></Card><Button onClick={()=>go("Report submitted")}>Add evidence to this issue</Button><Button secondary onClick={()=>go("Report submitted")}>This is a different issue</Button><p className="hint">Duplicate detection is simulated. Your report is saved either way.</p></div>;
@@ -175,9 +3167,287 @@ function Handoff({go,notify}) {
 function Tracking({go}) {
   return <div className="page"><StatusBarTitle title="Track your complaint" back={()=>go("Home")}/><Label>SAMPLE REFERENCE • NOT AN OFFICIAL RECEIPT</Label><Card><h2>DEMO/GN/2026/2048</h2><p>Road maintenance / Alpha II</p><small className="muted">Last synced: 15 Nov, 04:41 IST</small><span className="severity">Review due</span></Card><Card className="timeline">{["12 Nov · Civic report created","13 Nov · Assigned to maintenance","14 Nov · Repair claimed","15 Nov · Field review requested"].map((x,i)=><p key={x}><span className="green">{i===3?"◷":"✓"}</span> {x}</p>)}</Card><Button onClick={()=>go("GroundTruth AI")}>Check GroundTruth evidence</Button><Button secondary onClick={()=>go("Issue details")}>View original issue</Button><p className="hint">Status updates are illustrative, not live authority records.</p></div>;
 }
-function Weather({go}) {
-  return <div className="page"><StatusBarTitle title="Weather & air" back={()=>go("Home")}/><Card className="weather-large"><div><strong>24°</strong><p>Greater Noida</p></div><div><CloudSun size={34}/><small>Hazy sunshine</small><small>Feels like 25°</small></div></Card><Label>TODAY'S FORECAST</Label><div className="forecast">{["NOW","12 PM","2 PM","4 PM","6 PM"].map((x,i)=><div key={x}><small>{x}</small><CloudSun size={18}/><b>{[24,26,27,25,21][i]}°</b></div>)}</div><Card><b>INDIA AQI</b><h1 className="amber">186</h1><p>Moderate • Sensitive groups: reduce prolonged outdoor activity.</p></Card><Card><b>Low rain. Local drainage still matters.</b><p className="muted">10% rain probability • 0.2 mm forecast</p></Card><p className="hint">Weather & AQI values are sample data. Not a live forecast or health advisory.</p></div>;
+
+function Weather({
+  go,
+  userLocation,
+  locationDetails,
+  weatherData,
+  weatherStatus,
+  weatherError
+}) {
+  const current = weatherData?.current;
+  const hourly = weatherData?.hourly;
+  const daily = weatherData?.daily;
+
+  const weatherDescription = (code) => {
+    const descriptions = {
+      0: "Clear sky",
+      1: "Mainly clear",
+      2: "Partly cloudy",
+      3: "Overcast",
+      45: "Fog",
+      48: "Depositing rime fog",
+      51: "Light drizzle",
+      53: "Moderate drizzle",
+      55: "Dense drizzle",
+      56: "Freezing drizzle",
+      57: "Dense freezing drizzle",
+      61: "Light rain",
+      63: "Moderate rain",
+      65: "Heavy rain",
+      66: "Freezing rain",
+      67: "Heavy freezing rain",
+      71: "Light snow",
+      73: "Moderate snow",
+      75: "Heavy snow",
+      77: "Snow grains",
+      80: "Light rain showers",
+      81: "Moderate rain showers",
+      82: "Violent rain showers",
+      85: "Snow showers",
+      86: "Heavy snow showers",
+      95: "Thunderstorm",
+      96: "Thunderstorm with hail",
+      99: "Heavy thunderstorm with hail"
+    };
+
+    return descriptions[code] || "Conditions unavailable";
+  };
+
+  const placeName = locationDetails
+    ? [
+        locationDetails.locality,
+        locationDetails.city,
+        locationDetails.state
+      ].filter((value, index, array) =>
+        value && array.indexOf(value) === index
+      ).join(", ")
+    : userLocation
+      ? "Location detected"
+      : "Location unavailable";
+
+  const hourlyStart = hourly?.time && current?.time
+    ? Math.max(0, hourly.time.findIndex(time => time >= current.time))
+    : 0;
+
+  const hourlyIndexes = hourly?.time
+    ? Array.from({ length: 6 }, (_, i) => hourlyStart + i)
+        .filter(i => i < hourly.time.length)
+    : [];
+
+  const dailyIndexes = daily?.time
+    ? daily.time.slice(0, 3).map((_, i) => i)
+    : [];
+
+  const formatHour = (value, index) => {
+    if (index === hourlyStart) return "NOW";
+
+    return new Date(value).toLocaleTimeString([], {
+      hour: "numeric"
+    });
+  };
+
+  const formatDay = (value, index) => {
+    if (index === 0) return "TODAY";
+
+    return new Date(`${value}T12:00:00`).toLocaleDateString(
+      undefined,
+      { weekday: "short" }
+    ).toUpperCase();
+  };
+
+  return (
+    <div className="page">
+      <StatusBarTitle title="Weather & air" back={() => go("Home")} />
+
+      <Label>LIVE LOCAL WEATHER</Label>
+
+      {!userLocation && (
+        <Card>
+          <b>Location required</b>
+          <p className="muted">
+            Detect your location on Explore map to load local weather.
+          </p>
+          <Button onClick={() => go("Explore map")}>
+            Detect location
+          </Button>
+        </Card>
+      )}
+
+      {weatherStatus === "loading" && !weatherData && (
+        <Card>
+          <b>Loading live weather...</b>
+          <p className="muted">Fetching conditions for your location.</p>
+        </Card>
+      )}
+
+      {weatherStatus === "error" && (
+        <Card>
+          <b className="amber">Weather unavailable</b>
+          <p className="muted">
+            {weatherError || "Unable to retrieve the forecast."}
+          </p>
+        </Card>
+      )}
+
+      {current && (
+        <>
+          <Card className="weather-large">
+            <div>
+              <strong>
+                {Math.round(current.temperature_2m)}°
+              </strong>
+              <p>{placeName}</p>
+            </div>
+
+            <div>
+              <WeatherVisual
+  code={current.weather_code}
+  temperature={current.temperature_2m}
+  isDay={current.is_day}
+  size={44}
+/>
+              <small>
+                {weatherDescription(current.weather_code)}
+              </small>
+              <small>
+                Feels like {Math.round(current.apparent_temperature)}°
+              </small>
+            </div>
+          </Card>
+
+          <Card>
+            <div className="split">
+              <b>CURRENT CONDITIONS</b>
+              <span className="green">LIVE</span>
+            </div>
+
+            <div className="metric-grid">
+              <div>
+                <strong>{current.relative_humidity_2m}%</strong>
+                <small>Humidity</small>
+              </div>
+
+              <div>
+                <strong>{current.wind_speed_10m}</strong>
+                <small>Wind km/h</small>
+              </div>
+
+              <div>
+                <strong>{current.precipitation} mm</strong>
+                <small>Precipitation</small>
+              </div>
+            </div>
+          </Card>
+
+          <Label>HOURLY FORECAST</Label>
+
+          {hourlyIndexes.length > 0 ? (
+            <div className="forecast">
+              {hourlyIndexes.map(index => (
+                <div key={hourly.time[index]}>
+                  <small>{formatHour(hourly.time[index], index)}</small>
+                  <WeatherVisual
+  code={hourly.weather_code[index]}
+  temperature={hourly.temperature_2m[index]}
+  isDay={current?.is_day}
+  size={23}
+/>
+                  <b>
+                    {Math.round(hourly.temperature_2m[index])}°
+                  </b>
+                  <small>
+                    {hourly.precipitation_probability?.[index] ?? "—"}%
+                    rain
+                  </small>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <Card>
+              <p className="muted">Hourly forecast unavailable.</p>
+            </Card>
+          )}
+
+          <Label>RAIN OUTLOOK</Label>
+
+          <Card>
+            <b>Precipitation forecast</b>
+            <h2>
+              {hourly?.precipitation_probability?.[hourlyStart] ?? "—"}%
+            </h2>
+            <p className="muted">
+              Next forecast hour's rain probability
+            </p>
+            <p>
+              Expected rainfall today:{" "}
+              {daily?.precipitation_sum?.[0] ?? "—"} mm
+            </p>
+            <p>
+              Maximum daily rain probability:{" "}
+              {daily?.precipitation_probability_max?.[0] ?? "—"}%
+            </p>
+          </Card>
+
+          <Label>3-DAY FORECAST</Label>
+
+          {dailyIndexes.map(index => (
+            <Card key={daily.time[index]}>
+              <div className="split">
+                <b>{formatDay(daily.time[index], index)}</b>
+                <WeatherVisual
+  code={daily.weather_code[index]}
+  temperature={daily.temperature_2m_max[index]}
+  size={26}
+/>
+                <b>
+                  {Math.round(daily.temperature_2m_max[index])}° /{" "}
+                  {Math.round(daily.temperature_2m_min[index])}°
+                </b>
+              </div>
+
+              <p className="muted">
+                {weatherDescription(daily.weather_code[index])}
+              </p>
+
+              <small>
+                Rain probability:{" "}
+                {daily.precipitation_probability_max[index] ?? "—"}%
+                {" • "}
+                Rainfall: {daily.precipitation_sum[index] ?? "—"} mm
+              </small>
+            </Card>
+          ))}
+        </>
+      )}
+
+      <Label>AIR QUALITY</Label>
+
+      <Card>
+        <b>AQI data connection pending</b>
+        <p className="muted">
+          Live monitoring-station readings will appear here
+          with station distance and observation time.
+        </p>
+      </Card>
+
+      <p className="hint">
+        Weather forecast: Open-Meteo. Model-based forecast, not a
+        direct neighbourhood weather-station observation.
+        <br />
+        <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">
+          Weather data by Open-Meteo
+        </a>
+      </p>
+
+      {weatherStatus === "refreshing" && (
+        <p className="hint">Updating weather data...</p>
+      )}
+    </div>
+  );
 }
+
 function AskAI({go,query,setQuery}) {
   return <div className="page"><StatusBarTitle title="Ask NagrikAI" back={()=>go("Home")}/><Label>✦ CITY-AWARE AI</Label><div className="chat-bubble user">How should I get to Pari Chowk today?</div><Card><b className="green">Skip the jam. Keep the morning.</b><p>From Alpha II, take the Knowledge Park route, add 8 min but avoids the reported pothole and slow traffic near Pari Chowk.</p><p>Pari Chowk is auctioning for a parking lot. Let's skip the role.</p><small className="muted">Based on 2 reports • Sample traffic data</small></Card><Button onClick={()=>go("Civic navigation")}>Show safer route</Button><Button secondary onClick={()=>go("Weather & air")}>What is the air quality like?</Button><div className="chat-input"><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Ask about your city..."/><button onClick={()=>{setQuery("");}}><Send size={17}/></button></div><p className="hint">AI responses are simulated in this frontend prototype.</p></div>;
 }
