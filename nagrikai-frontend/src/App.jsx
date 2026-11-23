@@ -3891,8 +3891,111 @@ function NavigationScreen({go}) {
 function Analytics({go}) {
   return <div className="page"><StatusBarTitle title="City intelligence" back={()=>go("Home")}/><Label>GREATER NOIDA / LAST 30 DAYS</Label><div className="metric-grid"><Card><strong>1,284</strong><small>Reports</small></Card><Card><strong>68%</strong><small>Resolved</small></Card><Card><strong>2.8d</strong><small>Median fix</small></Card></div><Card><div className="split"><b>REPORTS BY WEEK</b><span className="green">−18%</span></div><div className="bars">{[68,55,74,62].map((v,i)=><div key={i}><i style={{height:v+"%"}}/><small>W{i+1}</small></div>)}</div></Card><Card><b>Where the city needs attention</b><p>1 &nbsp; Pari Chowk <span className="right">86 reports</span></p><p>2 &nbsp; Alpha II <span className="right">54 reports</span></p><p>3 &nbsp; Surajpur <span className="right">39 reports</span></p></Card><p className="hint">Sample data • Not an official civic statistics source.</p></div>;
 }
-function Profile({go,reportCount}) {
-  return <div className="page"><StatusBarTitle title="Your civic footprint" back={()=>go("Home")}/><Card className="profile-card"><div className="avatar">AS</div><h2>Aarav Sharma</h2><p>Alpha II, Greater Noida</p><small className="muted">Joined October 2026</small><span className="green">✦ Trusted contributor</span></Card><div className="metric-grid"><Card><strong>{reportCount}</strong><small>Reports</small></Card><Card><strong>5</strong><small>Resolved</small></Card><Card><strong>23</strong><small>Verifications</small></Card></div>{[["Your reports","Report history"],["Notifications","Notifications"],["Accessibility","Accessibility"],["Privacy & settings","Privacy & settings"],["Language / English & हिन्दी","Language"]].map(([x,y])=><button className="menu-row" key={x} onClick={()=>go(y)}>{x}<ChevronRight size={16}/></button>)}</div>;
+function Profile({go}) {
+  const [profile, setProfile] = useState(null);
+  const [loadStatus, setLoadStatus] = useState("loading");
+  const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    const loadProfile = async () => {
+      try {
+        const { data: authData, error: authError } = await supabase.auth.getUser();
+        if (authError) throw authError;
+        if (!authData?.user) throw new Error("Please sign in to view your profile.");
+
+        const user = authData.user;
+
+        const { data, error } = await supabase
+          .from("reports")
+          .select("status")
+          .eq("user_id", user.id);
+
+        if (error) throw error;
+
+        const userReports = Array.isArray(data) ? data : [];
+        const resolvedCount = userReports.filter(
+          report => report.status === "Resolved"
+        ).length;
+
+        if (active) {
+          setProfile({
+            phone: user.phone || "Phone number unavailable",
+            joinedAt: user.created_at,
+            reportCount: userReports.length,
+            resolvedCount,
+            openCount: userReports.length - resolvedCount
+          });
+          setLoadStatus("success");
+        }
+      } catch (error) {
+        console.error("Profile loading failed:", error);
+        if (active) {
+          setLoadError(error.message || "Could not load your profile.");
+          setLoadStatus("error");
+        }
+      }
+    };
+
+    loadProfile();
+    return () => { active = false; };
+  }, []);
+
+  return (
+    <div className="page">
+      <StatusBarTitle title="Your civic footprint" back={() => go("Home")} />
+
+      <Card className="profile-card">
+        <div className="avatar">N</div>
+        <h2>NagrikAI Citizen</h2>
+        {loadStatus === "success" && (
+          <>
+            <p>{profile.phone}</p>
+            <small className="muted">
+              Joined {profile.joinedAt
+                ? new Date(profile.joinedAt).toLocaleDateString("en-IN", {
+                    month: "long",
+                    year: "numeric"
+                  })
+                : "date unavailable"}
+            </small>
+          </>
+        )}
+        {loadStatus === "loading" && <p className="muted">Loading profile...</p>}
+        {loadStatus === "error" && <p className="amber">{loadError}</p>}
+      </Card>
+
+      {loadStatus === "success" && (
+        <div className="metric-grid">
+          <Card>
+            <strong>{profile.reportCount}</strong>
+            <small>Reports</small>
+          </Card>
+          <Card>
+            <strong>{profile.resolvedCount}</strong>
+            <small>Resolved</small>
+          </Card>
+          <Card>
+            <strong>{profile.openCount}</strong>
+            <small>Open</small>
+          </Card>
+        </div>
+      )}
+
+      {[
+        ["Your reports", "Report history"],
+        ["Notifications", "Notifications"],
+        ["Accessibility", "Accessibility"],
+        ["Privacy & settings", "Privacy & settings"],
+        ["Language / English & हिन्दी", "Language"]
+      ].map(([x, y]) => (
+        <button className="menu-row" key={x} onClick={() => go(y)}>
+          {x}<ChevronRight size={16}/>
+        </button>
+      ))}
+    </div>
+  );
 }
 function History({go}) {
   const [reports, setReports] = useState([]);
