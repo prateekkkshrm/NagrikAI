@@ -25,7 +25,7 @@ import {
   Volume2, WifiOff, X, Camera, Image as ImageIcon, MessageCircle, BarChart3
 } from "lucide-react";
 
-const GREEN = "#28d7a0";
+const GREEN = "#83c9a7";
 const screens = [
   "Splash","Welcome","Language","Login","OTP verification","Home","Explore map","Map filters",
   "Capture report","Review report","Possible duplicate","Report submitted","Issue details",
@@ -48,13 +48,19 @@ function App() {
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState(["","","","","",""]);
   const [authLoading, setAuthLoading] = useState(false);
-  const [category, setCategory] = useState("Roads");
-  const [severity, setSeverity] = useState("High");
+  const [category, setCategory] = useState("");
+  const [severity, setSeverity] = useState("");
   const [filters, setFilters] = useState(["Potholes & damaged roads","Waterlogging"]);
   const [distance, setDistance] = useState("2 km");
-  const [issue, setIssue] = useState("Pothole on Alpha II main road");
+  const [issue, setIssue] = useState("");
   const [description, setDescription] = useState("");
   const [photo, setPhoto] = useState(null);
+  const [submissionLoading, setSubmissionLoading] = useState(false);
+  const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const [submittedReport, setSubmittedReport] = useState(null);
+  const [duplicateReports, setDuplicateReports] = useState([]);
+  const [duplicateStatus, setDuplicateStatus] = useState("idle");
+  const [duplicateError, setDuplicateError] = useState("");
   const [userLocation, setUserLocation] = useState(null);
   const [locationStatus, setLocationStatus] = useState("idle");
   const [locationError, setLocationError] = useState("");
@@ -176,78 +182,112 @@ function App() {
     window.clearTimeout(window.__toastTimer);
     window.__toastTimer = window.setTimeout(() => setToast(""), 2400);
   };
-  const detectUserLocation = () => {
-  if (!navigator.geolocation) {
-    setLocationStatus("error");
-    setLocationError("Location is not supported by this browser.");
-    setLocationDetails(null);
-    notify("Your browser does not support GPS.");
-    return;
-  }
-
+  
+const detectUserLocation = async () => {
   setLocationStatus("loading");
   setLocationError("");
 
-  navigator.geolocation.getCurrentPosition(
-    (position) => {
-      const location = {
-        lat: position.coords.latitude,
-        lng: position.coords.longitude,
-        accuracy: position.coords.accuracy
-      };
+  try {
+    let position;
 
-      setUserLocation(location);
-      setLocationStatus("success");
-      fetch(
-  `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${location.lat}&longitude=${location.lng}&localityLanguage=en`
-)
-  .then(response => {
-    if (!response.ok) {
-      throw new Error("Location lookup failed");
-    }
-    return response.json();
-  })
-  .then(data => {
-    setLocationDetails({
-      city: data.city || data.locality || "",
-      locality: data.locality || "",
-      state: data.principalSubdivision || "",
-      country: data.countryName || ""
-    });
-  })
-  .catch(error => {
-    console.error("Reverse geocoding error:", error);
-    setLocationDetails(null);
-  });
+    if (Capacitor.isNativePlatform()) {
+      let permission = await Geolocation.checkPermissions();
 
-      notify(
-        `Location detected. Accuracy: ±${Math.round(location.accuracy)} metres`
-      );
-    },
-
-    (error) => {
-      let message = "Unable to detect your location.";
-
-      if (error.code === 1) {
-        message = "Location permission denied. Enable it in browser settings.";
-      } else if (error.code === 2) {
-        message = "Your location is currently unavailable.";
-      } else if (error.code === 3) {
-        message = "Location request timed out. Please try again.";
+      if (
+        permission.location !== "granted" &&
+        permission.coarseLocation !== "granted"
+      ) {
+        permission = await Geolocation.requestPermissions();
       }
 
-      setLocationStatus("error");
-      setLocationError(message);
-      notify(message);
-    },
+      if (
+        permission.location !== "granted" &&
+        permission.coarseLocation !== "granted"
+      ) {
+        throw new Error("Location permission denied.");
+      }
 
-    {
-      enableHighAccuracy: true,
-      timeout: 20000,
-      maximumAge: 0
+      position = await Geolocation.getCurrentPosition({
+        enableHighAccuracy: true,
+        timeout: 20000,
+        maximumAge: 0
+      });
+    } else {
+      if (!navigator.geolocation) {
+        throw new Error("Location is not supported by this browser.");
+      }
+
+      position = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(
+          resolve,
+          reject,
+          {
+            enableHighAccuracy: true,
+            timeout: 20000,
+            maximumAge: 0
+          }
+        );
+      });
     }
-  );
+
+    const location = {
+      lat: position.coords.latitude,
+      lng: position.coords.longitude,
+      accuracy: position.coords.accuracy
+    };
+
+    setUserLocation(location);
+    setLocationStatus("success");
+
+    fetch(
+      `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${location.lat}&longitude=${location.lng}&localityLanguage=en`
+    )
+      .then(response => {
+        if (!response.ok) {
+          throw new Error("Location lookup failed");
+        }
+        return response.json();
+      })
+      .then(data => {
+        setLocationDetails({
+          city: data.city || data.locality || "",
+          locality: data.locality || "",
+          state: data.principalSubdivision || "",
+          country: data.countryName || ""
+        });
+      })
+      .catch(error => {
+        console.error("Reverse geocoding error:", error);
+        setLocationDetails(null);
+      });
+
+    notify(
+      `Location detected. Accuracy: ±${Math.round(location.accuracy)} metres`
+    );
+
+  } catch (error) {
+    let message = "Unable to detect your location.";
+
+    if (
+      error.code === 1 ||
+      error.message?.toLowerCase().includes("permission")
+    ) {
+      message = "Location permission denied. Allow location access in app settings.";
+    } else if (error.code === 2) {
+      message = "Your location is currently unavailable.";
+    } else if (error.code === 3) {
+      message = "Location request timed out. Please try again.";
+    }
+
+    console.error("GPS error:", error);
+    setLocationStatus("error");
+    setLocationError(message);
+    setLocationDetails(null);
+    notify(message);
+  }
 };
+
+  
 useEffect(() => {
   if (autoLocationStarted.current) return;
 
@@ -324,12 +364,221 @@ const handleVerifyOtp = async () => {
   }
 };
   const toggleFilter = (name) => setFilters(v => v.includes(name) ? v.filter(x => x !== name) : [...v,name]);
-  const submitReport = () => { setReportCount(v=>v+1); go("Report submitted"); };
+  const checkNearbyReports = async () => {
+    if (duplicateStatus === "loading") return;
+
+    if (
+      !category ||
+      !Number.isFinite(userLocation?.lat) ||
+      !Number.isFinite(userLocation?.lng)
+    ) {
+      notify("Select a category and detect your GPS location first.");
+      return;
+    }
+
+    setDuplicateReports([]);
+    setDuplicateError("");
+    setDuplicateStatus("loading");
+    go("Possible duplicate");
+
+    try {
+      const { data: authData, error: authError } =
+        await supabase.auth.getUser();
+
+      if (authError) throw authError;
+      if (!authData?.user) {
+        throw new Error("Please sign in before checking nearby reports.");
+      }
+
+      const { data, error } = await supabase.rpc(
+        "find_nearby_reports",
+        {
+          p_lat: userLocation.lat,
+          p_lng: userLocation.lng,
+          p_category: category
+        }
+      );
+
+      if (error) throw error;
+
+      setDuplicateReports(Array.isArray(data) ? data : []);
+      setDuplicateStatus("success");
+    } catch (error) {
+      console.error("Nearby report lookup failed:", error);
+      setDuplicateError(
+        error.message || "Nearby reports could not be checked."
+      );
+      setDuplicateStatus("error");
+    }
+  };
+  const submitReport = async () => {
+    if (submissionLoading) return;
+
+    if (
+      issue.trim().length < 3 ||
+      issue.trim().length > 140 ||
+      description.trim().length < 10 ||
+      !photo?.file ||
+      !category ||
+      !severity ||
+      !Number.isFinite(userLocation?.lat) ||
+      !Number.isFinite(userLocation?.lng)
+    ) {
+      notify("Enter a title of 3–140 characters, a description of at least 10 characters, and complete all other required fields.");
+      return;
+    }
+
+    setSubmissionLoading(true);
+
+    try {
+      const { data: authData, error: authError } =
+        await supabase.auth.getUser();
+
+      if (authError) throw authError;
+
+      const user = authData?.user;
+
+      if (!user) {
+        throw new Error("Please sign in before submitting a report.");
+      }
+
+      const file = photo.file;
+
+      const extensions = {
+        "image/jpeg": "jpg",
+        "image/png": "png",
+        "image/webp": "webp",
+        "image/heic": "heic",
+        "image/heif": "heif"
+      };
+
+      const extension = extensions[file.type] || "img";
+      const uniqueId = crypto.randomUUID();
+      const photoPath = `${user.id}/${uniqueId}.${extension}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("report-evidence")
+        .upload(photoPath, file, {
+          cacheControl: "3600",
+          upsert: false,
+          contentType: file.type
+        });
+
+      if (uploadError) throw uploadError;
+
+      const reportPayload = {
+        user_id: user.id,
+        title: issue.trim(),
+        description: description.trim(),
+        category,
+        severity,
+        latitude: userLocation.lat,
+        longitude: userLocation.lng,
+        location_accuracy_m: Number.isFinite(userLocation.accuracy)
+          ? userLocation.accuracy
+          : null,
+        locality: locationDetails?.locality || null,
+        city: locationDetails?.city || null,
+        state: locationDetails?.state || null,
+        country: locationDetails?.country || null,
+        photo_path: photoPath
+      };
+
+      const { data: reportData, error: reportError } = await supabase
+        .from("reports")
+        .insert(reportPayload)
+        .select("id, report_number, title, status, created_at")
+        .single();
+
+      if (reportError) throw reportError;
+
+      setSubmittedReport(reportData);
+      go("Report submitted");
+      notify("Your report was saved successfully.");
+
+    } catch (error) {
+      console.error("Report submission failed:", error);
+      notify(error.message || "Unable to submit your report. Please try again.");
+    } finally {
+      setSubmissionLoading(false);
+    }
+  };
+  const submitEvidence = async (existingReport) => {
+    if (evidenceLoading) return;
+
+    if (!existingReport?.id || !photo?.file || description.trim().length < 10) {
+      notify("A photo and description of at least 10 characters are required.");
+      return;
+    }
+
+    setEvidenceLoading(true);
+
+    try {
+      const { data: authData, error: authError } =
+        await supabase.auth.getUser();
+
+      if (authError) throw authError;
+
+      const user = authData?.user;
+      if (!user) {
+        throw new Error("Please sign in before adding evidence.");
+      }
+
+      const file = photo.file;
+      const extensions = {
+        "image/jpeg": "jpg",
+        "image/png": "png",
+        "image/webp": "webp",
+        "image/heic": "heic",
+        "image/heif": "heif"
+      };
+
+      const extension = extensions[file.type] || "img";
+      const photoPath = `${user.id}/${crypto.randomUUID()}.${extension}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("report-evidence")
+        .upload(photoPath, file, {
+          cacheControl: "3600",
+          upsert: false,
+          contentType: file.type
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: evidenceData, error: evidenceError } = await supabase
+        .from("report_evidence")
+        .insert({
+          report_id: existingReport.id,
+          user_id: user.id,
+          photo_path: photoPath,
+          note: description.trim()
+        })
+        .select("id, report_id, created_at")
+        .single();
+
+      if (evidenceError) throw evidenceError;
+
+      setSubmittedReport({
+        ...existingReport,
+        evidenceAdded: true,
+        evidenceCreatedAt: evidenceData.created_at
+      });
+
+      go("Report submitted");
+      notify("Evidence added to the existing report.");
+
+    } catch (error) {
+      console.error("Evidence contribution failed:", error);
+      notify(error.message || "Unable to add evidence. Please try again.");
+    } finally {
+      setEvidenceLoading(false);
+    }
+  };
   const nav = (id) => { setSelectedTab(id); go(id); };
 
   return <div className="app-shell">
     <div className="device">
-      <div className="status"><span>9:41 ▮▮▮</span><div className="status-right"><span>5G ◉ ▰</span><button className="language-toggle" onClick={() => setLanguage(v => v === "English" ? "Hindi" : "English")} aria-label="Change language">{language === "English" ? "हिंदी" : "EN"}</button></div></div>
       <main className="screen-content">
         {screen === "Splash" && <Splash go={go}/>}
         {screen === "Welcome" && (
@@ -372,10 +621,10 @@ const handleVerifyOtp = async () => {
          />
          )}
         {screen === "Map filters" && <MapFilters filters={filters} toggleFilter={toggleFilter} distance={distance} setDistance={setDistance} go={go}/>}
-        {screen === "Capture report" && <CaptureReport issue={issue} setIssue={setIssue} description={description} setDescription={setDescription} photo={photo} setPhoto={setPhoto} category={category} setCategory={setCategory} go={go} notify={notify}/>}
-        {screen === "Review report" && <ReviewReport issue={issue} description={description} photo={photo} category={category} severity={severity} setSeverity={setSeverity} go={go}/>}
-        {screen === "Possible duplicate" && <Duplicate go={go} issue={issue}/>}
-        {screen === "Report submitted" && <Submitted go={go}/>}
+        {screen === "Capture report" && <CaptureReport issue={issue} setIssue={setIssue} description={description} setDescription={setDescription} photo={photo} setPhoto={setPhoto} category={category} setCategory={setCategory} userLocation={userLocation} locationStatus={locationStatus} locationDetails={locationDetails} onLocate={detectUserLocation} go={go} notify={notify}/>}
+        {screen === "Review report" && <ReviewReport issue={issue} description={description} photo={photo} category={category} severity={severity} setSeverity={setSeverity} go={go} onCheckDuplicates={checkNearbyReports} duplicateLoading={duplicateStatus === "loading"}/>}
+        {screen === "Possible duplicate" && <Duplicate go={go} issue={issue} matches={duplicateReports} status={duplicateStatus} error={duplicateError} onRetry={checkNearbyReports} onSubmitNew={submitReport} newLoading={submissionLoading} onAddEvidence={submitEvidence} evidenceLoading={evidenceLoading}/>} 
+        {screen === "Report submitted" && <Submitted go={go} report={submittedReport}/>}
         {screen === "Issue details" && <IssueDetails go={go} issue={issue}/>}
         {screen === "GroundTruth AI" && <GroundTruth go={go}/>}
         {screen === "Responsible authority" && <Authority go={go}/>}
@@ -1468,17 +1717,7 @@ const handleNewsClick = async (article) => {
 
         
 
-  <Card>
-    <div className="split">
-      <b>CITY HEALTH INDEX</b>
-      <span className="muted">Awaiting verified data</span>
-    </div>
-
-    </Card>
-
-      
-
-      <Card>
+<Card>
         <div className="split">
           <b>CITY HEALTH INDEX</b>
           <span className="muted">Awaiting verified data</span>
@@ -1500,22 +1739,6 @@ const handleNewsClick = async (article) => {
         </small>
       </Card>
 
-      <div className="quick-grid">
-        {["Safer route", "City trends", "Ask AI"].map((x, i) => (
-          <button
-            key={x}
-            onClick={() =>
-              go([
-                "Civic navigation",
-                "City analytics",
-                "Ask NagrikAI"
-              ][i])
-            }
-          >
-            {x}
-          </button>
-        ))}
-      </div>
 
       <p className="hint">
         Live data connections are being integrated.
@@ -2489,7 +2712,6 @@ if (journeyActive || arrivalReached) {
               border: "1px solid #ff647c",
               background: "linear-gradient(135deg, #e84b65, #a72e58)",
               color: "#ffffff",
-              borderRadius: "12px",
               fontWeight: "800"
             }}
           >
@@ -3008,7 +3230,17 @@ function MapFilters({filters,toggleFilter,distance,setDistance,go}) {
   const opts=["Potholes & damaged roads","Waterlogging","Waste & sanitation","Street lighting"];
   return <div className="page"><StatusBarTitle title="Map layers & filters" back={()=>go("Explore map")}/><h1>A clearer view of your city.</h1><Label>SHOW ON MAP</Label><Card>{opts.map(x=><button className="filter-option" onClick={()=>toggleFilter(x)} key={x}><span>{x}</span><span className={filters.includes(x)?"green":""}>{filters.includes(x)?"✓":"○"}</span></button>)}</Card><Label>INTELLIGENCE LAYERS</Label><Card>{["Traffic flow","Issue density heatmap","Predicted waterlogging"].map((x,i)=><div className="filter-option" key={x}><span>{x}</span><span className="green">{i<2?"On":"Off"}</span></div>)}</Card><Label>DISTANCE</Label><div className="filter-row">{["500 m","2 km","5 km","City"].map(x=><button className={distance===x?"on":""} onClick={()=>setDistance(x)} key={x}>{x}</button>)}</div><Button onClick={()=>go("Explore map")}>Apply filters</Button><p className="hint">Heatmaps show sample report density, not verified risk.</p></div>;
 }
-function CaptureReport({issue,setIssue,description,setDescription,photo,setPhoto,category,setCategory,go,notify}) {
+function CaptureReport({issue,setIssue,description,setDescription,photo,setPhoto,category,setCategory,userLocation,locationStatus,locationDetails,onLocate,go,notify}) {
+  const canReview = Boolean(
+    issue.trim().length >= 3 &&
+    issue.trim().length <= 140 &&
+    description.trim().length >= 10 &&
+    photo?.file &&
+    category &&
+    locationStatus === "success" &&
+    Number.isFinite(userLocation?.lat) &&
+    Number.isFinite(userLocation?.lng)
+  );
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
 
@@ -3036,7 +3268,6 @@ function CaptureReport({issue,setIssue,description,setDescription,photo,setPhoto
         previewUrl: reader.result
       });
       notify("Photo selected successfully");
-      go("Review report");
     };
 
     reader.onerror = () => {
@@ -3052,10 +3283,31 @@ function CaptureReport({issue,setIssue,description,setDescription,photo,setPhoto
 
       <Label>01 / 03 &nbsp; CAPTURE EVIDENCE</Label>
 
-      <div className="camera-placeholder">
-        <Camera size={32}/>
-        <b>Capture a clear photo</b>
-        <small>{photo?.file?.name || "Keep the issue centred in the frame"}</small>
+            <div
+        className="camera-placeholder"
+        style={photo?.previewUrl ? { height: "auto", minHeight: "180px", padding: "12px" } : undefined}
+      >
+        {photo?.previewUrl ? (
+          <>
+            <img
+              src={photo.previewUrl}
+              alt="Selected report evidence"
+              style={{
+                width: "100%",
+                maxHeight: "260px",
+                objectFit: "contain",
+                borderRadius: "9px"
+              }}
+            />
+            <b>{photo.file?.name || "Selected evidence"}</b>
+          </>
+        ) : (
+          <>
+            <Camera size={32}/>
+            <b>Capture a clear photo</b>
+            <small>Keep the issue centred in the frame</small>
+          </>
+        )}
       </div>
 
       <Field label="ISSUE TITLE" value={issue} onChange={setIssue}/>
@@ -3087,10 +3339,40 @@ function CaptureReport({issue,setIssue,description,setDescription,photo,setPhoto
 
       <Card>
         <div className="split">
-          <b>Alpha II main road, Greater Noida</b>
+          <b>
+            {locationStatus === "success"
+              ? [locationDetails?.locality, locationDetails?.city, locationDetails?.state, locationDetails?.country]
+                  .filter((value, index, all) => value && all.indexOf(value) === index)
+                  .join(", ") || "Current location detected"
+              : locationStatus === "loading"
+                ? "Detecting your location..."
+                : "Location not detected"}
+          </b>
           <MapPin size={16}/>
         </div>
-        <small className="muted">28.4744, 77.5040 • GPS is approximate</small>
+
+        {userLocation ? (
+          <small className="muted">
+            {userLocation.lat.toFixed(5)}, {userLocation.lng.toFixed(5)}
+            {" · "}Accuracy ±{Math.round(userLocation.accuracy)} metres
+          </small>
+        ) : (
+          <small className="muted">
+            Your GPS location is needed to identify where the issue is.
+          </small>
+        )}
+
+        <Button
+          secondary
+          disabled={locationStatus === "loading"}
+          onClick={onLocate}
+        >
+          {locationStatus === "loading"
+            ? "Detecting location..."
+            : locationStatus === "success"
+              ? "Refresh location"
+              : "Detect my location"}
+        </Button>
       </Card>
 
       <input
@@ -3121,11 +3403,24 @@ function CaptureReport({issue,setIssue,description,setDescription,photo,setPhoto
       <p className="hint">
         Select an actual image from your camera or gallery. Maximum size: 10 MB.
       </p>
+
+      <Button
+        disabled={!canReview}
+        onClick={() => go("Review report")}
+      >
+        Review your report
+      </Button>
+
+      {!canReview && (
+        <p className="hint">
+          Enter a valid title, write at least 10 description characters, add a photo, choose a category and detect your GPS location.
+        </p>
+      )}
     </div>
   );
 }
-function ReviewReport({issue,description,photo,category,severity,setSeverity,go}) {
-  return <div className="page"><StatusBarTitle title="Review your report" back={()=>go("Capture report")}/><Label>02 / 03 &nbsp; AI-ASSISTED REVIEW</Label><div className="camera-thumb">
+function ReviewReport({issue,description,photo,category,severity,setSeverity,go,onCheckDuplicates,duplicateLoading}) {
+  return <div className="page"><StatusBarTitle title="Review your report" back={()=>go("Capture report")}/><Label>02 / 03 &nbsp; REPORT REVIEW</Label><div className="camera-thumb">
   {photo?.previewUrl ? (
     <img
       src={photo.previewUrl}
@@ -3144,13 +3439,149 @@ function ReviewReport({issue,description,photo,category,severity,setSeverity,go}
     </>
   )}
 </div>
-<Card><b className="green">✦ Pothole detected</b><p>94% model confidence • 3 damage clusters</p><small className="muted">You can correct the AI before submitting.</small></Card><Card><b>Category</b><p>{category}</p><b>Severity</b><div className="chip-wrap">{["Low","Medium","High"].map(x=><button className={`chip ${severity===x?"on":""}`} onClick={()=>setSeverity(x)} key={x}>{x}</button>)}</div>{description && <><b>Issue description</b><p>{description}</p></>}</Card><Button onClick={()=>go("Possible duplicate")}>Check nearby duplicates</Button><Button secondary onClick={()=>go("Capture report")}>Retake photo</Button></div>;
+<Card>
+  <div className="split">
+    <b>AI image analysis</b>
+    <span className="muted">Not connected</span>
+  </div>
+  <p>Automated image verification is not available yet.</p>
+  <small className="muted">
+    Please review your photo against the title, description and category.
+    No AI detection or confidence score has been generated.
+  </small>
+</Card><Card><b>Issue title</b><p>{issue}</p><b>Category</b><p>{category}</p><b>Severity</b><div className="chip-wrap">{["Low","Medium","High"].map(x=><button className={`chip ${severity===x?"on":""}`} onClick={()=>setSeverity(x)} key={x}>{x}</button>)}</div>{description && <><b>Issue description</b><p>{description}</p></>}</Card><Button onClick={onCheckDuplicates} disabled={duplicateLoading}>{duplicateLoading ? "Checking nearby reports..." : "Check nearby duplicates"}</Button><Button secondary onClick={()=>go("Capture report")}>Retake photo</Button></div>;
 }
-function Duplicate({go,issue}) {
-  return <div className="page"><StatusBarTitle title="A match nearby" back={()=>go("Review report")}/><Label>03 / 03 &nbsp; AVOID DUPLICATE REPORTS</Label><h1>Same problem.<br/>Stronger together.</h1><p className="muted">A similar report is 18 m from your location. Add your evidence to give it more weight.</p><Card><b>#GN-2048 · Pothole, Alpha II</b><p>Similarity <b className="green">91%</b></p><small className="muted">Reported 12 Nov • 12 community confirmations</small></Card><Button onClick={()=>go("Report submitted")}>Add evidence to this issue</Button><Button secondary onClick={()=>go("Report submitted")}>This is a different issue</Button><p className="hint">Duplicate detection is simulated. Your report is saved either way.</p></div>;
+function Duplicate({
+  go,
+  issue,
+  matches = [],
+  status,
+  error,
+  onRetry,
+  onSubmitNew,
+  newLoading,
+  onAddEvidence,
+  evidenceLoading
+}) {
+  return (
+    <div className="page">
+      <StatusBarTitle
+        title="Check nearby reports"
+        back={() => go("Review report")}
+      />
+      <Label>03 / 03 &nbsp; DUPLICATE CHECK</Label>
+      <h1>Check before creating a new report.</h1>
+
+      <Card>
+        <b>Your report</b>
+        <p>{issue || "Untitled report"}</p>
+      </Card>
+
+      {status === "loading" && (
+        <Card>
+          <b>Checking nearby reports...</b>
+          <p className="muted">Searching for active reports in the same category within 50 metres.</p>
+        </Card>
+      )}
+
+      {status === "error" && (
+        <Card>
+          <b>Could not check nearby reports</b>
+          <p>{error || "Something went wrong while checking."}</p>
+          <Button secondary onClick={onRetry}>Try again</Button>
+        </Card>
+      )}
+
+      {status === "success" && matches.length === 0 && (
+        <Card>
+          <b>No nearby matches found</b>
+          <p>No active reports in the same category were found within 50 metres.</p>
+          <small className="muted">You can proceed with a new report.</small>
+        </Card>
+      )}
+
+      {status === "success" && matches.length > 0 && (
+        <>
+          <h3>Potential nearby matches ({matches.length})</h3>
+          <p className="muted">These reports share the same category and are within 50 metres. Please check whether they describe the same issue.</p>
+
+          {matches.map((report) => (
+            <Card key={report.id}>
+              <div className="split">
+                <b>Report #{report.report_number}</b>
+                <span className="severity">{report.status}</span>
+              </div>
+              <h3>{report.title}</h3>
+              <p>{report.category} · {report.severity} severity</p>
+              <p className="muted">
+                {Number.isFinite(Number(report.distance_m))
+                  ? `${Math.round(Number(report.distance_m))} metres away`
+                  : "Distance unavailable"}
+              </p>
+              <Button
+                onClick={() => onAddEvidence(report)}
+                disabled={evidenceLoading || newLoading}
+              >
+                {evidenceLoading ? "Adding evidence..." : "Add evidence to this issue"}
+              </Button>
+            </Card>
+          ))}
+        </>
+      )}
+
+      <Button
+        onClick={onSubmitNew}
+        disabled={newLoading || evidenceLoading || status === "loading"}
+      >
+        {newLoading ? "Submitting report..." : "Raise as a new report"}
+      </Button>
+
+      <Button secondary onClick={() => go("Review report")}>
+        Back to review
+      </Button>
+
+      <p className="hint">
+        Nearby matches are suggestions, not confirmed duplicates. Your report is not saved until you choose an action.
+      </p>
+    </div>
+  );
 }
-function Submitted({go}) {
-  return <div className="page"><StatusBarTitle title="Your voice is on record" back={()=>go("Home")}/><Card className="success-card"><CheckCircle2 size={38}/><h2>Evidence added.</h2><p>Your report now supports #GN-2048.</p></Card><Card><b>The next step is accountability.</b><p>1 &nbsp; Evidence joins the community report</p><p>2 &nbsp; Responsible authority is identified</p><p>3 &nbsp; You choose an official complaint handoff</p></Card><Button onClick={()=>go("Reference tracking")}>View issue & timeline</Button><Button secondary onClick={()=>go("Responsible authority")}>Find responsible authority</Button><p className="hint">Saved in this prototype only. No real complaint has been filed.</p></div>;
+
+function Submitted({go, report}) {
+  const evidenceAdded = report?.evidenceAdded === true;
+  const reportNumber = report?.report_number;
+
+  return (
+    <div className="page">
+      <StatusBarTitle
+        title="Your voice is on record"
+        back={() => go("Home")}
+      />
+      <Card className="success-card">
+        <CheckCircle2 size={38}/>
+        <h2>{evidenceAdded ? "Evidence added." : "Report submitted."}</h2>
+        <p>
+          {evidenceAdded
+            ? "Your evidence has been linked to existing report"
+            : "Your new report has been saved as"}
+          {reportNumber ? ` #${reportNumber}.` : "."}
+        </p>
+        {report?.title && <small className="muted">{report.title}</small>}
+        {report?.status && <p className="muted">Current status: {report.status}</p>}
+      </Card>
+      <Card>
+        <b>The next step is accountability.</b>
+        <p>1 &nbsp; Evidence is recorded with the community report</p>
+        <p>2 &nbsp; Responsible authority can be identified</p>
+        <p>3 &nbsp; You can choose an official complaint handoff</p>
+      </Card>
+      <Button onClick={() => go("Home")}>Back to home</Button>
+      <Button secondary onClick={() => go("Responsible authority")}>Find responsible authority</Button>
+      <p className="hint">
+        Saving a civic report does not mean a complaint has been filed with a government authority.
+      </p>
+    </div>
+  );
 }
 function IssueDetails({go,issue}) {
   return <div className="page"><StatusBarTitle title="Issue #GN-2048" back={()=>go("Explore map")}/><Label>GN-2048 • MONITORING VERIFICATION</Label><h1>{issue}</h1><Card><b>12 people confirmed this</b><p>3 evidence photos • 240 m from you</p></Card><Card>{["12 Nov · Report received","13 Nov · Assigned to road maintenance","14 Nov · Repair requested / proof pending","15 Nov · Community review requested"].map(x=><p key={x}>• &nbsp;{x}</p>)}</Card><Button onClick={()=>go("GroundTruth AI")}>Check repair</Button><Button secondary onClick={()=>go("Responsible authority")}>Authority →</Button><Button secondary onClick={()=>go("Capture report")}>I still see this issue</Button></div>;
@@ -3464,7 +3895,84 @@ function Profile({go,reportCount}) {
   return <div className="page"><StatusBarTitle title="Your civic footprint" back={()=>go("Home")}/><Card className="profile-card"><div className="avatar">AS</div><h2>Aarav Sharma</h2><p>Alpha II, Greater Noida</p><small className="muted">Joined October 2026</small><span className="green">✦ Trusted contributor</span></Card><div className="metric-grid"><Card><strong>{reportCount}</strong><small>Reports</small></Card><Card><strong>5</strong><small>Resolved</small></Card><Card><strong>23</strong><small>Verifications</small></Card></div>{[["Your reports","Report history"],["Notifications","Notifications"],["Accessibility","Accessibility"],["Privacy & settings","Privacy & settings"],["Language / English & हिन्दी","Language"]].map(([x,y])=><button className="menu-row" key={x} onClick={()=>go(y)}>{x}<ChevronRight size={16}/></button>)}</div>;
 }
 function History({go}) {
-  return <div className="page"><StatusBarTitle title="Your reports" back={()=>go("Profile")}/><Label>8 REPORTS • 5 RESOLVED • 3 OPEN</Label>{[["Pothole · Alpha II","Awaiting verification","15 Nov · #GN-2048"],["Streetlight · Sector Beta I","Assigned","13 Nov · #GN-2031"],["Waste pickup · Alpha II","Resolved","10 Nov · #GN-1982"],["Blocked drain · Delta I","Resolved","08 Nov · #GN-1946"]].map(([a,b,c],i)=><Card key={a} onClick={()=>go("Issue details")}><b>{a}</b><p className={i<2?"amber":"green"}>{b}</p><small className="muted">{c}</small></Card>)}<Button onClick={()=>go("Capture report")}>Report something new</Button><p className="hint">Preview of empty history → <a onClick={()=>go("Empty history")}>empty state</a></p></div>;
+  const [reports, setReports] = useState([]);
+  const [loadStatus, setLoadStatus] = useState("loading");
+  const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    const loadReports = async () => {
+      try {
+        const { data: authData, error: authError } = await supabase.auth.getUser();
+        if (authError) throw authError;
+        if (!authData?.user) throw new Error("Please sign in to view your reports.");
+
+        const { data, error } = await supabase
+          .from("reports")
+          .select("id, report_number, title, category, status, created_at, locality")
+          .eq("user_id", authData.user.id)
+          .order("created_at", { ascending: false });
+
+        if (error) throw error;
+
+        if (active) {
+          setReports(Array.isArray(data) ? data : []);
+          setLoadStatus("success");
+        }
+      } catch (error) {
+        console.error("Report history loading failed:", error);
+        if (active) {
+          setLoadError(error.message || "Could not load your reports.");
+          setLoadStatus("error");
+        }
+      }
+    };
+
+    loadReports();
+    return () => { active = false; };
+  }, []);
+
+  const resolvedCount = reports.filter(report => report.status === "Resolved").length;
+  const openCount = reports.length - resolvedCount;
+
+  return (
+    <div className="page">
+      <StatusBarTitle title="Your reports" back={() => go("Profile")} />
+      {loadStatus === "loading" && <p className="muted">Loading your reports...</p>}
+      {loadStatus === "error" && (
+        <Card>
+          <b className="amber">Unable to load report history</b>
+          <p className="muted">{loadError}</p>
+        </Card>
+      )}
+      {loadStatus === "success" && (
+        <>
+          <Label>{reports.length} REPORTS · {resolvedCount} RESOLVED · {openCount} OPEN</Label>
+          {reports.length === 0 ? (
+            <div className="empty-state">
+              <FileText size={34} />
+              <h2>No reports yet.</h2>
+              <p>Your submitted reports will appear here.</p>
+            </div>
+          ) : reports.map(report => (
+            <Card key={report.id}>
+              <b>{report.title}</b>
+              <p className="muted">{report.category} · {report.locality || "Location not saved"}</p>
+              <p className={report.status === "Resolved" ? "green" : "amber"}>{report.status}</p>
+              <small className="muted">
+                {new Date(report.created_at).toLocaleDateString("en-IN", {
+                  day: "2-digit", month: "short", year: "numeric"
+                })}
+                {" · "}#GN-{report.report_number}
+              </small>
+            </Card>
+          ))}
+        </>
+      )}
+      <Button onClick={() => go("Capture report")}>Report something new</Button>
+    </div>
+  );
 }
 function Notifications({go,enabled,setEnabled}) {
   return <div className="page"><StatusBarTitle title="Notifications" back={()=>go("Profile")}/><Label>TODAY</Label>{[["Repair claimed. You decide.","New repair evidence for #GN-2048. Help verify it on the ground.","8 min ago"],["Your city briefing is ready","A clearer route, rising AQI, and the hazards near you.","34 min ago"],["Road hazard near Alpha II","A new community report is within 500 m of your saved area.","1 hour ago"]].map(([a,b,c])=><Card key={a}><b>{a}</b><p>{b}</p><small className="green">{c}</small></Card>)}<Card className="split"><b>Nearby alerts</b><button className={`switch ${enabled?"yes":""}`} onClick={()=>setEnabled(!enabled)}><i/></button></Card><p className="hint">Sample notifications • No push service connected</p></div>;
