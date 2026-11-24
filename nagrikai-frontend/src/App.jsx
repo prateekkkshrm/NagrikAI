@@ -27,7 +27,7 @@ import {
 
 const GREEN = "#83c9a7";
 const screens = [
-  "Splash","Welcome","Language","Login","OTP verification","Home","Explore map","Map filters",
+  "Splash","Welcome","Language","Login","OTP verification","Email verification","Home","Explore map","Map filters",
   "Capture report","Review report","Possible duplicate","Report submitted","Issue details",
   "GroundTruth AI","Responsible authority","Complaint handoff","Reference tracking","Weather & air",
   "Ask NagrikAI","Voice assistant","Civic navigation","City analytics","Profile","Report history",
@@ -45,9 +45,15 @@ const navItems = [
 function App() {
   const [screen, setScreen] = useState("Splash");
   const [language, setLanguage] = useState(() => localStorage.getItem("nagrikai-language") || "English");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState(["","","","","",""]);
+  const [emailOtp, setEmailOtp] = useState(["","","","","",""]);
   const [authLoading, setAuthLoading] = useState(false);
+  const [authSession, setAuthSession] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+  const authRestoreHandled = useRef(false);
   const [category, setCategory] = useState("");
   const [severity, setSeverity] = useState("");
   const [filters, setFilters] = useState(["Potholes & damaged roads","Waterlogging"]);
@@ -77,6 +83,43 @@ function App() {
   const [accessibility, setAccessibility] = useState({motion:true, contrast:true, text:false, voice:false});
   const [reportCount, setReportCount] = useState(8);
   const [selectedTab, setSelectedTab] = useState("Home");
+
+  useEffect(() => {
+    let mounted = true;
+
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (mounted) {
+        if (!error) setAuthSession(data.session);
+        setAuthReady(true);
+      }
+    });
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (mounted) setAuthSession(session);
+      }
+    );
+
+    return () => {
+      mounted = false;
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
+  useEffect(() => {
+    if (!authReady || authRestoreHandled.current) return;
+
+    authRestoreHandled.current = true;
+
+    if (authSession?.user) {
+      const user = authSession.user;
+      const pendingEmail = user.new_email || "";
+
+      setName(user.user_metadata?.full_name || "");
+      setPhone((user.phone || "").replace(/^\+91/, ""));
+      setEmail(pendingEmail || user.email || "");
+      setScreen(pendingEmail ? "Email verification" : "Home");
+    }
+  }, [authReady, authSession]);
 
   useEffect(() => {
     localStorage.setItem("nagrikai-language", language);
@@ -172,6 +215,16 @@ function App() {
 }, [userLocation]);
 
   const go = (name) => {
+    const publicScreens = ["Splash", "Welcome", "Language", "Login", "OTP verification", "Email verification"];
+
+    if ((!authReady || !authSession) && !publicScreens.includes(name)) {
+      if (authReady) {
+        setScreen("Login");
+        notify("Please verify your phone and email to continue.");
+      }
+      return;
+    }
+
     setScreen(name);
     const nav = navItems.find(n => n.id === name);
     if (nav) setSelectedTab(nav.id);
@@ -296,28 +349,70 @@ useEffect(() => {
 }, []);
 
   const handleSendOtp = async () => {
-  const digits = phone.replace(/\D/g, "");
+    const digits = phone.replace(/\D/g, "");
+    const cleanName = name.trim();
+    const cleanEmail = email.trim().toLowerCase();
 
-if (!/^[6-9]\d{9}$/.test(digits)) {
-  notify("Enter a valid 10-digit Indian mobile number.");
-  return;
-}
+    if (cleanName.length < 2) {
+      notify("Enter your full name.");
+      return;
+    }
 
-const formattedPhone = `+91${digits}`;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      notify("Enter a valid email address.");
+      return;
+    }
+
+    if (!/^[6-9]\d{9}$/.test(digits)) {
+      notify("Enter a valid 10-digit Indian mobile number.");
+      return;
+    }
+
+    setAuthLoading(true);
+
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        phone: `+91${digits}`
+      });
+
+      if (error) throw error;
+
+      go("OTP verification");
+      notify("SMS verification code sent.");
+    } catch (error) {
+      notify(error.message || "Unable to request SMS OTP.");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+const handleVerifyEmailOtp = async () => {
+  const token = emailOtp.join("");
+  const cleanEmail = email.trim().toLowerCase();
+
+  if (!/^\d{6}$/.test(token)) {
+    notify("Enter all 6 email OTP digits.");
+    return;
+  }
 
   setAuthLoading(true);
 
   try {
-    const { error } = await supabase.auth.signInWithOtp({
-      phone: formattedPhone
+    const { data, error } = await supabase.auth.verifyOtp({
+      email: cleanEmail,
+      token,
+      type: "email_change"
     });
 
     if (error) throw error;
+    if (!data.user) throw new Error("Email verification could not be completed.");
 
-    go("OTP verification");
-    notify("OTP request successful. Enter your test OTP.");
+    setEmail(cleanEmail);
+    setEmailOtp(["", "", "", "", "", ""]);
+    go("Home");
+    notify("Phone and email verified successfully.");
   } catch (error) {
-    notify(error.message || "Unable to request OTP.");
+    setEmailOtp(["", "", "", "", "", ""]);
+    notify(error.message || "Incorrect or expired email OTP. Please try again.");
   } finally {
     setAuthLoading(false);
   }
@@ -347,18 +442,23 @@ const handleVerifyOtp = async () => {
     });
 
     if (error) throw error;
+    if (!data.session) throw new Error("Authentication session was not created.");
 
-    if (!data.session) {
-      throw new Error("Authentication session was not created.");
-    }
+    const { error: updateError } = await supabase.auth.updateUser({
+      email: email.trim().toLowerCase(),
+      data: { full_name: name.trim() }
+    });
 
-    go("Home");
-    notify("Phone number verified successfully.");
+    if (updateError) throw updateError;
+
+    setOtp(["", "", "", "", "", ""]);
+    setEmailOtp(["", "", "", "", "", ""]);
+    go("Email verification");
+    notify("Phone verified. Check your email for its verification code.");
 
   } catch (error) {
     setOtp(["", "", "", "", "", ""]);
-    notify("Incorrect or expired OTP. Please try again.");
-
+    notify(error.message || "Phone verification or email setup failed.");
   } finally {
     setAuthLoading(false);
   }
@@ -591,7 +691,8 @@ const handleVerifyOtp = async () => {
            />
          )}
         {screen === "Language" && <Language language={language} setLanguage={setLanguage} go={go}/>}
-        {screen === "Login" && <Login phone={phone} setPhone={setPhone} go={go} notify={notify} onSendOtp={handleSendOtp} authLoading={authLoading}/>}
+        {screen === "Login" && <Login name={name} setName={setName} email={email} setEmail={setEmail} phone={phone} setPhone={setPhone} go={go} notify={notify} onSendOtp={handleSendOtp} authLoading={authLoading}/>}
+        {screen === "Email verification" && <EmailVerification email={email} emailOtp={emailOtp} setEmailOtp={setEmailOtp} go={go} notify={notify} onVerify={handleVerifyEmailOtp} authLoading={authLoading}/>}
         {screen === "OTP verification" && <OTP phone={phone} otp={otp} setOtp={setOtp} go={go} notify={notify} onVerify={handleVerifyOtp} authLoading={authLoading}/>}
         {screen === "Home" && (
           <HomeScreen
@@ -687,7 +788,7 @@ function useCurrentTime() {
 
   return now;
 }
-function Field({label,value,onChange,placeholder}) { return <label className="field"><span>{label}</span><input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}/></label>; }
+function Field({label,value,onChange,placeholder,type="text"}) { return <label className="field"><span>{label}</span><input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}/></label>; }
 function BottomNav({selected,nav}) {
   return <nav className="bottom-nav">{navItems.map(({id,label,icon:Icon})=><button key={id} className={`${selected===id?"selected":""} ${id==="Capture report"?"report-nav":""}`} onClick={()=>nav(id)}><Icon size={17}/><small>{label}</small></button>)}</nav>;
 }
@@ -783,17 +884,43 @@ function Welcome({
 function Language({language,setLanguage,go}) {
   return <div className="page"><StatusBarTitle title="Choose your language" back={()=>go("Welcome")}/><Label>01 / 03 &nbsp; PERSONALISE</Label><h1>Your city.<br/>Your language.</h1><p className="muted">Choose how NagrikAI speaks to you. You can change this anytime.</p>{["English","Hindi"].map(v=><button className={`choice ${language===v?"chosen":""}`} onClick={()=>setLanguage(v)} key={v}><span>{v==="Hindi"?"हिन्दी":"English"}</span><small>{language===v?"Selected language":"भाषा चुनें"}</small>{language===v&&<Check size={17}/>}</button>)}<p className="hint">All conversations support both English and Hindi, including voice input.</p><div className="bottom-action"><Button onClick={()=>go("Login")}>Continue in {language === "Hindi" ? "हिन्दी" : "English"}</Button></div></div>;
 }
-function Login({phone,setPhone,go,notify,onSendOtp,authLoading}) {
-  return <div className="page"><StatusBarTitle title="Welcome to NagrikAI" back={()=>go("Language")}/><Label>02 / 03 &nbsp; SECURE SIGN-IN</Label><h1>One number.<br/>A stronger voice.</h1><p className="muted">Track your reports and get updates that actually matter.</p><Field
-  label="MOBILE NUMBER"
-  value={phone}
-  onChange={value => setPhone(value.replace(/\D/g, "").slice(0, 10))}
-  placeholder="Enter 10-digit mobile number"
-/>
-<Button onClick={onSendOtp} disabled={authLoading || phone.length !== 10}>
-  {authLoading ? "Sending..." : "Send verification code"}
-</Button>
-<Card><b>Your number stays private.</b><p className="muted">Public reports never show your phone number. Your location is shared only with your consent.</p></Card><p className="hint">By continuing, you accept the Terms of Service and Privacy Policy.</p><Button secondary onClick={()=>go("Home")}>Explore without signing in</Button></div>;
+function Login({name,setName,email,setEmail,phone,setPhone,go,notify,onSendOtp,authLoading}) {
+  return <div className="page">
+    <StatusBarTitle title="Welcome to NagrikAI" back={()=>go("Language")}/>
+    <Label>02 / 03 &nbsp; SECURE SIGN-IN</Label>
+    <h1>Your voice.<br/>Your identity.</h1>
+    <p className="muted">Create your secure citizen profile to report issues and track updates.</p>
+
+    <Field
+      label="FULL NAME"
+      value={name}
+      onChange={setName}
+      placeholder="Enter your full name"
+    />
+    <Field
+      label="EMAIL ADDRESS"
+      type="email"
+      value={email}
+      onChange={setEmail}
+      placeholder="Enter your email address"
+    />
+    <Field
+      label="MOBILE NUMBER"
+      value={phone}
+      onChange={value => setPhone(value.replace(/\D/g, "").slice(0, 10))}
+      placeholder="Enter 10-digit mobile number"
+    />
+
+    <Button onClick={onSendOtp} disabled={authLoading || !name.trim() || !email.trim() || phone.length !== 10}>
+      {authLoading ? "Sending..." : "Send verification codes"}
+    </Button>
+
+    <Card>
+      <b>Your details stay private.</b>
+      <p className="muted">Your profile connects your reports to you. Your phone number and email are never shown publicly.</p>
+    </Card>
+    <p className="hint">By continuing, you accept the Terms of Service and Privacy Policy.</p>
+  </div>;
 }
 function OTP({phone,otp,setOtp,go,notify,onVerify,authLoading}) {
 
@@ -922,6 +1049,92 @@ function OTP({phone,otp,setOtp,go,notify,onVerify,authLoading}) {
         </p>
       </Card>
 
+    </div>
+  );
+}
+function EmailVerification({email,emailOtp,setEmailOtp,go,notify,onVerify,authLoading}) {
+  const handleOtpChange = (event, index) => {
+    const entered = event.target.value.replace(/\D/g, "");
+    const digits = entered.slice(0, 6 - index);
+    const next = [...emailOtp];
+
+    if (!digits) {
+      next[index] = "";
+      setEmailOtp(next);
+      return;
+    }
+
+    digits.split("").forEach((digit, offset) => {
+      next[index + offset] = digit;
+    });
+
+    setEmailOtp(next);
+    const inputs = event.currentTarget.parentElement.querySelectorAll("input");
+    inputs[Math.min(index + digits.length, 5)]?.focus();
+  };
+
+  const handleOtpKeyDown = (event, index) => {
+    const inputs = event.currentTarget.parentElement.querySelectorAll("input");
+
+    if (event.key === "Backspace" && !emailOtp[index] && index > 0) {
+      event.preventDefault();
+      const next = [...emailOtp];
+      next[index - 1] = "";
+      setEmailOtp(next);
+      inputs[index - 1]?.focus();
+    }
+
+    if (event.key === "ArrowLeft" && index > 0) inputs[index - 1]?.focus();
+    if (event.key === "ArrowRight" && index < 5) inputs[index + 1]?.focus();
+  };
+
+  const handleOtpPaste = (event) => {
+    event.preventDefault();
+    const pasted = event.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
+    if (!pasted) return;
+
+    setEmailOtp(Array.from({length: 6}, (_, index) => pasted[index] || ""));
+    const inputs = event.currentTarget.parentElement.querySelectorAll("input");
+    inputs[Math.min(pasted.length, 5)]?.focus();
+  };
+
+  return (
+    <div className="page">
+      <StatusBarTitle title="Verify your email" back={() => go("OTP verification")}/>
+      <Label>EMAIL VERIFICATION</Label>
+      <h1>One last check.</h1>
+      <p className="muted">
+        Enter the 6-digit verification code sent to
+        <br />
+        {email}
+      </p>
+
+      <div className="otp-row">
+        {emailOtp.map((value, index) => (
+          <input
+            key={index}
+            type="text"
+            inputMode="numeric"
+            autoComplete={index === 0 ? "one-time-code" : "off"}
+            autoFocus={index === 0}
+            maxLength={1}
+            value={value}
+            aria-label={`Email OTP digit ${index + 1}`}
+            onChange={(event) => handleOtpChange(event, index)}
+            onKeyDown={(event) => handleOtpKeyDown(event, index)}
+            onPaste={handleOtpPaste}
+          />
+        ))}
+      </div>
+
+      <Button onClick={onVerify} disabled={authLoading || emailOtp.join("").length !== 6}>
+        {authLoading ? "Verifying..." : "Verify email & enter city"}
+      </Button>
+
+      <Card>
+        <b>Your account, securely connected.</b>
+        <p className="muted">Your verified phone number and email will be linked to the same citizen profile.</p>
+      </Card>
     </div>
   );
 }
