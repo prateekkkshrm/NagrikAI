@@ -27,7 +27,7 @@ import {
 
 const GREEN = "#28d7a0";
 const screens = [
-  "Splash","Welcome","Language","Login","OTP verification","Email verification","Home","Explore map","Map filters",
+  "Splash","Welcome","Language","Login","Email verification","Home","Explore map","Map filters",
   "Capture report","Review report","Possible duplicate","Report submitted","Issue details",
   "GroundTruth AI","Responsible authority","Complaint handoff","Reference tracking","Weather & air",
   "Ask NagrikAI","Voice assistant","Civic navigation","City analytics","Profile","Report history",
@@ -46,6 +46,8 @@ function App() {
   const [screen, setScreen] = useState("Splash");
   const [language, setLanguage] = useState(() => localStorage.getItem("nagrikai-language") || "English");
   const [phone, setPhone] = useState("");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [emailOtp, setEmailOtp] = useState(["", "", "", "", "", ""]);
   const [authLoading, setAuthLoading] = useState(false);
@@ -78,6 +80,43 @@ function App() {
   const [accessibility, setAccessibility] = useState({ motion: true, contrast: true, text: false, voice: false });
   const [reportCount, setReportCount] = useState(8);
   const [selectedTab, setSelectedTab] = useState("Home");
+
+  useEffect(() => {
+    let mounted = true;
+
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (mounted) {
+        if (!error) setAuthSession(data.session);
+        setAuthReady(true);
+      }
+    });
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (mounted) setAuthSession(session);
+      }
+    );
+
+    return () => {
+      mounted = false;
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
+  useEffect(() => {
+    if (!authReady || authRestoreHandled.current) return;
+
+    authRestoreHandled.current = true;
+
+    if (authSession?.user) {
+      const user = authSession.user;
+      const pendingEmail = user.new_email || "";
+
+      setName(user.user_metadata?.full_name || "");
+      setPhone((user.phone || "").replace(/^\+91/, ""));
+      setEmail(pendingEmail || user.email || "");
+      setScreen(pendingEmail ? "Email verification" : "Home");
+    }
+  }, [authReady, authSession]);
 
   useEffect(() => {
     localStorage.setItem("nagrikai-language", language);
@@ -131,7 +170,7 @@ function App() {
             { signal: controller.signal }
           ),
           fetch(
-            `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${userLocation.lat}&longitude=${userLocation.lng}&current=us_aqi,pm2_5,pm10&timezone=auto`,
+           `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${userLocation.lat}&longitude=${userLocation.lng}&hourly=pm2_5,pm10,nitrogen_dioxide,sulphur_dioxide,ozone,carbon_monoxide&past_days=1&forecast_days=1&timezone=auto`,
             { signal: controller.signal }
           )
         ]);
@@ -149,7 +188,11 @@ function App() {
         if (aqiRes.status === "fulfilled" && aqiRes.value.ok) {
           try {
             const aqiJson = await aqiRes.value.json();
-            data.air_quality = aqiJson?.current || null;
+            data.air_quality = {
+  ...(aqiJson?.current || {}),
+  hourly: aqiJson?.hourly || null,
+  hourly_units: aqiJson?.hourly_units || {}
+};
           } catch (e) {
             console.warn("AQI parse error:", e);
           }
@@ -188,6 +231,16 @@ function App() {
   }, [userLocation]);
 
   const go = (name) => {
+    const publicScreens = ["Splash", "Welcome", "Language", "Login", "OTP verification", "Email verification"];
+
+    if ((!authReady || !authSession) && !publicScreens.includes(name)) {
+      if (authReady) {
+        setScreen("Login");
+        notify("Please verify your phone and email to continue.");
+      }
+      return;
+    }
+
     setScreen(name);
     const nav = navItems.find(n => n.id === name);
     if (nav) setSelectedTab(nav.id);
@@ -198,7 +251,7 @@ function App() {
     window.clearTimeout(window.__toastTimer);
     window.__toastTimer = window.setTimeout(() => setToast(""), 2400);
   };
-  
+
 const detectUserLocation = async () => {
   setLocationStatus("loading");
   setLocationError("");
@@ -303,13 +356,13 @@ const detectUserLocation = async () => {
   }
 };
 
-  
+
   useEffect(() => {
     if (autoLocationStarted.current) return;
 
-    autoLocationStarted.current = true;
-    detectUserLocation();
-  }, []);
+  autoLocationStarted.current = true;
+  detectUserLocation();
+}, []);
 
   const handleSendOtp = async () => {
     const digits = phone.replace(/\D/g, "");
@@ -335,25 +388,79 @@ const detectUserLocation = async () => {
 
     try {
       const { error } = await supabase.auth.signInWithOtp({
-        phone: `+91${digits}`
+        email: cleanEmail,
+        options: {
+          shouldCreateUser: true,
+          data: {
+            full_name: cleanName,
+            phone: `+91${digits}`
+          }
+        }
       });
 
       if (error) throw error;
 
-      go("OTP verification");
-      notify("SMS verification code sent.");
+      setEmail(cleanEmail);
+      setEmailOtp(["", "", "", "", "", ""]);
+
+      go("Email verification");
+      notify("Email verification code sent.");
+
     } catch (error) {
-      notify(error.message || "Unable to request SMS OTP.");
+      console.error("Email OTP request failed:", error);
+      notify(error.message || "Unable to send email OTP.");
     } finally {
       setAuthLoading(false);
     }
   };
+
+  const handleResendEmailOtp = async () => {
+    const digits = phone.replace(/\D/g, "");
+    const cleanName = name.trim();
+    const cleanEmail = email.trim().toLowerCase();
+
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email: cleanEmail,
+        options: {
+          shouldCreateUser: true,
+          data: {
+            full_name: cleanName,
+            phone: `+91${digits}`
+          }
+        }
+      });
+
+      if (error) throw error;
+
+      return true;
+
+    } catch (error) {
+      console.error("Email OTP resend failed:", error);
+      notify(error.message || "Unable to resend email OTP.");
+      return false;
+    }
+  };
+
+
 const handleVerifyEmailOtp = async () => {
   const token = emailOtp.join("");
   const cleanEmail = email.trim().toLowerCase();
+  const cleanName = name.trim();
+  const digits = phone.replace(/\D/g, "");
 
   if (!/^\d{6}$/.test(token)) {
     notify("Enter all 6 email OTP digits.");
+    return;
+  }
+
+  if (cleanName.length < 2 || cleanName.length > 100) {
+    notify("Enter a valid full name.");
+    return;
+  }
+
+  if (!/^[6-9]\d{9}$/.test(digits)) {
+    notify("Enter a valid 10-digit mobile number.");
     return;
   }
 
@@ -363,69 +470,73 @@ const handleVerifyEmailOtp = async () => {
     const { data, error } = await supabase.auth.verifyOtp({
       email: cleanEmail,
       token,
-      type: "email_change"
+      type: "email"
     });
 
     if (error) throw error;
-    if (!data.user) throw new Error("Email verification could not be completed.");
 
-    setEmail(cleanEmail);
-    setEmailOtp(["", "", "", "", "", ""]);
-    go("Home");
-    notify("Phone and email verified successfully.");
-  } catch (error) {
-    setEmailOtp(["", "", "", "", "", ""]);
-    notify(error.message || "Incorrect or expired email OTP. Please try again.");
-  } finally {
-    setAuthLoading(false);
-  }
-};
-const handleVerifyOtp = async () => {
-  const digits = phone.replace(/\D/g, "");
-  const token = otp.join("");
+    if (!data.session || !data.user) {
+      throw new Error("Email authentication session was not created.");
+    }
 
-  if (!/^[6-9]\d{9}$/.test(digits)) {
-    notify("Invalid mobile number.");
-    go("Login");
-    return;
-  }
+    const phoneE164 = `+91${digits}`;
 
-  if (!/^\d{6}$/.test(token)) {
-    notify("Enter all 6 OTP digits.");
-    return;
-  }
-
-  setAuthLoading(true);
-
-  try {
-    const { data, error } = await supabase.auth.verifyOtp({
-      phone: `+91${digits}`,
-      token,
-      type: "sms"
-    });
-
-    if (error) throw error;
-    if (!data.session) throw new Error("Authentication session was not created.");
-
-    const { error: updateError } = await supabase.auth.updateUser({
-      email: email.trim().toLowerCase(),
-      data: { full_name: name.trim() }
-    });
+    // Save registration details in authenticated user metadata.
+    const { data: updatedData, error: updateError } =
+      await supabase.auth.updateUser({
+        data: {
+          full_name: cleanName,
+          phone: phoneE164
+        }
+      });
 
     if (updateError) throw updateError;
 
-    setOtp(["", "", "", "", "", ""]);
+    const currentUser = updatedData.user || data.user;
+
+    // Save the citizen profile using the authenticated user ID.
+    const { error: profileError } = await supabase
+      .from("citizen_profiles")
+      .upsert({
+        user_id: currentUser.id,
+        full_name: cleanName,
+        phone: phoneE164,
+        email: cleanEmail,
+        email_verified_at:
+          currentUser.email_confirmed_at || new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: "user_id"
+      });
+
+    if (profileError) {
+      console.error("Citizen profile save failed:", profileError);
+
+      if (profileError.code === "23505") {
+        throw new Error(
+          "This email is already linked to another citizen account."
+        );
+      }
+
+      throw profileError;
+    }
+
+    setName(cleanName);
+    setPhone(digits);
+    setEmail(cleanEmail);
     setEmailOtp(["", "", "", "", "", ""]);
-    go("Email verification");
-    notify("Phone verified. Check your email for its verification code.");
+
+    go("Home");
+    notify("Email verified successfully. Welcome to NagrikAI.");
 
   } catch (error) {
-    setOtp(["", "", "", "", "", ""]);
-    notify(error.message || "Phone verification or email setup failed.");
+    console.error("Email verification failed:", error);
+    notify(error.message || "Incorrect or expired email OTP.");
   } finally {
     setAuthLoading(false);
   }
 };
+
   const toggleFilter = (name) => setFilters(v => v.includes(name) ? v.filter(x => x !== name) : [...v,name]);
   const checkNearbyReports = async () => {
     if (duplicateStatus === "loading") return;
@@ -642,7 +753,7 @@ const handleVerifyOtp = async () => {
 
   return <div className="app-shell">
     <div className="device">
-      <div className="status"><span>9:41 ▮▮▮</span><div className="status-right"><span>5G ◉ ▰</span><button className="language-toggle" onClick={() => setLanguage(v => v === "English" ? "Hindi" : "English")} aria-label="Change language">{language === "English" ? "हिंदी" : "EN"}</button></div></div>
+
       <main className="screen-content">
         {screen === "Splash" && <Splash go={go} />}
         {screen === "Welcome" && (
@@ -656,23 +767,33 @@ const handleVerifyOtp = async () => {
          )}
         {screen === "Language" && <Language language={language} setLanguage={setLanguage} go={go}/>}
         {screen === "Login" && <Login name={name} setName={setName} email={email} setEmail={setEmail} phone={phone} setPhone={setPhone} go={go} notify={notify} onSendOtp={handleSendOtp} authLoading={authLoading}/>}
-        {screen === "Email verification" && <EmailVerification email={email} emailOtp={emailOtp} setEmailOtp={setEmailOtp} go={go} notify={notify} onVerify={handleVerifyEmailOtp} authLoading={authLoading}/>}
-        {screen === "OTP verification" && <OTP phone={phone} otp={otp} setOtp={setOtp} go={go} notify={notify} onVerify={handleVerifyOtp} authLoading={authLoading}/>}
+       {screen === "Email verification" && (
+  <EmailVerification
+    email={email}
+    emailOtp={emailOtp}
+    setEmailOtp={setEmailOtp}
+    go={go}
+    notify={notify}
+    onVerify={handleVerifyEmailOtp}
+    onResend={handleResendEmailOtp}
+    authLoading={authLoading}
+  />
+)}
         {screen === "Home" && (
           <HomeScreen
-            go={go}
-            language={language}
-            reportCount={reportCount}
-            notify={notify}
-            userLocation={userLocation}
-            locationDetails={locationDetails}
-            locationStatus={locationStatus}
-            onLocate={detectUserLocation}
-            weatherData={weatherData}
-            weatherStatus={weatherStatus}
-            weatherError={weatherError}
-
-          />
+           go={go}
+           language={language}
+           name={name}
+           reportCount={reportCount}
+           notify={notify}
+           userLocation={userLocation}
+           locationDetails={locationDetails}
+           locationStatus={locationStatus}
+           onLocate={detectUserLocation}
+           weatherData={weatherData}
+           weatherStatus={weatherStatus}
+           weatherError={weatherError}
+           />
         )}
         {screen === "Explore map" && (
           <ExploreMap
@@ -694,7 +815,7 @@ const handleVerifyOtp = async () => {
         {screen === "Map filters" && <MapFilters filters={filters} toggleFilter={toggleFilter} distance={distance} setDistance={setDistance} intelligenceLayers={intelligenceLayers} toggleIntelligenceLayer={toggleIntelligenceLayer} go={go}/>}
         {screen === "Capture report" && <CaptureReport issue={issue} setIssue={setIssue} description={description} setDescription={setDescription} photo={photo} setPhoto={setPhoto} category={category} setCategory={setCategory} userLocation={userLocation} locationStatus={locationStatus} locationDetails={locationDetails} onLocate={detectUserLocation} go={go} notify={notify}/>}
         {screen === "Review report" && <ReviewReport issue={issue} description={description} photo={photo} category={category} severity={severity} setSeverity={setSeverity} go={go} onCheckDuplicates={checkNearbyReports} duplicateLoading={duplicateStatus === "loading"}/>}
-        {screen === "Possible duplicate" && <Duplicate go={go} issue={issue} matches={duplicateReports} status={duplicateStatus} error={duplicateError} onRetry={checkNearbyReports} onSubmitNew={submitReport} newLoading={submissionLoading} onAddEvidence={submitEvidence} evidenceLoading={evidenceLoading}/>} 
+        {screen === "Possible duplicate" && <Duplicate go={go} issue={issue} matches={duplicateReports} status={duplicateStatus} error={duplicateError} onRetry={checkNearbyReports} onSubmitNew={submitReport} newLoading={submissionLoading} onAddEvidence={submitEvidence} evidenceLoading={evidenceLoading}/>}
         {screen === "Report submitted" && <Submitted go={go} report={submittedReport}/>}
         {screen === "Issue details" && <IssueDetails go={go} issue={issue}/>}
         {screen === "GroundTruth AI" && <GroundTruth go={go}/>}
@@ -726,9 +847,9 @@ const handleVerifyOtp = async () => {
         {screen === "Empty history" && <Empty go={go} />}
         {screen === "Connection error" && <Offline go={go} />}
       </main>
-      {!["Splash", "Welcome", "Language", "Login", "OTP verification"].includes(screen) &&
-        <BottomNav selected={selectedTab} nav={nav} />}
-      {toast && <div className="toast"><CheckCircle2 size={15} />{toast}</div>}
+      {!["Splash","Welcome","Language","Login","OTP verification"].includes(screen) &&
+        <BottomNav selected={selectedTab} nav={nav}/>}
+      {toast && <div className="toast"><CheckCircle2 size={15}/>{toast}</div>}
     </div>
     <aside className="screen-index">
       <div className="index-head"><div className="brand-mark small">N</div><div><b>NagrikAI</b><small>Prototype navigation</small></div></div>
@@ -860,9 +981,9 @@ function Language({ language, setLanguage, go }) {
 }
 function Login({ name, setName, email, setEmail, phone, setPhone, go, notify, onSendOtp, authLoading }) {
   return <div className="page">
-    <StatusBarTitle title="Welcome to NagrikAI" back={() => go("Language")} />
+    <StatusBarTitle title="Welcome to NagrikAI" back={()=>go("Language")}/>
     <Label>02 / 03 &nbsp; SECURE SIGN-IN</Label>
-    <h1>Your voice.<br />Your identity.</h1>
+    <h1>Your voice.<br/>Your identity.</h1>
     <p className="muted">Create your secure citizen profile to report issues and track updates.</p>
 
     <Field
@@ -886,7 +1007,7 @@ function Login({ name, setName, email, setEmail, phone, setPhone, go, notify, on
     />
 
     <Button onClick={onSendOtp} disabled={authLoading || !name.trim() || !email.trim() || phone.length !== 10}>
-      {authLoading ? "Sending..." : "Send verification codes"}
+      {authLoading ? "Sending..." : "Send email verification code"}
     </Button>
 
     <Card>
@@ -1027,6 +1148,92 @@ function OTP({ phone, otp, setOtp, go, notify, onVerify, authLoading }) {
     </div>
   );
 }
+function EmailVerification({email,emailOtp,setEmailOtp,go,notify,onVerify,authLoading}) {
+  const handleOtpChange = (event, index) => {
+    const entered = event.target.value.replace(/\D/g, "");
+    const digits = entered.slice(0, 6 - index);
+    const next = [...emailOtp];
+
+    if (!digits) {
+      next[index] = "";
+      setEmailOtp(next);
+      return;
+    }
+
+    digits.split("").forEach((digit, offset) => {
+      next[index + offset] = digit;
+    });
+
+    setEmailOtp(next);
+    const inputs = event.currentTarget.parentElement.querySelectorAll("input");
+    inputs[Math.min(index + digits.length, 5)]?.focus();
+  };
+
+  const handleOtpKeyDown = (event, index) => {
+    const inputs = event.currentTarget.parentElement.querySelectorAll("input");
+
+    if (event.key === "Backspace" && !emailOtp[index] && index > 0) {
+      event.preventDefault();
+      const next = [...emailOtp];
+      next[index - 1] = "";
+      setEmailOtp(next);
+      inputs[index - 1]?.focus();
+    }
+
+    if (event.key === "ArrowLeft" && index > 0) inputs[index - 1]?.focus();
+    if (event.key === "ArrowRight" && index < 5) inputs[index + 1]?.focus();
+  };
+
+  const handleOtpPaste = (event) => {
+    event.preventDefault();
+    const pasted = event.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
+    if (!pasted) return;
+
+    setEmailOtp(Array.from({length: 6}, (_, index) => pasted[index] || ""));
+    const inputs = event.currentTarget.parentElement.querySelectorAll("input");
+    inputs[Math.min(pasted.length, 5)]?.focus();
+  };
+
+  return (
+    <div className="page">
+      <StatusBarTitle title="Verify your email" back={() => go("OTP verification")}/>
+      <Label>EMAIL VERIFICATION</Label>
+      <h1>One last check.</h1>
+      <p className="muted">
+        Enter the 6-digit verification code sent to
+        <br />
+        {email}
+      </p>
+
+      <div className="otp-row">
+        {emailOtp.map((value, index) => (
+          <input
+            key={index}
+            type="text"
+            inputMode="numeric"
+            autoComplete={index === 0 ? "one-time-code" : "off"}
+            autoFocus={index === 0}
+            maxLength={1}
+            value={value}
+            aria-label={`Email OTP digit ${index + 1}`}
+            onChange={(event) => handleOtpChange(event, index)}
+            onKeyDown={(event) => handleOtpKeyDown(event, index)}
+            onPaste={handleOtpPaste}
+          />
+        ))}
+      </div>
+
+      <Button onClick={onVerify} disabled={authLoading || emailOtp.join("").length !== 6}>
+        {authLoading ? "Verifying..." : "Verify email & enter city"}
+      </Button>
+
+      <Card>
+        <b>Your account, securely connected.</b>
+        <p className="muted">Your verified phone number and email will be linked to the same citizen profile.</p>
+      </Card>
+    </div>
+  );
+}
 function WeatherVisual({ code, temperature, isDay = 1, size = 26 }) {
   let Icon = isDay ? CloudSun : CloudMoon;
   let color = isDay ? "#70C8FF" : "#9BB4CE";
@@ -1082,6 +1289,7 @@ function WeatherVisual({ code, temperature, isDay = 1, size = 26 }) {
 function HomeScreen({
   go,
   language,
+  name,
   reportCount,
   notify,
   userLocation,
@@ -1540,18 +1748,27 @@ function HomeScreen({
     <div className="page">
 
       <div className="home-heading">
-        <div>
-          <Label>{dateText.toUpperCase()} • {timeText}</Label>
-          <h2>{placeName}</h2>
-        </div>
+  <div>
+    <h2>
+      {language === "Hindi"
+        ? `नमस्ते, ${name?.trim() ? "प्रतीक" : "नागरिक"}`
+        : `Hello, ${name?.trim() || "Citizen"}`}
+    </h2>
 
-        <button
-          className="icon-btn"
-          onClick={() => go("Notifications")}
-        >
-          <Bell size={18} />
-        </button>
-      </div>
+    <p>
+      {language === "Hindi" ? "आप यहाँ हैं" : "You're at"}
+    </p>
+
+    <h3>{placeName}</h3>
+  </div>
+
+  <button
+    className="icon-btn"
+    onClick={() => go("Notifications")}
+  >
+    <Bell size={18} />
+  </button>
+</div>
 
       {!userLocation && (
         <Button
@@ -1847,23 +2064,6 @@ function HomeScreen({
         </small>
       </Card>
 
-      <div className="quick-grid">
-        {["Safer route", "City trends", "Ask AI"].map((x, i) => (
-          <button
-            key={x}
-            onClick={() =>
-              go([
-                "Civic navigation",
-                "City analytics",
-                "Ask NagrikAI"
-              ][i])
-            }
-          >
-            {x}
-          </button>
-        ))}
-      </div>
-
       <p className="hint">
         Live data connections are being integrated.
         Unavailable data is not replaced with sample figures.
@@ -2047,10 +2247,24 @@ function ExploreMap({
 
       try {
         const params = new URLSearchParams({
-          q: searchText,
-          limit: "10",
-          lang: "en"
-        });
+  latitude: String(userLocation.lat),
+  longitude: String(userLocation.lng),
+
+  current:
+    "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,rain,showers,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure,visibility,uv_index,dew_point_2m",
+
+  hourly:
+    "temperature_2m,precipitation_probability,precipitation,rain,weather_code,is_day",
+
+  daily:
+    "temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,weather_code,sunrise,sunset,uv_index_max",
+
+  temperature_unit: "celsius",
+  wind_speed_unit: "kmh",
+  precipitation_unit: "mm",
+  forecast_days: "7",
+  timezone: "Asia/Kolkata"
+});
 
         if (userLocation) {
           params.set("lat", userLocation.lat);
@@ -4134,55 +4348,120 @@ function Weather({
     return `${rounded} (Extreme)`;
   };
 
-  const getAqiDetails = (aqi) => {
-    if (typeof aqi !== "number") {
-      return {
-        label: "Moderate",
-        color: "#f4c44e",
-        desc: "Air quality is acceptable. Sensitive individuals should monitor outdoor exposure."
-      };
+
+  const calculateCpcbAqi = (hourly) => {
+    if (!hourly?.time) return null;
+
+    // Use the latest 24 elapsed hours, not forecast hours.
+    const pastIndexes = hourly.time
+      .map((time, index) => ({
+        index,
+        timestamp: new Date(time).getTime()
+      }))
+      .filter(item =>
+        Number.isFinite(item.timestamp) &&
+        item.timestamp <= Date.now()
+      )
+      .slice(-24)
+      .map(item => item.index);
+
+    if (pastIndexes.length < 16) return null;
+
+    const pollutantBreakpoints = {
+      pm2_5: [
+        [0, 30, 0, 50],
+        [30, 60, 50, 100],
+        [60, 90, 100, 200],
+        [90, 120, 200, 300],
+        [120, 250, 300, 400]
+      ],
+      pm10: [
+        [0, 50, 0, 50],
+        [50, 100, 50, 100],
+        [100, 250, 100, 200],
+        [250, 350, 200, 300],
+        [350, 430, 300, 400]
+      ],
+      nitrogen_dioxide: [
+        [0, 40, 0, 50],
+        [40, 80, 50, 100],
+        [80, 180, 100, 200],
+        [180, 280, 200, 300],
+        [280, 400, 300, 400]
+      ],
+      sulphur_dioxide: [
+        [0, 40, 0, 50],
+        [40, 80, 50, 100],
+        [80, 380, 100, 200],
+        [380, 800, 200, 300],
+        [800, 1600, 300, 400]
+      ]
+    };
+
+    const averages = {};
+    const subIndices = {};
+
+    Object.keys(pollutantBreakpoints).forEach(pollutant => {
+      const values = hourly[pollutant];
+
+      if (!Array.isArray(values)) return;
+
+      const samples = pastIndexes
+        .map(index => values[index])
+        .filter(value =>
+          typeof value === "number" &&
+          Number.isFinite(value)
+        );
+
+      if (samples.length < 16) return;
+
+      const average =
+        samples.reduce((sum, value) => sum + value, 0) /
+        samples.length;
+
+      averages[pollutant] = average;
+
+      const ranges = pollutantBreakpoints[pollutant];
+
+      if (average > ranges[ranges.length - 1][1]) {
+        subIndices[pollutant] = 401;
+        return;
+      }
+
+      for (const [cLow, cHigh, iLow, iHigh] of ranges) {
+        if (average <= cHigh) {
+          subIndices[pollutant] = Math.round(
+            ((iHigh - iLow) / (cHigh - cLow)) *
+            (average - cLow) + iLow
+          );
+          break;
+        }
+      }
+    });
+
+    const validPollutants = Object.keys(subIndices);
+    const hasParticulateMatter =
+      validPollutants.includes("pm2_5") ||
+      validPollutants.includes("pm10");
+
+    if (validPollutants.length < 3 || !hasParticulateMatter) {
+      return null;
     }
-    if (aqi <= 50) {
-      return {
-        label: "Good",
-        color: "#2bd9a2",
-        desc: "Air quality is satisfactory and poses little or no health risk."
-      };
-    }
-    if (aqi <= 100) {
-      return {
-        label: "Moderate",
-        color: "#f4c44e",
-        desc: "Acceptable quality; sensitive groups should consider reducing prolonged outdoor exertion."
-      };
-    }
-    if (aqi <= 150) {
-      return {
-        label: "Unhealthy for Sensitive Groups",
-        color: "#fa8c16",
-        desc: "Sensitive groups may experience health effects. General public less likely affected."
-      };
-    }
-    if (aqi <= 200) {
-      return {
-        label: "Poor / Unhealthy",
-        color: "#ff4d4f",
-        desc: "Everyone may begin to experience health effects. Wear an N95 mask outdoors."
-      };
-    }
-    if (aqi <= 300) {
-      return {
-        label: "Very Poor",
-        color: "#9254de",
-        desc: "Health alert: significant risk for the entire population. Avoid outdoor exertion."
-      };
-    }
+
+    const worstPollutant = validPollutants.reduce((worst, pollutant) =>
+      subIndices[pollutant] > subIndices[worst]
+        ? pollutant
+        : worst
+    );
+
     return {
-      label: "Severe / Hazardous",
-      color: "#ff1f4b",
-      desc: "Emergency health warning: serious risk to everyone. Keep doors/windows closed."
+      value: subIndices[worstPollutant],
+      pollutant: worstPollutant,
+      averages,
+      subIndices
     };
   };
+
 
   const formatSunTime = (timeStr) => {
     if (!timeStr) return "—";
@@ -4255,9 +4534,69 @@ function Weather({
     });
   };
 
-  const aqiVal = airQuality?.us_aqi ?? (current ? 142 : null);
-  const aqiInfo = getAqiDetails(aqiVal);
-  const aqiPercent = Math.min(100, Math.max(0, ((aqiVal || 50) / 300) * 100));
+  const aqiResult = calculateCpcbAqi(airQuality?.hourly);
+const aqiVal = aqiResult?.value ?? null;
+
+const getAqiDetails = (aqi) => {
+  if (aqi === null) {
+    return {
+      label: "Unavailable",
+      color: "#8b9aa4",
+      desc: "Insufficient pollutant observations to calculate a reliable CPCB-style AQI."
+    };
+  }
+
+  if (aqi <= 50) {
+    return {
+      label: "Good",
+      color: "#2bd9a2",
+      desc: "Air quality is good. Minimal impact on health."
+    };
+  }
+
+  if (aqi <= 100) {
+    return {
+      label: "Satisfactory",
+      color: "#a3cf62",
+      desc: "Minor breathing discomfort may occur to sensitive people."
+    };
+  }
+
+  if (aqi <= 200) {
+    return {
+      label: "Moderate",
+      color: "#f4c44e",
+      desc: "People with lung, asthma or heart conditions may experience discomfort."
+    };
+  }
+
+  if (aqi <= 300) {
+    return {
+      label: "Poor",
+      color: "#fa8c16",
+      desc: "Prolonged exposure may cause breathing discomfort to most people."
+    };
+  }
+
+  if (aqi <= 400) {
+    return {
+      label: "Very Poor",
+      color: "#9254de",
+      desc: "Prolonged exposure may cause respiratory illness."
+    };
+  }
+
+  return {
+    label: "Severe",
+    color: "#ff1f4b",
+    desc: "Health effects may occur even in healthy people. Avoid outdoor exertion."
+  };
+};
+
+const aqiInfo = getAqiDetails(aqiVal);
+const aqiPercent = aqiVal === null
+  ? 0
+  : Math.min(100, Math.max(0, (aqiVal / 500) * 100));
 
   return (
     <div className="page">
@@ -4445,7 +4784,7 @@ function Weather({
           <div className="aqi-container">
             <div className="aqi-header">
               <span style={{ fontSize: "10px", fontWeight: "700", color: "#8b9aa4", letterSpacing: "0.5px" }}>
-                US EPA AIR QUALITY STANDARD
+                MODEL ESTIMATE · CPCB AQI SCALE
               </span>
               <span
                 className="aqi-badge"
@@ -4461,7 +4800,7 @@ function Weather({
 
             <div className="aqi-val-row">
               <span className="aqi-number" style={{ color: aqiInfo.color }}>
-                {aqiVal}
+                {aqiVal === null ? "—" : aqiVal}
               </span>
               <small className="muted">AQI · {aqiInfo.label}</small>
             </div>
@@ -4474,13 +4813,20 @@ function Weather({
             </div>
 
             <div className="aqi-pollutants">
-              <span>
-                <b>PM2.5:</b> {airQuality?.pm2_5 ? `${Math.round(airQuality.pm2_5)} µg/m³` : "58 µg/m³"}
-              </span>
-              <span>
-                <b>PM10:</b> {airQuality?.pm10 ? `${Math.round(airQuality.pm10)} µg/m³` : "112 µg/m³"}
-              </span>
-            </div>
+  <span>
+    <b>PM2.5:</b>{" "}
+    {typeof aqiResult?.averages?.pm2_5 === "number"
+      ? `${Math.round(aqiResult.averages.pm2_5)} µg/m³`
+      : "Unavailable"}
+  </span>
+
+  <span>
+    <b>PM10:</b>{" "}
+    {typeof aqiResult?.averages?.pm10 === "number"
+      ? `${Math.round(aqiResult.averages.pm10)} µg/m³`
+      : "Unavailable"}
+  </span>
+</div>
 
             <p className="aqi-advice">
               {aqiInfo.desc}
@@ -4616,44 +4962,73 @@ function Profile({go}) {
   useEffect(() => {
     let active = true;
 
-    const loadProfile = async () => {
-      try {
-        const { data: authData, error: authError } = await supabase.auth.getUser();
-        if (authError) throw authError;
-        if (!authData?.user) throw new Error("Please sign in to view your profile.");
 
-        const user = authData.user;
+const loadProfile = async () => {
+  try {
+    const { data: authData, error: authError } = await supabase.auth.getUser();
 
-        const { data, error } = await supabase
-          .from("reports")
-          .select("status")
-          .eq("user_id", user.id);
+    if (authError) throw authError;
+    if (!authData?.user) {
+      throw new Error("Please sign in to view your profile.");
+    }
 
-        if (error) throw error;
+    const user = authData.user;
 
-        const userReports = Array.isArray(data) ? data : [];
-        const resolvedCount = userReports.filter(
-          report => report.status === "Resolved"
-        ).length;
+    // Fetch saved citizen details
+    const { data: citizenData, error: citizenError } = await supabase
+      .from("citizen_profiles")
+      .select("full_name, phone, email, email_verified_at, updated_at")
+      .eq("user_id", user.id)
+      .maybeSingle();
 
-        if (active) {
-          setProfile({
-            phone: user.phone || "Phone number unavailable",
-            joinedAt: user.created_at,
-            reportCount: userReports.length,
-            resolvedCount,
-            openCount: userReports.length - resolvedCount
-          });
-          setLoadStatus("success");
-        }
-      } catch (error) {
-        console.error("Profile loading failed:", error);
-        if (active) {
-          setLoadError(error.message || "Could not load your profile.");
-          setLoadStatus("error");
-        }
-      }
-    };
+    if (citizenError) throw citizenError;
+
+    // Fetch citizen's report statistics
+    const { data: reportsData, error: reportsError } = await supabase
+      .from("reports")
+      .select("status")
+      .eq("user_id", user.id);
+
+    if (reportsError) throw reportsError;
+
+    const userReports = Array.isArray(reportsData) ? reportsData : [];
+
+    const resolvedCount = userReports.filter(
+      report => report.status === "Resolved"
+    ).length;
+
+    if (active) {
+      setProfile({
+        fullName:
+          citizenData?.full_name ||
+          user.user_metadata?.full_name ||
+          "NagrikAI Citizen",
+        phone:
+          citizenData?.phone ||
+          user.phone ||
+          "Phone number unavailable",
+        email:
+          citizenData?.email ||
+          user.email ||
+          "Email unavailable",
+        joinedAt: user.created_at,
+        reportCount: userReports.length,
+        resolvedCount,
+        openCount: userReports.length - resolvedCount
+      });
+
+      setLoadStatus("success");
+    }
+  } catch (error) {
+    console.error("Profile loading failed:", error);
+
+    if (active) {
+      setLoadError(error.message || "Could not load your profile.");
+      setLoadStatus("error");
+    }
+  }
+};
+
 
     loadProfile();
     return () => { active = false; };
@@ -4664,11 +5039,15 @@ function Profile({go}) {
       <StatusBarTitle title="Your civic footprint" back={() => go("Home")} />
 
       <Card className="profile-card">
-        <div className="avatar">N</div>
-        <h2>NagrikAI Citizen</h2>
+       <div className="avatar">
+        {(profile?.fullName || "N").charAt(0).toUpperCase()}
+       </div>
+       <h2>{profile?.fullName || "NagrikAI Citizen"}</h2>
+
         {loadStatus === "success" && (
           <>
             <p>{profile.phone}</p>
+            <p>{profile.email}</p>
             <small className="muted">
               Joined {profile.joinedAt
                 ? new Date(profile.joinedAt).toLocaleDateString("en-IN", {
