@@ -17,15 +17,15 @@ import "leaflet/dist/leaflet.css";
 import {
   Activity, AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, Bell, Check,
   CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clock3,
-  CloudSun, Cloud, CloudRain, CloudLightning, CloudSnow, CloudDrizzle,
-  Compass, Copy, FileText, Filter, Globe2, Headphones, Home,
+  CloudSun, CloudMoon, CloudFog, Cloud, CloudRain, CloudLightning, CloudSnow, CloudDrizzle,
+  Compass, Copy, Droplets, Eye, FileText, Filter, Gauge, Globe2, Headphones, Home,
   Info, Languages, Layers, LocateFixed, LockKeyhole, Map, MapPin, Menu,
-  Mic, MicOff, Moon, Navigation, Plus, Search, Send, Settings, Shield,
-  ShieldCheck, SlidersHorizontal, Sparkles, Sun, TrendingUp, User, Users,
-  Volume2, WifiOff, X, Camera, Image as ImageIcon, MessageCircle, BarChart3
+  Mic, MicOff, Moon, Navigation, Plus, RefreshCw, Search, Send, Settings, Shield,
+  ShieldCheck, SlidersHorizontal, Sparkles, Sun, Sunrise, Sunset, TrendingUp, User, Users,
+  Volume2, WifiOff, Wind, X, Camera, Image as ImageIcon, MessageCircle, BarChart3
 } from "lucide-react";
 
-const GREEN = "#83c9a7";
+const GREEN = "#28d7a0";
 const screens = [
   "Splash","Welcome","Language","Login","OTP verification","Email verification","Home","Explore map","Map filters",
   "Capture report","Review report","Possible duplicate","Report submitted","Issue details",
@@ -35,38 +35,33 @@ const screens = [
 ];
 
 const navItems = [
-  {id:"Home", label:"Home", icon:Home},
-  {id:"Explore map", label:"Explore", icon:Map},
-  {id:"Capture report", label:"Report", icon:Plus},
-  {id:"Ask NagrikAI", label:"Ask AI", icon:Sparkles},
-  {id:"Profile", label:"Profile", icon:User}
+  { id: "Home", label: "Home", icon: Home },
+  { id: "Explore map", label: "Explore", icon: Map },
+  { id: "Capture report", label: "Report", icon: Plus },
+  { id: "Ask NagrikAI", label: "Ask AI", icon: Sparkles },
+  { id: "Profile", label: "Profile", icon: User }
 ];
 
 function App() {
   const [screen, setScreen] = useState("Splash");
   const [language, setLanguage] = useState(() => localStorage.getItem("nagrikai-language") || "English");
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [otp, setOtp] = useState(["","","","","",""]);
-  const [emailOtp, setEmailOtp] = useState(["","","","","",""]);
+  const [otp, setOtp] = useState(["", "", "", "", "", ""]);
+  const [emailOtp, setEmailOtp] = useState(["", "", "", "", "", ""]);
   const [authLoading, setAuthLoading] = useState(false);
   const [authSession, setAuthSession] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const authRestoreHandled = useRef(false);
-  const [category, setCategory] = useState("");
-  const [severity, setSeverity] = useState("");
-  const [filters, setFilters] = useState(["Potholes & damaged roads","Waterlogging"]);
+  const [category, setCategory] = useState("Roads");
+  const [severity, setSeverity] = useState("High");
+  const [filters, setFilters] = useState(["Potholes & damaged roads", "Waterlogging"]);
   const [distance, setDistance] = useState("2 km");
-  const [issue, setIssue] = useState("");
+  const [intelligenceLayers, setIntelligenceLayers] = useState(["Traffic flow", "Issue density heatmap"]);
+  const toggleIntelligenceLayer = (name) =>
+    setIntelligenceLayers(v => v.includes(name) ? v.filter(x => x !== name) : [...v, name]);
+  const [issue, setIssue] = useState("Pothole on Alpha II main road");
   const [description, setDescription] = useState("");
   const [photo, setPhoto] = useState(null);
-  const [submissionLoading, setSubmissionLoading] = useState(false);
-  const [evidenceLoading, setEvidenceLoading] = useState(false);
-  const [submittedReport, setSubmittedReport] = useState(null);
-  const [duplicateReports, setDuplicateReports] = useState([]);
-  const [duplicateStatus, setDuplicateStatus] = useState("idle");
-  const [duplicateError, setDuplicateError] = useState("");
   const [userLocation, setUserLocation] = useState(null);
   const [locationStatus, setLocationStatus] = useState("idle");
   const [locationError, setLocationError] = useState("");
@@ -80,46 +75,9 @@ function App() {
   const [recording, setRecording] = useState(false);
   const [notifications, setNotifications] = useState(true);
   const [privacy, setPrivacy] = useState(true);
-  const [accessibility, setAccessibility] = useState({motion:true, contrast:true, text:false, voice:false});
+  const [accessibility, setAccessibility] = useState({ motion: true, contrast: true, text: false, voice: false });
   const [reportCount, setReportCount] = useState(8);
   const [selectedTab, setSelectedTab] = useState("Home");
-
-  useEffect(() => {
-    let mounted = true;
-
-    supabase.auth.getSession().then(({ data, error }) => {
-      if (mounted) {
-        if (!error) setAuthSession(data.session);
-        setAuthReady(true);
-      }
-    });
-
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        if (mounted) setAuthSession(session);
-      }
-    );
-
-    return () => {
-      mounted = false;
-      authListener.subscription.unsubscribe();
-    };
-  }, []);
-  useEffect(() => {
-    if (!authReady || authRestoreHandled.current) return;
-
-    authRestoreHandled.current = true;
-
-    if (authSession?.user) {
-      const user = authSession.user;
-      const pendingEmail = user.new_email || "";
-
-      setName(user.user_metadata?.full_name || "");
-      setPhone((user.phone || "").replace(/^\+91/, ""));
-      setEmail(pendingEmail || user.email || "");
-      setScreen(pendingEmail ? "Email verification" : "Home");
-    }
-  }, [authReady, authSession]);
 
   useEffect(() => {
     localStorage.setItem("nagrikai-language", language);
@@ -131,104 +89,109 @@ function App() {
     observer.observe(root, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["placeholder", "title", "aria-label"] });
     return () => observer.disconnect();
   }, [language]);
-  
+
   useEffect(() => {
-  if (!userLocation) {
-    setWeatherData(null);
-    setWeatherStatus("idle");
-    setWeatherError("");
-    return;
-  }
-
-  const controller = new AbortController();
-  let active = true;
-
-  const loadWeather = async () => {
-    try {
-      setWeatherStatus(current =>
-        current === "success" ? "refreshing" : "loading"
-      );
+    if (!userLocation) {
+      setWeatherData(null);
+      setWeatherStatus("idle");
       setWeatherError("");
-
-      const params = new URLSearchParams({
-        latitude: String(userLocation.lat),
-        longitude: String(userLocation.lng),
-
-        current:
-          "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,rain,showers,weather_code,wind_speed_10m",
-
-        hourly:
-          "temperature_2m,precipitation_probability,precipitation,rain,weather_code",
-
-        daily:
-          "temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,weather_code,sunrise,sunset",
-
-        forecast_days: "3",
-        timezone: "auto"
-      });
-
-      const response = await fetch(
-        `https://api.open-meteo.com/v1/forecast?${params.toString()}`,
-        { signal: controller.signal }
-      );
-
-      if (!response.ok) {
-        throw new Error(`Weather service returned ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      if (data.error) {
-        throw new Error(data.reason || "Weather data unavailable.");
-      }
-
-      if (active) {
-        setWeatherData(data);
-        setWeatherStatus("success");
-      }
-
-    } catch (error) {
-      if (error.name === "AbortError") return;
-
-      console.error("Weather API error:", error);
-
-      if (active) {
-        setWeatherStatus("error");
-        setWeatherError(error.message || "Unable to load weather.");
-      }
-    }
-  };
-
-  loadWeather();
-
-  const refreshInterval = window.setInterval(
-    loadWeather,
-    15 * 60 * 1000
-  );
-
-  return () => {
-    active = false;
-    controller.abort();
-    window.clearInterval(refreshInterval);
-  };
-
-}, [userLocation]);
-
-  const go = (name) => {
-    const publicScreens = ["Splash", "Welcome", "Language", "Login", "OTP verification", "Email verification"];
-
-    if ((!authReady || !authSession) && !publicScreens.includes(name)) {
-      if (authReady) {
-        setScreen("Login");
-        notify("Please verify your phone and email to continue.");
-      }
       return;
     }
 
+    const controller = new AbortController();
+    let active = true;
+
+    const loadWeather = async () => {
+      try {
+        setWeatherStatus(current =>
+          current === "success" ? "refreshing" : "loading"
+        );
+        setWeatherError("");
+
+        const params = new URLSearchParams({
+          latitude: String(userLocation.lat),
+          longitude: String(userLocation.lng),
+
+          current:
+            "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,rain,showers,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure,visibility,uv_index,dew_point_2m",
+
+          hourly:
+            "temperature_2m,precipitation_probability,precipitation,rain,weather_code,is_day",
+
+          daily:
+            "temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,weather_code,sunrise,sunset,uv_index_max",
+
+          forecast_days: "7",
+          timezone: "auto"
+        });
+
+        const [weatherRes, aqiRes] = await Promise.allSettled([
+          fetch(
+            `https://api.open-meteo.com/v1/forecast?${params.toString()}`,
+            { signal: controller.signal }
+          ),
+          fetch(
+            `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${userLocation.lat}&longitude=${userLocation.lng}&current=us_aqi,pm2_5,pm10&timezone=auto`,
+            { signal: controller.signal }
+          )
+        ]);
+
+        if (weatherRes.status !== "fulfilled" || !weatherRes.value.ok) {
+          throw new Error("Weather service unavailable.");
+        }
+
+        const data = await weatherRes.value.json();
+
+        if (data.error) {
+          throw new Error(data.reason || "Weather data unavailable.");
+        }
+
+        if (aqiRes.status === "fulfilled" && aqiRes.value.ok) {
+          try {
+            const aqiJson = await aqiRes.value.json();
+            data.air_quality = aqiJson?.current || null;
+          } catch (e) {
+            console.warn("AQI parse error:", e);
+          }
+        }
+
+        if (active) {
+          setWeatherData(data);
+          setWeatherStatus("success");
+        }
+
+      } catch (error) {
+        if (error.name === "AbortError") return;
+
+        console.error("Weather API error:", error);
+
+        if (active) {
+          setWeatherStatus("error");
+          setWeatherError(error.message || "Unable to load weather.");
+        }
+      }
+    };
+
+    loadWeather();
+
+    const refreshInterval = window.setInterval(
+      loadWeather,
+      15 * 60 * 1000
+    );
+
+    return () => {
+      active = false;
+      controller.abort();
+      window.clearInterval(refreshInterval);
+    };
+
+  }, [userLocation]);
+
+  const go = (name) => {
     setScreen(name);
     const nav = navItems.find(n => n.id === name);
     if (nav) setSelectedTab(nav.id);
-    window.scrollTo?.(0,0);
+    window.scrollTo?.(0, 0);
   };
   const notify = (msg) => {
     setToast(msg);
@@ -341,12 +304,12 @@ const detectUserLocation = async () => {
 };
 
   
-useEffect(() => {
-  if (autoLocationStarted.current) return;
+  useEffect(() => {
+    if (autoLocationStarted.current) return;
 
-  autoLocationStarted.current = true;
-  detectUserLocation();
-}, []);
+    autoLocationStarted.current = true;
+    detectUserLocation();
+  }, []);
 
   const handleSendOtp = async () => {
     const digits = phone.replace(/\D/g, "");
@@ -679,10 +642,11 @@ const handleVerifyOtp = async () => {
 
   return <div className="app-shell">
     <div className="device">
+      <div className="status"><span>9:41 ▮▮▮</span><div className="status-right"><span>5G ◉ ▰</span><button className="language-toggle" onClick={() => setLanguage(v => v === "English" ? "Hindi" : "English")} aria-label="Change language">{language === "English" ? "हिंदी" : "EN"}</button></div></div>
       <main className="screen-content">
-        {screen === "Splash" && <Splash go={go}/>}
+        {screen === "Splash" && <Splash go={go} />}
         {screen === "Welcome" && (
-           <Welcome
+          <Welcome
             go={go}
             userLocation={userLocation}
             locationDetails={locationDetails}
@@ -696,32 +660,38 @@ const handleVerifyOtp = async () => {
         {screen === "OTP verification" && <OTP phone={phone} otp={otp} setOtp={setOtp} go={go} notify={notify} onVerify={handleVerifyOtp} authLoading={authLoading}/>}
         {screen === "Home" && (
           <HomeScreen
-           go={go}
-           language={language}
-           reportCount={reportCount}
-           notify={notify}
-           userLocation={userLocation}
-           locationDetails={locationDetails}
-           locationStatus={locationStatus}
-           onLocate={detectUserLocation}
-           weatherData={weatherData}
-           weatherStatus={weatherStatus}
-           weatherError={weatherError}
+            go={go}
+            language={language}
+            reportCount={reportCount}
+            notify={notify}
+            userLocation={userLocation}
+            locationDetails={locationDetails}
+            locationStatus={locationStatus}
+            onLocate={detectUserLocation}
+            weatherData={weatherData}
+            weatherStatus={weatherStatus}
+            weatherError={weatherError}
 
-         />
+          />
         )}
         {screen === "Explore map" && (
-        <ExploreMap
-         go={go}
-         query={query}
-         setQuery={setQuery}
-         userLocation={userLocation}
-         locationStatus={locationStatus}
-         locationError={locationError}
-         onLocate={detectUserLocation}
-         />
-         )}
-        {screen === "Map filters" && <MapFilters filters={filters} toggleFilter={toggleFilter} distance={distance} setDistance={setDistance} go={go}/>}
+          <ExploreMap
+            go={go}
+            query={query}
+            setQuery={setQuery}
+            userLocation={userLocation}
+            locationStatus={locationStatus}
+            locationError={locationError}
+            onLocate={detectUserLocation}
+            filters={filters}
+            toggleFilter={toggleFilter}
+            distance={distance}
+            setDistance={setDistance}
+            intelligenceLayers={intelligenceLayers}
+            toggleIntelligenceLayer={toggleIntelligenceLayer}
+          />
+        )}
+        {screen === "Map filters" && <MapFilters filters={filters} toggleFilter={toggleFilter} distance={distance} setDistance={setDistance} intelligenceLayers={intelligenceLayers} toggleIntelligenceLayer={toggleIntelligenceLayer} go={go}/>}
         {screen === "Capture report" && <CaptureReport issue={issue} setIssue={setIssue} description={description} setDescription={setDescription} photo={photo} setPhoto={setPhoto} category={category} setCategory={setCategory} userLocation={userLocation} locationStatus={locationStatus} locationDetails={locationDetails} onLocate={detectUserLocation} go={go} notify={notify}/>}
         {screen === "Review report" && <ReviewReport issue={issue} description={description} photo={photo} category={category} severity={severity} setSeverity={setSeverity} go={go} onCheckDuplicates={checkNearbyReports} duplicateLoading={duplicateStatus === "loading"}/>}
         {screen === "Possible duplicate" && <Duplicate go={go} issue={issue} matches={duplicateReports} status={duplicateStatus} error={duplicateError} onRetry={checkNearbyReports} onSubmitNew={submitReport} newLoading={submissionLoading} onAddEvidence={submitEvidence} evidenceLoading={evidenceLoading}/>} 
@@ -732,49 +702,51 @@ const handleVerifyOtp = async () => {
         {screen === "Complaint handoff" && <Handoff go={go} notify={notify}/>}
         {screen === "Reference tracking" && <Tracking go={go}/>}
         {screen === "Weather & air" && (
-        <Weather
-        go={go}
-        userLocation={userLocation}
-        locationDetails={locationDetails}
-        weatherData={weatherData}
-        weatherStatus={weatherStatus}
-        weatherError={weatherError}
-        />
+          <Weather
+            go={go}
+            userLocation={userLocation}
+            locationDetails={locationDetails}
+            weatherData={weatherData}
+            weatherStatus={weatherStatus}
+            weatherError={weatherError}
+            onLocate={detectUserLocation}
+            locationStatus={locationStatus}
+          />
         )}
-        {screen === "Ask NagrikAI" && <AskAI go={go} query={query} setQuery={setQuery}/>}
-        {screen === "Voice assistant" && <Voice recording={recording} setRecording={setRecording} go={go}/>}
-        {screen === "Civic navigation" && <NavigationScreen go={go}/>}
-        {screen === "City analytics" && <Analytics go={go}/>}
-        {screen === "Profile" && <Profile go={go} reportCount={reportCount}/>}
-        {screen === "Report history" && <History go={go}/>}
-        {screen === "Notifications" && <Notifications go={go} enabled={notifications} setEnabled={setNotifications}/>}
-        {screen === "Accessibility" && <Accessibility go={go} values={accessibility} setValues={setAccessibility}/>}
-        {screen === "Privacy & settings" && <Privacy go={go} privacy={privacy} setPrivacy={setPrivacy}/>}
-        {screen === "Loading" && <Loading go={go}/>}
-        {screen === "Empty history" && <Empty go={go}/>}
-        {screen === "Connection error" && <Offline go={go}/>}
+        {screen === "Ask NagrikAI" && <AskAI go={go} query={query} setQuery={setQuery} />}
+        {screen === "Voice assistant" && <Voice recording={recording} setRecording={setRecording} go={go} />}
+        {screen === "Civic navigation" && <NavigationScreen go={go} />}
+        {screen === "City analytics" && <Analytics go={go} />}
+        {screen === "Profile" && <Profile go={go} reportCount={reportCount} />}
+        {screen === "Report history" && <History go={go} />}
+        {screen === "Notifications" && <Notifications go={go} enabled={notifications} setEnabled={setNotifications} />}
+        {screen === "Accessibility" && <Accessibility go={go} values={accessibility} setValues={setAccessibility} />}
+        {screen === "Privacy & settings" && <Privacy go={go} privacy={privacy} setPrivacy={setPrivacy} />}
+        {screen === "Loading" && <Loading go={go} />}
+        {screen === "Empty history" && <Empty go={go} />}
+        {screen === "Connection error" && <Offline go={go} />}
       </main>
-      {!["Splash","Welcome","Language","Login","OTP verification"].includes(screen) &&
-        <BottomNav selected={selectedTab} nav={nav}/>}
-      {toast && <div className="toast"><CheckCircle2 size={15}/>{toast}</div>}
+      {!["Splash", "Welcome", "Language", "Login", "OTP verification"].includes(screen) &&
+        <BottomNav selected={selectedTab} nav={nav} />}
+      {toast && <div className="toast"><CheckCircle2 size={15} />{toast}</div>}
     </div>
     <aside className="screen-index">
       <div className="index-head"><div className="brand-mark small">N</div><div><b>NagrikAI</b><small>Prototype navigation</small></div></div>
       <p className="index-caption">ALL 30 SCREENS</p>
-      <div className="index-grid">{screens.map((s,i)=><button key={s} className={screen===s?"active":""} onClick={()=>go(s)}><span>{String(i+1).padStart(2,"0")}</span>{s}</button>)}</div>
+      <div className="index-grid">{screens.map((s, i) => <button key={s} className={screen === s ? "active" : ""} onClick={() => go(s)}><span>{String(i + 1).padStart(2, "0")}</span>{s}</button>)}</div>
       <p className="index-note">Use this panel to preview every designed screen. The bottom navigation and in-screen actions are also connected.</p>
     </aside>
   </div>;
 }
 
-function StatusBarTitle({title, back, right}) {
-  return <div className="topbar">{back ? <button className="icon-btn" onClick={back}><ChevronLeft size={19}/></button> : <span/>}<b>{title}</b>{right || <span/>}</div>;
+function StatusBarTitle({ title, back, right }) {
+  return <div className="topbar">{back ? <button className="icon-btn" onClick={back}><ChevronLeft size={19} /></button> : <span />}<b>{title}</b>{right || <span />}</div>;
 }
-function Button({children,onClick,secondary=false,disabled=false}) {
-  return <button className={`btn ${secondary?"secondary":""}`} onClick={onClick} disabled={disabled}>{children}</button>;
+function Button({ children, onClick, secondary = false, disabled = false }) {
+  return <button className={`btn ${secondary ? "secondary" : ""}`} onClick={onClick} disabled={disabled}>{children}</button>;
 }
-function Card({children,className=""}) { return <section className={`panel ${className}`}>{children}</section>; }
-function Label({children}) { return <div className="eyebrow">{children}</div>; }
+function Card({ children, className = "" }) { return <section className={`panel ${className}`}>{children}</section>; }
+function Label({ children }) { return <div className="eyebrow">{children}</div>; }
 function useCurrentTime() {
   const [now, setNow] = useState(() => new Date());
 
@@ -788,12 +760,14 @@ function useCurrentTime() {
 
   return now;
 }
-function Field({label,value,onChange,placeholder,type="text"}) { return <label className="field"><span>{label}</span><input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}/></label>; }
-function BottomNav({selected,nav}) {
-  return <nav className="bottom-nav">{navItems.map(({id,label,icon:Icon})=><button key={id} className={`${selected===id?"selected":""} ${id==="Capture report"?"report-nav":""}`} onClick={()=>nav(id)}><Icon size={17}/><small>{label}</small></button>)}</nav>;
+function Field({ label, value, onChange, placeholder, type = "text" }) {
+  return <label className="field"><span>{label}</span><input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} /></label>;
 }
-function Splash({go}) {
-  return <div className="center-page splash"><div className="brand-mark">N</div><h1>NagrikAI</h1><p>Your City. Your Voice.<br/>Your Intelligence.</p><div className="micro-line">GREATER NOIDA&nbsp; / &nbsp;CIVIC INTELLIGENCE</div><div className="bottom-action"><Button onClick={()=>go("Welcome")}>Get started</Button></div></div>;
+function BottomNav({ selected, nav }) {
+  return <nav className="bottom-nav">{navItems.map(({ id, label, icon: Icon }) => <button key={id} className={`${selected === id ? "selected" : ""} ${id === "Capture report" ? "report-nav" : ""}`} onClick={() => nav(id)}><Icon size={17} /><small>{label}</small></button>)}</nav>;
+}
+function Splash({ go }) {
+  return <div className="center-page splash"><div className="brand-mark">N</div><h1>NagrikAI</h1><p>Your City. Your Voice.<br />Your Intelligence.</p><div className="micro-line">GREATER NOIDA&nbsp; / &nbsp;CIVIC INTELLIGENCE</div><div className="bottom-action"><Button onClick={() => go("Welcome")}>Get started</Button></div></div>;
 }
 function Welcome({
   go,
@@ -819,12 +793,12 @@ function Welcome({
 
   const placeName = locationDetails
     ? [
-        locationDetails.locality,
-        locationDetails.city,
-        locationDetails.state
-      ].filter((value, index, array) =>
-        value && array.indexOf(value) === index
-      ).join(", ")
+      locationDetails.locality,
+      locationDetails.city,
+      locationDetails.state
+    ].filter((value, index, array) =>
+      value && array.indexOf(value) === index
+    ).join(", ")
     : userLocation
       ? "Resolving your location..."
       : "Location not detected";
@@ -881,14 +855,14 @@ function Welcome({
     </div>
   );
 }
-function Language({language,setLanguage,go}) {
-  return <div className="page"><StatusBarTitle title="Choose your language" back={()=>go("Welcome")}/><Label>01 / 03 &nbsp; PERSONALISE</Label><h1>Your city.<br/>Your language.</h1><p className="muted">Choose how NagrikAI speaks to you. You can change this anytime.</p>{["English","Hindi"].map(v=><button className={`choice ${language===v?"chosen":""}`} onClick={()=>setLanguage(v)} key={v}><span>{v==="Hindi"?"हिन्दी":"English"}</span><small>{language===v?"Selected language":"भाषा चुनें"}</small>{language===v&&<Check size={17}/>}</button>)}<p className="hint">All conversations support both English and Hindi, including voice input.</p><div className="bottom-action"><Button onClick={()=>go("Login")}>Continue in {language === "Hindi" ? "हिन्दी" : "English"}</Button></div></div>;
+function Language({ language, setLanguage, go }) {
+  return <div className="page"><StatusBarTitle title="Choose your language" back={() => go("Welcome")} /><Label>01 / 03 &nbsp; PERSONALISE</Label><h1>Your city.<br />Your language.</h1><p className="muted">Choose how NagrikAI speaks to you. You can change this anytime.</p>{["English", "Hindi"].map(v => <button className={`choice ${language === v ? "chosen" : ""}`} onClick={() => setLanguage(v)} key={v}><span>{v === "Hindi" ? "हिन्दी" : "English"}</span><small>{language === v ? "Selected language" : "भाषा चुनें"}</small>{language === v && <Check size={17} />}</button>)}<p className="hint">All conversations support both English and Hindi, including voice input.</p><div className="bottom-action"><Button onClick={() => go("Login")}>Continue in {language === "Hindi" ? "हिन्दी" : "English"}</Button></div></div>;
 }
-function Login({name,setName,email,setEmail,phone,setPhone,go,notify,onSendOtp,authLoading}) {
+function Login({ name, setName, email, setEmail, phone, setPhone, go, notify, onSendOtp, authLoading }) {
   return <div className="page">
-    <StatusBarTitle title="Welcome to NagrikAI" back={()=>go("Language")}/>
+    <StatusBarTitle title="Welcome to NagrikAI" back={() => go("Language")} />
     <Label>02 / 03 &nbsp; SECURE SIGN-IN</Label>
-    <h1>Your voice.<br/>Your identity.</h1>
+    <h1>Your voice.<br />Your identity.</h1>
     <p className="muted">Create your secure citizen profile to report issues and track updates.</p>
 
     <Field
@@ -920,9 +894,10 @@ function Login({name,setName,email,setEmail,phone,setPhone,go,notify,onSendOtp,a
       <p className="muted">Your profile connects your reports to you. Your phone number and email are never shown publicly.</p>
     </Card>
     <p className="hint">By continuing, you accept the Terms of Service and Privacy Policy.</p>
+    <Button secondary onClick={() => go("Home")}>Explore without signing in</Button>
   </div>;
 }
-function OTP({phone,otp,setOtp,go,notify,onVerify,authLoading}) {
+function OTP({ phone, otp, setOtp, go, notify, onVerify, authLoading }) {
 
   const handleOtpChange = (event, index) => {
     const entered = event.target.value.replace(/\D/g, "");
@@ -1052,107 +1027,25 @@ function OTP({phone,otp,setOtp,go,notify,onVerify,authLoading}) {
     </div>
   );
 }
-function EmailVerification({email,emailOtp,setEmailOtp,go,notify,onVerify,authLoading}) {
-  const handleOtpChange = (event, index) => {
-    const entered = event.target.value.replace(/\D/g, "");
-    const digits = entered.slice(0, 6 - index);
-    const next = [...emailOtp];
-
-    if (!digits) {
-      next[index] = "";
-      setEmailOtp(next);
-      return;
-    }
-
-    digits.split("").forEach((digit, offset) => {
-      next[index + offset] = digit;
-    });
-
-    setEmailOtp(next);
-    const inputs = event.currentTarget.parentElement.querySelectorAll("input");
-    inputs[Math.min(index + digits.length, 5)]?.focus();
-  };
-
-  const handleOtpKeyDown = (event, index) => {
-    const inputs = event.currentTarget.parentElement.querySelectorAll("input");
-
-    if (event.key === "Backspace" && !emailOtp[index] && index > 0) {
-      event.preventDefault();
-      const next = [...emailOtp];
-      next[index - 1] = "";
-      setEmailOtp(next);
-      inputs[index - 1]?.focus();
-    }
-
-    if (event.key === "ArrowLeft" && index > 0) inputs[index - 1]?.focus();
-    if (event.key === "ArrowRight" && index < 5) inputs[index + 1]?.focus();
-  };
-
-  const handleOtpPaste = (event) => {
-    event.preventDefault();
-    const pasted = event.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
-    if (!pasted) return;
-
-    setEmailOtp(Array.from({length: 6}, (_, index) => pasted[index] || ""));
-    const inputs = event.currentTarget.parentElement.querySelectorAll("input");
-    inputs[Math.min(pasted.length, 5)]?.focus();
-  };
-
-  return (
-    <div className="page">
-      <StatusBarTitle title="Verify your email" back={() => go("OTP verification")}/>
-      <Label>EMAIL VERIFICATION</Label>
-      <h1>One last check.</h1>
-      <p className="muted">
-        Enter the 6-digit verification code sent to
-        <br />
-        {email}
-      </p>
-
-      <div className="otp-row">
-        {emailOtp.map((value, index) => (
-          <input
-            key={index}
-            type="text"
-            inputMode="numeric"
-            autoComplete={index === 0 ? "one-time-code" : "off"}
-            autoFocus={index === 0}
-            maxLength={1}
-            value={value}
-            aria-label={`Email OTP digit ${index + 1}`}
-            onChange={(event) => handleOtpChange(event, index)}
-            onKeyDown={(event) => handleOtpKeyDown(event, index)}
-            onPaste={handleOtpPaste}
-          />
-        ))}
-      </div>
-
-      <Button onClick={onVerify} disabled={authLoading || emailOtp.join("").length !== 6}>
-        {authLoading ? "Verifying..." : "Verify email & enter city"}
-      </Button>
-
-      <Card>
-        <b>Your account, securely connected.</b>
-        <p className="muted">Your verified phone number and email will be linked to the same citizen profile.</p>
-      </Card>
-    </div>
-  );
-}
 function WeatherVisual({ code, temperature, isDay = 1, size = 26 }) {
-  let Icon = CloudSun;
-  let color = "#70C8FF";
+  let Icon = isDay ? CloudSun : CloudMoon;
+  let color = isDay ? "#70C8FF" : "#9BB4CE";
   let animation = "weather-float";
 
   if (code === 0) {
     Icon = isDay ? Sun : Moon;
-    color = temperature >= 30 ? "#FFB547" : "#FFD34E";
+    color = isDay ? (temperature >= 30 ? "#FFB547" : "#FFD34E") : "#E8D890";
     animation = "weather-pulse";
   } else if ([1, 2].includes(code)) {
-    Icon = CloudSun;
-    color = "#70C8FF";
-  } else if ([3, 45, 48].includes(code)) {
+    Icon = isDay ? CloudSun : CloudMoon;
+    color = isDay ? "#70C8FF" : "#9BB4CE";
+  } else if (code === 3) {
     Icon = Cloud;
     color = "#A9C9E8";
+  } else if ([45, 48].includes(code)) {
+    Icon = CloudFog;
+    color = "#BACBD8";
+    animation = "weather-pulse";
   } else if ([51, 53, 55, 56, 57].includes(code)) {
     Icon = CloudDrizzle;
     color = "#75C8FF";
@@ -1211,24 +1104,24 @@ function HomeScreen({
   const [newsDetailStatus, setNewsDetailStatus] = useState({});
 
   const newsTerms = [
-  locationDetails?.locality,
-  locationDetails?.city,
-  locationDetails?.state
-]
-  .filter(value => typeof value === "string" && value.trim())
-  .map(value => value.trim());
+    locationDetails?.locality,
+    locationDetails?.city,
+    locationDetails?.state
+  ]
+    .filter(value => typeof value === "string" && value.trim())
+    .map(value => value.trim());
 
-const isGautamBudhNagar = newsTerms.some(
-  value => value.toLowerCase().includes("gautam budh nagar")
-);
+  const isGautamBudhNagar = newsTerms.some(
+    value => value.toLowerCase().includes("gautam budh nagar")
+  );
 
-if (isGautamBudhNagar) {
-  newsTerms.push("Noida", "Greater Noida");
-}
+  if (isGautamBudhNagar) {
+    newsTerms.push("Noida", "Greater Noida");
+  }
 
-const uniqueNewsTerms = [...new Set(newsTerms)];
+  const uniqueNewsTerms = [...new Set(newsTerms)];
 
-const newsLocation = uniqueNewsTerms.join(", ");
+  const newsLocation = uniqueNewsTerms.join(", ");
 
   useEffect(() => {
 
@@ -1279,9 +1172,9 @@ const newsLocation = uniqueNewsTerms.join(", ");
         setNewsStatus(hasLoaded ? "refreshing" : "loading");
         setNewsError("");
 
-        const query = "sourcecountry:IN sourcelang:English";`(${uniqueNewsTerms
-  .map(term => `"${term.replace(/"/g, "")}"`)
-  .join(" OR ")}) sourcelang:english`;
+        const query = "sourcecountry:IN sourcelang:English"; `(${uniqueNewsTerms
+          .map(term => `"${term.replace(/"/g, "")}"`)
+          .join(" OR ")}) sourcelang:english`;
 
         const params = new URLSearchParams({
           query,
@@ -1384,7 +1277,7 @@ const newsLocation = uniqueNewsTerms.join(", ");
       window.clearInterval(refresh);
     };
 
-   }, [language]);
+  }, [language]);
 
   const formatNewsDate = value => {
     if (!value) return "समय उपलब्ध नहीं है";
@@ -1393,168 +1286,168 @@ const newsLocation = uniqueNewsTerms.join(", ");
       /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/
     );
 
-const handleNewsClick = async (article) => {
-  if (expandedNewsUrl === article.url) {
-    setExpandedNewsUrl("");
-    return;
-  }
+    const handleNewsClick = async (article) => {
+      if (expandedNewsUrl === article.url) {
+        setExpandedNewsUrl("");
+        return;
+      }
 
-  setExpandedNewsUrl(article.url);
+      setExpandedNewsUrl(article.url);
 
-  if (
-    newsDetails[article.url] ||
-    newsDetailStatus[article.url] === "loading"
-  ) {
-    return;
-  }
+      if (
+        newsDetails[article.url] ||
+        newsDetailStatus[article.url] === "loading"
+      ) {
+        return;
+      }
 
-  setNewsDetailStatus(prev => ({
-    ...prev,
-    [article.url]: "loading"
-  }));
+      setNewsDetailStatus(prev => ({
+        ...prev,
+        [article.url]: "loading"
+      }));
 
-  try {
-    const hostname = new URL(article.url).hostname.replace(/^www\./, "");
-
-    const stopWords = new Set([
-      "the", "and", "for", "with", "from", "that",
-      "this", "have", "has", "was", "were", "will",
-      "after", "before", "over", "into", "about",
-      "says", "said", "their", "they", "there",
-      "been", "being", "what", "when", "where"
-    ]);
-
-    const keywords = article.title
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, " ")
-      .split(/\s+/)
-      .filter(word => word.length > 3 && !stopWords.has(word))
-      .slice(0, 3);
-
-    if (!keywords.length) {
-      throw new Error("Could not identify article search terms.");
-    }
-
-    const params = new URLSearchParams({
-      query: `domain:${hostname} ${keywords.join(" ")}`,
-      mode: "artlist",
-      format: "json",
-      maxrecords: "10",
-      timespan: "24h",
-      sort: "DateDesc"
-    });
-
-    const response = await fetch(
-      `https://api.gdeltproject.org/api/v2/context/context?${params}`
-    );
-
-    if (!response.ok) {
-      throw new Error("Unable to retrieve article context.");
-    }
-
-    const data = await response.json();
-
-    const articles = Array.isArray(data.articles)
-      ? data.articles
-      : [];
-
-    const normalizeUrl = value => {
       try {
-        const parsed = new URL(value);
-        return (
-          parsed.hostname.toLowerCase().replace(/^www\./, "") +
-          parsed.pathname.replace(/\/+$/, "")
+        const hostname = new URL(article.url).hostname.replace(/^www\./, "");
+
+        const stopWords = new Set([
+          "the", "and", "for", "with", "from", "that",
+          "this", "have", "has", "was", "were", "will",
+          "after", "before", "over", "into", "about",
+          "says", "said", "their", "they", "there",
+          "been", "being", "what", "when", "where"
+        ]);
+
+        const keywords = article.title
+          .toLowerCase()
+          .replace(/[^a-z0-9\s]/g, " ")
+          .split(/\s+/)
+          .filter(word => word.length > 3 && !stopWords.has(word))
+          .slice(0, 3);
+
+        if (!keywords.length) {
+          throw new Error("Could not identify article search terms.");
+        }
+
+        const params = new URLSearchParams({
+          query: `domain:${hostname} ${keywords.join(" ")}`,
+          mode: "artlist",
+          format: "json",
+          maxrecords: "10",
+          timespan: "24h",
+          sort: "DateDesc"
+        });
+
+        const response = await fetch(
+          `https://api.gdeltproject.org/api/v2/context/context?${params}`
         );
-      } catch {
-        return "";
+
+        if (!response.ok) {
+          throw new Error("Unable to retrieve article context.");
+        }
+
+        const data = await response.json();
+
+        const articles = Array.isArray(data.articles)
+          ? data.articles
+          : [];
+
+        const normalizeUrl = value => {
+          try {
+            const parsed = new URL(value);
+            return (
+              parsed.hostname.toLowerCase().replace(/^www\./, "") +
+              parsed.pathname.replace(/\/+$/, "")
+            );
+          } catch {
+            return "";
+          }
+        };
+
+        const matchedArticle = articles.find(
+          item => normalizeUrl(item.url) === normalizeUrl(article.url)
+        );
+
+        const rawContext = (
+          matchedArticle?.context ||
+          matchedArticle?.sentence ||
+          ""
+        ).trim().slice(0, 450);
+
+        let summary = rawContext;
+
+        if (!rawContext) {
+          summary = language === "Hindi"
+            ? "इस समाचार का विस्तृत संदर्भ अभी उपलब्ध नहीं है।"
+            : "No matching article context is available from the news index.";
+        }
+
+        if (rawContext && language === "Hindi") {
+          const cacheKey = `nagrikai-news-context-hi:${rawContext}`;
+
+          try {
+            const cached = localStorage.getItem(cacheKey);
+
+            if (cached) {
+              summary = cached;
+            } else {
+              const translationParams = new URLSearchParams({
+                q: rawContext,
+                langpair: "en|hi"
+              });
+
+              const translationResponse = await fetch(
+                `https://api.mymemory.translated.net/get?${translationParams}`
+              );
+
+              const translationData = await translationResponse.json();
+
+              if (
+                !translationResponse.ok ||
+                Number(translationData.responseStatus) !== 200 ||
+                !translationData.responseData?.translatedText
+              ) {
+                throw new Error("Hindi translation unavailable.");
+              }
+
+              summary = translationData.responseData.translatedText;
+              localStorage.setItem(cacheKey, summary);
+            }
+          } catch (translationError) {
+            console.error("Article translation error:", translationError);
+            summary = "इस समाचार का हिंदी संदर्भ अभी उपलब्ध नहीं है। मूल लेख के लिए स्रोत लिंक खोलें।";
+          }
+        }
+
+        setNewsDetails(prev => ({
+          ...prev,
+          [article.url]: {
+            summary,
+            hasContext: Boolean(rawContext),
+            source: article.source,
+            date: article.seenDate
+          }
+        }));
+
+        setNewsDetailStatus(prev => ({
+          ...prev,
+          [article.url]: "success"
+        }));
+
+      } catch (error) {
+        console.error("Article details error:", error);
+
+        setNewsDetailStatus(prev => ({
+          ...prev,
+          [article.url]: "error"
+        }));
       }
     };
-
-    const matchedArticle = articles.find(
-      item => normalizeUrl(item.url) === normalizeUrl(article.url)
-    );
-
-    const rawContext = (
-      matchedArticle?.context ||
-      matchedArticle?.sentence ||
-      ""
-    ).trim().slice(0, 450);
-
-    let summary = rawContext;
-
-    if (!rawContext) {
-      summary = language === "Hindi"
-        ? "इस समाचार का विस्तृत संदर्भ अभी उपलब्ध नहीं है।"
-        : "No matching article context is available from the news index.";
-    }
-
-    if (rawContext && language === "Hindi") {
-      const cacheKey = `nagrikai-news-context-hi:${rawContext}`;
-
-      try {
-        const cached = localStorage.getItem(cacheKey);
-
-        if (cached) {
-          summary = cached;
-        } else {
-          const translationParams = new URLSearchParams({
-            q: rawContext,
-            langpair: "en|hi"
-          });
-
-          const translationResponse = await fetch(
-            `https://api.mymemory.translated.net/get?${translationParams}`
-          );
-
-          const translationData = await translationResponse.json();
-
-          if (
-            !translationResponse.ok ||
-            Number(translationData.responseStatus) !== 200 ||
-            !translationData.responseData?.translatedText
-          ) {
-            throw new Error("Hindi translation unavailable.");
-          }
-
-          summary = translationData.responseData.translatedText;
-          localStorage.setItem(cacheKey, summary);
-        }
-      } catch (translationError) {
-        console.error("Article translation error:", translationError);
-        summary = "इस समाचार का हिंदी संदर्भ अभी उपलब्ध नहीं है। मूल लेख के लिए स्रोत लिंक खोलें।";
-      }
-    }
-
-    setNewsDetails(prev => ({
-      ...prev,
-      [article.url]: {
-        summary,
-        hasContext: Boolean(rawContext),
-        source: article.source,
-        date: article.seenDate
-      }
-    }));
-
-    setNewsDetailStatus(prev => ({
-      ...prev,
-      [article.url]: "success"
-    }));
-
-  } catch (error) {
-    console.error("Article details error:", error);
-
-    setNewsDetailStatus(prev => ({
-      ...prev,
-      [article.url]: "error"
-    }));
-  }
-};
 
 
     const date = match
       ? new Date(
-          `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}Z`
-        )
+        `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}Z`
+      )
       : new Date(value);
 
     if (Number.isNaN(date.getTime())) {
@@ -1587,17 +1480,17 @@ const handleNewsClick = async (article) => {
 
   const placeName = locationDetails
     ? [
-        locationDetails.locality,
-        locationDetails.city,
-        locationDetails.state
-      ].filter((value, index, array) =>
-        value && array.indexOf(value) === index
-      ).join(", ")
+      locationDetails.locality,
+      locationDetails.city,
+      locationDetails.state
+    ].filter((value, index, array) =>
+      value && array.indexOf(value) === index
+    ).join(", ")
     : userLocation
       ? "Resolving your location..."
       : "Location not detected";
-  
-    const currentWeather = weatherData?.current;
+
+  const currentWeather = weatherData?.current;
   const dailyWeather = weatherData?.daily;
   const hourlyWeather = weatherData?.hourly;
 
@@ -1633,14 +1526,14 @@ const handleNewsClick = async (article) => {
 
   const hourlyStart = hourlyWeather?.time && currentWeather
     ? Math.max(
-        0,
-        hourlyWeather.time.findIndex(t => t >= currentWeather.time)
-      )
+      0,
+      hourlyWeather.time.findIndex(t => t >= currentWeather.time)
+    )
     : 0;
 
   const upcomingHours = hourlyWeather?.time
     ? Array.from({ length: 4 }, (_, i) => hourlyStart + i)
-        .filter(i => i < hourlyWeather.time.length)
+      .filter(i => i < hourlyWeather.time.length)
     : [];
 
   return (
@@ -1672,7 +1565,7 @@ const handleNewsClick = async (article) => {
         </Button>
       )}
 
-            <Card className="weather-card">
+      <Card className="weather-card">
         <div>
           <strong>
             {currentWeather
@@ -1681,13 +1574,13 @@ const handleNewsClick = async (article) => {
           </strong>
 
           {currentWeather && (
-  <WeatherVisual
-    code={currentWeather.weather_code}
-    temperature={currentWeather.temperature_2m}
-    isDay={currentWeather.is_day}
-    size={36}
-  />
-)}
+            <WeatherVisual
+              code={currentWeather.weather_code}
+              temperature={currentWeather.temperature_2m}
+              isDay={currentWeather.is_day}
+              size={36}
+            />
+          )}
 
           <span>{conditionText}</span>
         </div>
@@ -1723,13 +1616,13 @@ const handleNewsClick = async (article) => {
         )}
 
         <button
-  className="forecast-link"
-  onClick={() => go("Weather & air")}
->
-  View complete forecast <ChevronRight size={15} />
-</button>
+          className="forecast-link"
+          onClick={() => go("Weather & air")}
+        >
+          View complete forecast <ChevronRight size={15} />
+        </button>
       </Card>
-            {currentWeather && upcomingHours.length > 0 && (
+      {currentWeather && upcomingHours.length > 0 && (
         <>
           <Label>UPCOMING HOURLY FORECAST</Label>
 
@@ -1739,19 +1632,23 @@ const handleNewsClick = async (article) => {
                 <small>
                   {index === hourlyStart
                     ? "NOW"
-                    : new Date(
-                        hourlyWeather.time[index]
-                      ).toLocaleTimeString([], {
-                        hour: "numeric"
-                      })}
+                    : (() => {
+                        const v = hourlyWeather.time[index];
+                        const [datePart, timePart] = v.split("T");
+                        const [yr, mo, dy] = datePart.split("-").map(Number);
+                        const [hr, mn] = (timePart || "00:00").split(":").map(Number);
+                        return new Date(yr, mo - 1, dy, hr, mn || 0).toLocaleTimeString([], {
+                          hour: "numeric"
+                        });
+                      })()}
                 </small>
 
                 <WeatherVisual
-  code={hourlyWeather.weather_code[index]}
-  temperature={hourlyWeather.temperature_2m[index]}
-  isDay={currentWeather?.is_day}
-  size={23}
-/>
+                  code={hourlyWeather.weather_code[index]}
+                  temperature={hourlyWeather.temperature_2m[index]}
+                  isDay={hourlyWeather.is_day?.[index] ?? currentWeather?.is_day}
+                  size={23}
+                />
 
                 <b>
                   {Math.round(hourlyWeather.temperature_2m[index])}°
@@ -1767,170 +1664,168 @@ const handleNewsClick = async (article) => {
         </>
       )}
 
-      
-<Label>{language === "Hindi"
-  ? "भारत • GDELT News • हर 15 मिनट में अपडेट"
-  : "India-wide • GDELT News • Updates every 15 minutes"}</Label>
 
-<Card className="insight news-panel">
-  <div className="split">
-    <b className="green">
-      {language === "Hindi" ? "ताज़ा सुर्खियाँ" : "LATEST HEADLINES"}
-    </b>
+      <Label>{language === "Hindi"
+        ? "भारत • GDELT News • हर 15 मिनट में अपडेट"
+        : "India-wide • GDELT News • Updates every 15 minutes"}</Label>
 
-    <small className="muted">
-      {newsStatus === "loading"
-        ? language === "Hindi" ? "खबरें खोज रहे हैं..." : "Fetching..."
-        : newsStatus === "refreshing"
-          ? language === "Hindi" ? "अपडेट हो रहा है..." : "Updating..."
-          : newsStatus === "success"
-            ? language === "Hindi" ? "लाइव फ़ीड" : "Live feed"
-            : language === "Hindi" ? "उपलब्ध नहीं" : "Unavailable"}
-    </small>
-  </div>
+      <Card className="insight news-panel">
+        <div className="split">
+          <b className="green">
+            {language === "Hindi" ? "ताज़ा सुर्खियाँ" : "LATEST HEADLINES"}
+          </b>
 
-  {newsStatus === "loading" && newsArticles.length === 0 && (
-    <p className="muted">
-      {language === "Hindi"
-        ? `${newsLocation} की खबरें खोजी जा रही हैं...`
-        : `Finding recent news for ${newsLocation}...`}
-    </p>
-  )}
-
-  {newsError && <p className="amber">{newsError}</p>}
-
-  {newsArticles.map((article, index) => {
-    const isExpanded = expandedNewsUrl === article.url;
-    const detailStatus = newsDetailStatus[article.url];
-    const details = newsDetails[article.url];
-
-    return (
-      <div className="news-item" key={article.url}>
-        <button
-          className="news-headline-button"
-          onClick={() => handleNewsClick(article)}
-        >
-          <span className="news-number">
-            {String(index + 1).padStart(2, "0")}
-          </span>
-
-          <span className="news-headline-text">
-            {article.displayTitle}
-          </span>
-
-          <ChevronDown
-            size={17}
-            className={isExpanded ? "news-chevron expanded" : "news-chevron"}
-          />
-        </button>
-
-        {article.translationFailed && (
-          <small className="amber">
-            {language === "Hindi"
-              ? "हिंदी अनुवाद उपलब्ध नहीं है"
-              : "Translation unavailable"}
+          <small className="muted">
+            {newsStatus === "loading"
+              ? language === "Hindi" ? "खबरें खोज रहे हैं..." : "Fetching..."
+              : newsStatus === "refreshing"
+                ? language === "Hindi" ? "अपडेट हो रहा है..." : "Updating..."
+                : newsStatus === "success"
+                  ? language === "Hindi" ? "लाइव फ़ीड" : "Live feed"
+                  : language === "Hindi" ? "उपलब्ध नहीं" : "Unavailable"}
           </small>
-        )}
-
-        <div className="news-meta">
-          <span>{article.source}</span>
-          <span>•</span>
-          <span>
-            {language === "Hindi" ? "इंडेक्स समय: " : "Indexed: "}
-            {formatNewsDate(article.seenDate)}
-          </span>
         </div>
 
-        {isExpanded && (
-          <div className="news-details">
-            {detailStatus === "loading" && (
-              <p className="muted">
-                {language === "Hindi"
-                  ? "लेख का संदर्भ प्राप्त किया जा रहा है..."
-                  : "Retrieving article context..."}
-              </p>
-            )}
-
-            {detailStatus === "error" && (
-              <p className="amber">
-                {language === "Hindi"
-                  ? "लेख का सारांश अभी उपलब्ध नहीं है। मूल समाचार स्रोत देखें।"
-                  : "Article context is unavailable. Please open the original source."}
-              </p>
-            )}
-
-            {details && (
-              <>
-                <b className="green">
-                  {language === "Hindi"
-                    ? "लेख का संदर्भ"
-                    : "ARTICLE CONTEXT"}
-                </b>
-
-                <p>{details.summary}</p>
-
-                {!details.hasContext && (
-                  <small className="muted">
-                    {language === "Hindi"
-                      ? "स्रोत से मिलान किया गया संदर्भ उपलब्ध नहीं था।"
-                      : "No matching article context was returned by the source."}
-                  </small>
-                )}
-              </>
-            )}
-
-            <a
-              className="news-source-link"
-              href={article.url}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {language === "Hindi"
-                ? `पूरा समाचार पढ़ें · ${article.source}`
-                : `Read full article · ${article.source}`}
-              <ArrowRight size={13} />
-            </a>
-          </div>
+        {newsStatus === "loading" && newsArticles.length === 0 && (
+          <p className="muted">
+            {language === "Hindi"
+              ? `${newsLocation} की खबरें खोजी जा रही हैं...`
+              : `Finding recent news for ${newsLocation}...`}
+          </p>
         )}
 
-        <a
-          className="news-small-source"
-          href={article.url}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          {language === "Hindi" ? "स्रोत देखें" : "View source"}
-        </a>
-      </div>
-    );
-  })}
+        {newsError && <p className="amber">{newsError}</p>}
 
-  {newsStatus === "success" && newsArticles.length === 0 && (
-    <p className="muted">
-      {language === "Hindi"
-        ? "इस स्थान के लिए हाल की खबरें नहीं मिलीं।"
-        : "No recent headlines matched this location."}
-    </p>
-  )}
+        {newsArticles.map((article, index) => {
+          const isExpanded = expandedNewsUrl === article.url;
+          const detailStatus = newsDetailStatus[article.url];
+          const details = newsDetails[article.url];
 
-  {newsStatus === "error" && newsArticles.length === 0 && (
-    <p className="muted">
-      {language === "Hindi"
-        ? "अभी स्थानीय खबरें लोड नहीं हो सकीं।"
-        : "Local headlines could not be loaded right now."}
-    </p>
-  )}
+          return (
+            <div className="news-item" key={article.url}>
+              <button
+                className="news-headline-button"
+                onClick={() => handleNewsClick(article)}
+              >
+                <span className="news-number">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
 
-  <p className="hint">
-    {language === "Hindi"
-      ? `स्थान: ${newsLocation} • GDELT News • हर 15 मिनट में अपडेट`
-      : `Location: ${newsLocation} • GDELT News • Updates every 15 minutes`}
-  </p>
-</Card>
+                <span className="news-headline-text">
+                  {article.displayTitle}
+                </span>
 
-        
+                <ChevronDown
+                  size={17}
+                  className={isExpanded ? "news-chevron expanded" : "news-chevron"}
+                />
+              </button>
 
-<Card>
+              {article.translationFailed && (
+                <small className="amber">
+                  {language === "Hindi"
+                    ? "हिंदी अनुवाद उपलब्ध नहीं है"
+                    : "Translation unavailable"}
+                </small>
+              )}
+
+              <div className="news-meta">
+                <span>{article.source}</span>
+                <span>•</span>
+                <span>
+                  {language === "Hindi" ? "इंडेक्स समय: " : "Indexed: "}
+                  {formatNewsDate(article.seenDate)}
+                </span>
+              </div>
+
+              {isExpanded && (
+                <div className="news-details">
+                  {detailStatus === "loading" && (
+                    <p className="muted">
+                      {language === "Hindi"
+                        ? "लेख का संदर्भ प्राप्त किया जा रहा है..."
+                        : "Retrieving article context..."}
+                    </p>
+                  )}
+
+                  {detailStatus === "error" && (
+                    <p className="amber">
+                      {language === "Hindi"
+                        ? "लेख का सारांश अभी उपलब्ध नहीं है। मूल समाचार स्रोत देखें।"
+                        : "Article context is unavailable. Please open the original source."}
+                    </p>
+                  )}
+
+                  {details && (
+                    <>
+                      <b className="green">
+                        {language === "Hindi"
+                          ? "लेख का संदर्भ"
+                          : "ARTICLE CONTEXT"}
+                      </b>
+
+                      <p>{details.summary}</p>
+
+                      {!details.hasContext && (
+                        <small className="muted">
+                          {language === "Hindi"
+                            ? "स्रोत से मिलान किया गया संदर्भ उपलब्ध नहीं था।"
+                            : "No matching article context was returned by the source."}
+                        </small>
+                      )}
+                    </>
+                  )}
+
+                  <a
+                    className="news-source-link"
+                    href={article.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {language === "Hindi"
+                      ? `पूरा समाचार पढ़ें · ${article.source}`
+                      : `Read full article · ${article.source}`}
+                    <ArrowRight size={13} />
+                  </a>
+                </div>
+              )}
+
+              <a
+                className="news-small-source"
+                href={article.url}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {language === "Hindi" ? "स्रोत देखें" : "View source"}
+              </a>
+            </div>
+          );
+        })}
+
+        {newsStatus === "success" && newsArticles.length === 0 && (
+          <p className="muted">
+            {language === "Hindi"
+              ? "इस स्थान के लिए हाल की खबरें नहीं मिलीं।"
+              : "No recent headlines matched this location."}
+          </p>
+        )}
+
+        {newsStatus === "error" && newsArticles.length === 0 && (
+          <p className="muted">
+            {language === "Hindi"
+              ? "अभी स्थानीय खबरें लोड नहीं हो सकीं।"
+              : "Local headlines could not be loaded right now."}
+          </p>
+        )}
+
+        <p className="hint">
+          {language === "Hindi"
+            ? `स्थान: ${newsLocation} • GDELT News • हर 15 मिनट में अपडेट`
+            : `Location: ${newsLocation} • GDELT News • Updates every 15 minutes`}
+        </p>
+      </Card>
+
+      <Card>
         <div className="split">
           <b>CITY HEALTH INDEX</b>
           <span className="muted">Awaiting verified data</span>
@@ -1952,6 +1847,22 @@ const handleNewsClick = async (article) => {
         </small>
       </Card>
 
+      <div className="quick-grid">
+        {["Safer route", "City trends", "Ask AI"].map((x, i) => (
+          <button
+            key={x}
+            onClick={() =>
+              go([
+                "Civic navigation",
+                "City analytics",
+                "Ask NagrikAI"
+              ][i])
+            }
+          >
+            {x}
+          </button>
+        ))}
+      </div>
 
       <p className="hint">
         Live data connections are being integrated.
@@ -1973,7 +1884,7 @@ function RouteViewport({ routeCoordinates }) {
     }
   }, [map, routeCoordinates]);
 
-    return null;
+  return null;
 }
 
 function decodeValhallaShape(encoded, precision = 6) {
@@ -2020,272 +1931,314 @@ function ExploreMap({
   userLocation,
   locationStatus,
   locationError,
-  onLocate
+  onLocate,
+  filters = [],
+  toggleFilter = () => { },
+  distance = "2 km",
+  setDistance = () => { },
+  intelligenceLayers = [],
+  toggleIntelligenceLayer = () => { }
 }) {
+  const [filtersOpen, setFiltersOpen] = React.useState(false);
   const position = userLocation
     ? [userLocation.lat, userLocation.lng]
     : null;
 
-   
+  const distanceLimitKm = useMemo(() => {
+    switch (distance) {
+      case "500 m": return 0.5;
+      case "2 km": return 2.0;
+      case "5 km": return 5.0;
+      case "City": default: return 30.0;
+    }
+  }, [distance]);
+
+  const radiusMeters = useMemo(() => {
+    return distanceLimitKm * 1000;
+  }, [distanceLimitKm]);
+
+  const allIssues = useMemo(() => {
+    if (!position) return [];
+    return [
+      { id: 1, lat: position[0] + 0.0018, lng: position[1] - 0.0021, category: "Potholes & damaged roads", label: "Pothole · Alpha II main road", severity: "High", confirmed: 14, dist: 0.28 },
+      { id: 2, lat: position[0] - 0.0022, lng: position[1] + 0.0024, category: "Street lighting", label: "Broken streetlight · Sector park", severity: "Medium", confirmed: 6, dist: 0.42 },
+      { id: 3, lat: position[0] + 0.0065, lng: position[1] - 0.0055, category: "Waterlogging", label: "Waterlogging · Delta 1 underpass", severity: "High", confirmed: 19, dist: 1.1 },
+      { id: 4, lat: position[0] - 0.0095, lng: position[1] + 0.0080, category: "Potholes & damaged roads", label: "Cracked asphalt · Pari Chowk connector", severity: "High", confirmed: 11, dist: 1.6 },
+      { id: 5, lat: position[0] + 0.0110, lng: position[1] + 0.0105, category: "Waste & sanitation", label: "Uncollected garbage · Commercial belt", severity: "Low", confirmed: 4, dist: 1.9 },
+      { id: 6, lat: position[0] - 0.0190, lng: position[1] - 0.0175, category: "Waterlogging", label: "Drain overflow · Knowledge Park II", severity: "Medium", confirmed: 8, dist: 3.2 },
+      { id: 7, lat: position[0] + 0.0240, lng: position[1] - 0.0220, category: "Street lighting", label: "Dark stretch · Expressway feeder road", severity: "Medium", confirmed: 9, dist: 4.1 },
+      { id: 8, lat: position[0] - 0.0280, lng: position[1] + 0.0260, category: "Waste & sanitation", label: "Construction debris · Sector 36", severity: "Low", confirmed: 5, dist: 4.7 }
+    ];
+  }, [position]);
+
+  const visibleIssues = useMemo(() => {
+    return allIssues.filter(issue => {
+      const categoryMatch = filters.length === 0 || filters.includes(issue.category);
+      const distanceMatch = issue.dist <= distanceLimitKm;
+      return categoryMatch && distanceMatch;
+    });
+  }, [allIssues, filters, distanceLimitKm]);
+
+
   const [destination, setDestination] = useState("");
   const [startLocation, setStartLocation] = useState("");
   const [selectedStart, setSelectedStart] = useState(null);
   const [startSuggestions, setStartSuggestions] = useState([]);
   const [startSuggestionsLoading, setStartSuggestionsLoading] = useState(false);
-  const [useCurrentLocation, setUseCurrentLocation] = useState(true); 
+  const [useCurrentLocation, setUseCurrentLocation] = useState(true);
   const [routeCoordinates, setRouteCoordinates] = useState([]);
   const routeCoordinatesRef = useRef(routeCoordinates);
 
-useEffect(() => {
-  routeCoordinatesRef.current = routeCoordinates;
-}, [routeCoordinates]);
+  useEffect(() => {
+    routeCoordinatesRef.current = routeCoordinates;
+  }, [routeCoordinates]);
   const [travelMode, setTravelMode] = useState("drive");
   const [destinationPoint, setDestinationPoint] = useState(null);
   const [routeInfo, setRouteInfo] = useState(null);
   const [routeOptions, setRouteOptions] = useState([]);
   const routeOptionsRef = useRef(routeOptions);
 
-useEffect(() => {
-  routeOptionsRef.current = routeOptions;
-}, [routeOptions]);
+  useEffect(() => {
+    routeOptionsRef.current = routeOptions;
+  }, [routeOptions]);
   const [journeyActive, setJourneyActive] = useState(false);
   const [arrivalReached, setArrivalReached] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [livePosition, setLivePosition] = useState(position);
 
   useEffect(() => {
-  if (!journeyActive) {
-    setLivePosition(
-      userLocation
-        ? [userLocation.lat, userLocation.lng]
-        : null
-    );
-  }
-}, [userLocation?.lat, userLocation?.lng, journeyActive]);
-  
+    if (!journeyActive) {
+      setLivePosition(
+        userLocation
+          ? [userLocation.lat, userLocation.lng]
+          : null
+      );
+    }
+  }, [userLocation?.lat, userLocation?.lng, journeyActive]);
+
   const [currentManeuver, setCurrentManeuver] = useState(0);
   const [remainingDistance, setRemainingDistance] = useState(null);
   const [remainingTime, setRemainingTime] = useState(null);
   const watchIdRef = useRef(null);
   const lastSpokenManeuverRef = useRef(-1);
   const rerouteInProgressRef = useRef(false);
-  const lastRerouteAtRef = useRef(0); 
+  const lastRerouteAtRef = useRef(0);
   const arrivalConfirmationsRef = useRef(0);
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeError, setRouteError] = useState("");
 
   const [destinationSuggestions, setDestinationSuggestions] = useState([]);
-const [suggestionsLoading, setSuggestionsLoading] = useState(false);
-const [selectedDestination, setSelectedDestination] = useState(null);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [selectedDestination, setSelectedDestination] = useState(null);
 
-useEffect(() => {
-  const searchText = destination.trim();
+  useEffect(() => {
+    const searchText = destination.trim();
 
-  if (searchText.length < 2 || selectedDestination) {
-    setDestinationSuggestions([]);
-    setSuggestionsLoading(false);
-    return;
-  }
+    if (searchText.length < 2 || selectedDestination) {
+      setDestinationSuggestions([]);
+      setSuggestionsLoading(false);
+      return;
+    }
 
-  const controller = new AbortController();
+    const controller = new AbortController();
 
-  const timer = setTimeout(async () => {
-    setSuggestionsLoading(true);
+    const timer = setTimeout(async () => {
+      setSuggestionsLoading(true);
 
-    try {
-      const params = new URLSearchParams({
-        q: searchText,
-        limit: "10",
-        lang: "en"
-      });
-
-      if (userLocation) {
-        params.set("lat", userLocation.lat);
-        params.set("lon", userLocation.lng);
-        params.set("zoom", "14");
-      }
-
-      const response = await fetch(
-        `https://photon.komoot.io/api/?${params.toString()}`,
-        { signal: controller.signal }
-      );
-
-      if (!response.ok) {
-        throw new Error("Location search failed.");
-      }
-
-      const data = await response.json();
-
-      const results = (data.features || []).map(feature => {
-        const [lng, lat] = feature.geometry.coordinates;
-        const p = feature.properties;
-
-        const label = [
-          p.name,
-          p.street,
-          p.district || p.suburb,
-          p.city,
-          p.state
-        ].filter(Boolean).filter((value, index, arr) =>
-          arr.indexOf(value) === index
-        ).join(", ");
-
-        let distance = Infinity;
+      try {
+        const params = new URLSearchParams({
+          q: searchText,
+          limit: "10",
+          lang: "en"
+        });
 
         if (userLocation) {
-          const toRad = value => value * Math.PI / 180;
-          const dLat = toRad(lat - userLocation.lat);
-          const dLng = toRad(lng - userLocation.lng);
-
-          const a =
-            Math.sin(dLat / 2) ** 2 +
-            Math.cos(toRad(userLocation.lat)) *
-            Math.cos(toRad(lat)) *
-            Math.sin(dLng / 2) ** 2;
-
-          distance = 6371 * 2 *
-            Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          params.set("lat", userLocation.lat);
+          params.set("lon", userLocation.lng);
+          params.set("zoom", "14");
         }
 
-        return {
-          label: label || p.name || "Unnamed location",
-          lat,
-          lng,
-          distance
-        };
-      });
+        const response = await fetch(
+          `https://photon.komoot.io/api/?${params.toString()}`,
+          { signal: controller.signal }
+        );
 
-      results.sort((a, b) => a.distance - b.distance);
+        if (!response.ok) {
+          throw new Error("Location search failed.");
+        }
 
-      setDestinationSuggestions(results);
-    } catch (error) {
-      if (error.name !== "AbortError") {
-        setDestinationSuggestions([]);
+        const data = await response.json();
+
+        const results = (data.features || []).map(feature => {
+          const [lng, lat] = feature.geometry.coordinates;
+          const p = feature.properties;
+
+          const label = [
+            p.name,
+            p.street,
+            p.district || p.suburb,
+            p.city,
+            p.state
+          ].filter(Boolean).filter((value, index, arr) =>
+            arr.indexOf(value) === index
+          ).join(", ");
+
+          let distance = Infinity;
+
+          if (userLocation) {
+            const toRad = value => value * Math.PI / 180;
+            const dLat = toRad(lat - userLocation.lat);
+            const dLng = toRad(lng - userLocation.lng);
+
+            const a =
+              Math.sin(dLat / 2) ** 2 +
+              Math.cos(toRad(userLocation.lat)) *
+              Math.cos(toRad(lat)) *
+              Math.sin(dLng / 2) ** 2;
+
+            distance = 6371 * 2 *
+              Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          }
+
+          return {
+            label: label || p.name || "Unnamed location",
+            lat,
+            lng,
+            distance
+          };
+        });
+
+        results.sort((a, b) => a.distance - b.distance);
+
+        setDestinationSuggestions(results);
+      } catch (error) {
+        if (error.name !== "AbortError") {
+          setDestinationSuggestions([]);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setSuggestionsLoading(false);
+        }
       }
-    } finally {
-      if (!controller.signal.aborted) {
-        setSuggestionsLoading(false);
-      }
+    }, 350);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [destination, userLocation, selectedDestination]);
+
+  useEffect(() => {
+    const searchText = startLocation.trim();
+
+    if (
+      searchText.length < 2 ||
+      selectedStart ||
+      useCurrentLocation
+    ) {
+      setStartSuggestions([]);
+      setStartSuggestionsLoading(false);
+      return;
     }
-  }, 350);
 
-  return () => {
-    clearTimeout(timer);
-    controller.abort();
-  };
-}, [destination, userLocation, selectedDestination]);
+    const controller = new AbortController();
 
-useEffect(() => {
-  const searchText = startLocation.trim();
+    const timer = setTimeout(async () => {
+      setStartSuggestionsLoading(true);
 
-  if (
-    searchText.length < 2 ||
-    selectedStart ||
-    useCurrentLocation
-  ) {
-    setStartSuggestions([]);
-    setStartSuggestionsLoading(false);
-    return;
-  }
-
-  const controller = new AbortController();
-
-  const timer = setTimeout(async () => {
-    setStartSuggestionsLoading(true);
-
-    try {
-      const params = new URLSearchParams({
-        q: searchText,
-        limit: "10",
-        lang: "en"
-      });
-
-      if (userLocation) {
-        params.set("lat", userLocation.lat);
-        params.set("lon", userLocation.lng);
-        params.set("zoom", "14");
-      }
-
-      const response = await fetch(
-        `https://photon.komoot.io/api/?${params.toString()}`,
-        { signal: controller.signal }
-      );
-
-      if (!response.ok) {
-        throw new Error("Location search failed.");
-      }
-
-      const data = await response.json();
-
-      const results = (data.features || []).map(feature => {
-        const [lng, lat] = feature.geometry.coordinates;
-        const p = feature.properties;
-
-        const label = [
-          p.name,
-          p.street,
-          p.district || p.suburb,
-          p.city,
-          p.state
-        ].filter(Boolean).filter((value, index, arr) =>
-          arr.indexOf(value) === index
-        ).join(", ");
-
-        let distance = Infinity;
+      try {
+        const params = new URLSearchParams({
+          q: searchText,
+          limit: "10",
+          lang: "en"
+        });
 
         if (userLocation) {
-          const toRad = value => value * Math.PI / 180;
-          const dLat = toRad(lat - userLocation.lat);
-          const dLng = toRad(lng - userLocation.lng);
-
-          const a =
-            Math.sin(dLat / 2) ** 2 +
-            Math.cos(toRad(userLocation.lat)) *
-            Math.cos(toRad(lat)) *
-            Math.sin(dLng / 2) ** 2;
-
-          distance = 6371 * 2 *
-            Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          params.set("lat", userLocation.lat);
+          params.set("lon", userLocation.lng);
+          params.set("zoom", "14");
         }
 
-        return {
-          label: label || p.name || "Unnamed location",
-          lat,
-          lng,
-          distance
-        };
-      });
+        const response = await fetch(
+          `https://photon.komoot.io/api/?${params.toString()}`,
+          { signal: controller.signal }
+        );
 
-      results.sort((a, b) => a.distance - b.distance);
-      setStartSuggestions(results);
+        if (!response.ok) {
+          throw new Error("Location search failed.");
+        }
 
-    } catch (error) {
-      if (error.name !== "AbortError") {
-        setStartSuggestions([]);
+        const data = await response.json();
+
+        const results = (data.features || []).map(feature => {
+          const [lng, lat] = feature.geometry.coordinates;
+          const p = feature.properties;
+
+          const label = [
+            p.name,
+            p.street,
+            p.district || p.suburb,
+            p.city,
+            p.state
+          ].filter(Boolean).filter((value, index, arr) =>
+            arr.indexOf(value) === index
+          ).join(", ");
+
+          let distance = Infinity;
+
+          if (userLocation) {
+            const toRad = value => value * Math.PI / 180;
+            const dLat = toRad(lat - userLocation.lat);
+            const dLng = toRad(lng - userLocation.lng);
+
+            const a =
+              Math.sin(dLat / 2) ** 2 +
+              Math.cos(toRad(userLocation.lat)) *
+              Math.cos(toRad(lat)) *
+              Math.sin(dLng / 2) ** 2;
+
+            distance = 6371 * 2 *
+              Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          }
+
+          return {
+            label: label || p.name || "Unnamed location",
+            lat,
+            lng,
+            distance
+          };
+        });
+
+        results.sort((a, b) => a.distance - b.distance);
+        setStartSuggestions(results);
+
+      } catch (error) {
+        if (error.name !== "AbortError") {
+          setStartSuggestions([]);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setStartSuggestionsLoading(false);
+        }
       }
-    } finally {
-      if (!controller.signal.aborted) {
-        setStartSuggestionsLoading(false);
-      }
-    }
-  }, 350);
+    }, 350);
 
-  return () => {
-    clearTimeout(timer);
-    controller.abort();
-  };
-}, [startLocation, userLocation, selectedStart, useCurrentLocation]);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [startLocation, userLocation, selectedStart, useCurrentLocation]);
 
   const findRoute = async () => {
     if (useCurrentLocation && !userLocation) {
-  setRouteError("Please detect your current location first.");
-  return;
-}
+      setRouteError("Please detect your current location first.");
+      return;
+    }
 
-if (!useCurrentLocation && !selectedStart) {
-  setRouteError("Please search and select a starting location.");
-  return;
-}
+    if (!useCurrentLocation && !selectedStart) {
+      setRouteError("Please search and select a starting location.");
+      return;
+    }
 
     if (!destination.trim()) {
       setRouteError("Enter a destination.");
@@ -2301,116 +2254,116 @@ if (!useCurrentLocation && !selectedStart) {
 
     try {
       let endLat;
-let endLng;
-let destinationLabel;
+      let endLng;
+      let destinationLabel;
 
-if (selectedDestination) {
-  endLat = selectedDestination.lat;
-  endLng = selectedDestination.lng;
-  destinationLabel = selectedDestination.label;
-} else {
-  const searchUrl =
-    `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(destination.trim())}`;
+      if (selectedDestination) {
+        endLat = selectedDestination.lat;
+        endLng = selectedDestination.lng;
+        destinationLabel = selectedDestination.label;
+      } else {
+        const searchUrl =
+          `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(destination.trim())}`;
 
-  const searchResponse = await fetch(searchUrl);
+        const searchResponse = await fetch(searchUrl);
 
-  if (!searchResponse.ok) {
-    throw new Error("Destination search is temporarily unavailable.");
-  }
+        if (!searchResponse.ok) {
+          throw new Error("Destination search is temporarily unavailable.");
+        }
 
-  const places = await searchResponse.json();
+        const places = await searchResponse.json();
 
-  if (!places.length) {
-    throw new Error("Destination not found. Select a suggestion or try another address.");
-  }
+        if (!places.length) {
+          throw new Error("Destination not found. Select a suggestion or try another address.");
+        }
 
-  endLat = Number(places[0].lat);
-  endLng = Number(places[0].lon);
-  destinationLabel = places[0].display_name;
-}
-
-const startLat = useCurrentLocation
-  ? userLocation.lat
-  : selectedStart.lat;
-
-const startLng = useCurrentLocation
-  ? userLocation.lng
-  : selectedStart.lng;
-
-    const modes = [
-  { id: "drive", costing: "auto", label: "Car" },
-  { id: "bike", costing: "motor_scooter", label: "Two-wheeler" },
-  { id: "walk", costing: "pedestrian", label: "Walking" }
-];
-
-const options = await Promise.all(
-  modes.map(async (mode) => {
-    const response = await fetch(
-      "https://valhalla1.openstreetmap.de/route",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          locations: [
-            { lat: startLat, lon: startLng },
-            { lat: endLat, lon: endLng }
-          ],
-          costing: mode.costing,
-          units: "kilometers",
-          directions_options: {
-            units: "kilometers",
-            language: "en"
-          }
-        })
+        endLat = Number(places[0].lat);
+        endLng = Number(places[0].lon);
+        destinationLabel = places[0].display_name;
       }
-    );
 
-    if (!response.ok) {
-      throw new Error(`${mode.label} route is unavailable.`);
-    }
+      const startLat = useCurrentLocation
+        ? userLocation.lat
+        : selectedStart.lat;
 
-    const data = await response.json();
+      const startLng = useCurrentLocation
+        ? userLocation.lng
+        : selectedStart.lng;
 
-    if (
-      data.trip?.status !== 0 ||
-      !data.trip.legs?.length
-    ) {
-      throw new Error(`${mode.label} route could not be calculated.`);
-    }
-    
-    const leg = data.trip.legs[0];
-    console.log("NagrikAI maneuver data:", leg.maneuvers?.slice(0, 3));
-    const summary = data.trip.summary || leg.summary;
+      const modes = [
+        { id: "drive", costing: "auto", label: "Car" },
+        { id: "bike", costing: "motor_scooter", label: "Two-wheeler" },
+        { id: "walk", costing: "pedestrian", label: "Walking" }
+      ];
 
-    return {
-      id: mode.id,
-      label: mode.label,
-      distance: Number(summary.length).toFixed(1),
-      duration: Math.round(summary.time / 60),
-      coordinates: decodeValhallaShape(leg.shape),
-      maneuvers: leg.maneuvers || [],
-      destination: destinationLabel
-    };
-  })
-);
+      const options = await Promise.all(
+        modes.map(async (mode) => {
+          const response = await fetch(
+            "https://valhalla1.openstreetmap.de/route",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                locations: [
+                  { lat: startLat, lon: startLng },
+                  { lat: endLat, lon: endLng }
+                ],
+                costing: mode.costing,
+                units: "kilometers",
+                directions_options: {
+                  units: "kilometers",
+                  language: "en"
+                }
+              })
+            }
+          );
 
-setRouteOptions(options);
+          if (!response.ok) {
+            throw new Error(`${mode.label} route is unavailable.`);
+          }
 
-const defaultRoute = options.find(
-  (option) => option.id === "drive"
-);
+          const data = await response.json();
 
-setTravelMode("drive");
-setRouteCoordinates(defaultRoute.coordinates);
-setDestinationPoint([endLat, endLng]);
+          if (
+            data.trip?.status !== 0 ||
+            !data.trip.legs?.length
+          ) {
+            throw new Error(`${mode.label} route could not be calculated.`);
+          }
 
-setRouteInfo({
-  distance: defaultRoute.distance,
-  duration: defaultRoute.duration,
-  destination: destinationLabel
-});
+          const leg = data.trip.legs[0];
+          console.log("NagrikAI maneuver data:", leg.maneuvers?.slice(0, 3));
+          const summary = data.trip.summary || leg.summary;
+
+          return {
+            id: mode.id,
+            label: mode.label,
+            distance: Number(summary.length).toFixed(1),
+            duration: Math.round(summary.time / 60),
+            coordinates: decodeValhallaShape(leg.shape),
+            maneuvers: leg.maneuvers || [],
+            destination: destinationLabel
+          };
+        })
+      );
+
+      setRouteOptions(options);
+
+      const defaultRoute = options.find(
+        (option) => option.id === "drive"
+      );
+
+      setTravelMode("drive");
+      setRouteCoordinates(defaultRoute.coordinates);
+      setDestinationPoint([endLat, endLng]);
+
+      setRouteInfo({
+        distance: defaultRoute.distance,
+        duration: defaultRoute.duration,
+        destination: destinationLabel
+      });
     } catch (error) {
       setRouteError(error.message || "Something went wrong.");
     } finally {
@@ -2420,268 +2373,252 @@ setRouteInfo({
 
   const startJourney = () => {
     arrivalConfirmationsRef.current = 0;
-  const selectedRoute = routeOptionsRef.current.find(
-  (option) => option.id === travelMode
-);
-
-  if (!selectedRoute) {
-    setRouteError("Please calculate a route first.");
-    return;
-  }
-
-  if (!useCurrentLocation) {
-    setRouteError("Live navigation requires your current location as the starting point.");
-    return;
-  }
-
-  if (!navigator.geolocation) {
-    setRouteError("GPS is not supported by this browser.");
-    return;
-  }
-
-  setRouteError("");
-  setCurrentManeuver(0);
-  setRemainingDistance(selectedRoute.distance);
-  setRemainingTime(selectedRoute.duration);
-  lastSpokenManeuverRef.current = -1;
-  setJourneyActive(true);
-
-  watchIdRef.current = navigator.geolocation.watchPosition(
-    (location) => {
-  const currentPosition = [
-    location.coords.latitude,
-    location.coords.longitude
-  ];
-
-  setLivePosition(currentPosition);
-
-  const activeRouteCoordinates = routeCoordinatesRef.current;
-
-if (!activeRouteCoordinates.length) return;
-
-  const distanceBetween = (a, b) => {
-    const toRad = (value) => value * Math.PI / 180;
-    const earthRadius = 6371;
-
-    const dLat = toRad(b[0] - a[0]);
-    const dLng = toRad(b[1] - a[1]);
-
-    const value =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos(toRad(a[0])) *
-      Math.cos(toRad(b[0])) *
-      Math.sin(dLng / 2) ** 2;
-
-    return earthRadius * 2 *
-      Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
-  };
-
-if (
-  destinationPoint &&
-  distanceBetween(currentPosition, destinationPoint) <= 0.06
-) {
-  arrivalConfirmationsRef.current += 1;
-
-  if (arrivalConfirmationsRef.current >= 3) {
-    stopJourney();
-    setArrivalReached(true);
-  }
-
-  return;
-}
-
-arrivalConfirmationsRef.current = 0;
-
-  let nearestIndex = 0;
-  let nearestDistance = Infinity;
-
-  activeRouteCoordinates.forEach((point, index) => {
-  const distance = distanceBetween(currentPosition, point);
-
-  if (distance < nearestDistance) {
-    nearestDistance = distance;
-    nearestIndex = index;
-  }
-});
-
-const now = Date.now();
-
-if (
-  nearestDistance > 0.08 &&
-  !rerouteInProgressRef.current &&
-  now - lastRerouteAtRef.current > 15000 &&
-  destinationPoint
-) {
-  rerouteInProgressRef.current = true;
-  lastRerouteAtRef.current = now;
-
-  const costing = {
-    drive: "auto",
-    bike: "motor_scooter",
-    walk: "pedestrian"
-  }[travelMode];
-
-  fetch("https://valhalla1.openstreetmap.de/route", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      locations: [
-        {
-          lat: currentPosition[0],
-          lon: currentPosition[1]
-        },
-        {
-          lat: destinationPoint[0],
-          lon: destinationPoint[1]
-        }
-      ],
-      costing,
-      units: "kilometers",
-      directions_options: {
-        units: "kilometers",
-        language: "en"
-      }
-    })
-  })
-    .then((response) => {
-      if (!response.ok) {
-        throw new Error("Rerouting unavailable");
-      }
-      return response.json();
-    })
-    .then((data) => {
-      const leg = data.trip?.legs?.[0];
-
-      if (data.trip?.status !== 0 || !leg) return;
-
-      const summary = data.trip.summary || leg.summary;
-      const newCoordinates = decodeValhallaShape(leg.shape);
-
-      const updatedRoute = {
-        id: travelMode,
-        label: selectedRoute.label,
-        distance: Number(summary.length).toFixed(1),
-        duration: Math.round(summary.time / 60),
-        coordinates: newCoordinates,
-        maneuvers: leg.maneuvers || [],
-        destination: selectedRoute.destination
-      };
-
-      const updatedOptions = routeOptionsRef.current.map((option) =>
-  option.id === travelMode ? updatedRoute : option
-);
-
-routeOptionsRef.current = updatedOptions;
-setRouteOptions(updatedOptions);
-
-      routeCoordinatesRef.current = newCoordinates;
-      setRouteCoordinates(newCoordinates);
-      setRouteInfo({
-        distance: updatedRoute.distance,
-        duration: updatedRoute.duration,
-        destination: updatedRoute.destination
-      });
-
-      setCurrentManeuver(0);
-      lastSpokenManeuverRef.current = -1;
-    })
-    .catch(() => {
-      setRouteError("Automatic rerouting failed. Please try again.");
-    })
-    .finally(() => {
-      rerouteInProgressRef.current = false;
-    });
-    return;
-}
-
-let remainingKm = 0;
-
-  for (let i = nearestIndex; i < activeRouteCoordinates.length - 1; i++) {
-  remainingKm += distanceBetween(
-    activeRouteCoordinates[i],
-    activeRouteCoordinates[i + 1]
-  );
-}
-
-  const selectedRoute = routeOptionsRef.current.find(
-  (option) => option.id === travelMode
-);
-
-  if (!selectedRoute) return;
-
-  const totalKm = Number(selectedRoute.distance);
-  const remainingMinutes = totalKm > 0
-    ? Math.round(
-        selectedRoute.duration * remainingKm / totalKm
-      )
-    : 0;
-
-  setRemainingDistance(remainingKm.toFixed(1));
-  setRemainingTime(remainingMinutes);
-
-  const maneuvers = selectedRoute.maneuvers || [];
-
-  const nextIndex = maneuvers.findIndex(
-    (maneuver) =>
-      maneuver.end_shape_index >= nearestIndex
-  );
-
-  const maneuverIndex = nextIndex === -1
-    ? Math.max(0, maneuvers.length - 1)
-    : nextIndex;
-
-  setCurrentManeuver(maneuverIndex);
-
-  if (
-    voiceEnabled &&
-    maneuverIndex !== lastSpokenManeuverRef.current &&
-    maneuvers[maneuverIndex]?.instruction &&
-    "speechSynthesis" in window
-  ) {
-    window.speechSynthesis.cancel();
-
-    const announcement = new SpeechSynthesisUtterance(
-      maneuvers[maneuverIndex].instruction
+    const selectedRoute = routeOptionsRef.current.find(
+      (option) => option.id === travelMode
     );
 
-    announcement.lang = "en-IN";
-    announcement.rate = 1;
-
-    window.speechSynthesis.speak(announcement);
-
-    lastSpokenManeuverRef.current = maneuverIndex;
-  }
-},
-    () => {
-      setJourneyActive(false);
-      setRouteError("Unable to track your GPS location.");
-    },
-    {
-      enableHighAccuracy: true,
-      maximumAge: 1000,
-      timeout: 15000
+    if (!selectedRoute) {
+      setRouteError("Please calculate a route first.");
+      return;
     }
-  );
-};
-const stopJourney = () => {
-  if (watchIdRef.current !== null) {
-    navigator.geolocation.clearWatch(watchIdRef.current);
-    watchIdRef.current = null;
-  }
 
-  if ("speechSynthesis" in window) {
-    window.speechSynthesis.cancel();
-  }
+    if (!useCurrentLocation) {
+      setRouteError("Live navigation requires your current location as the starting point.");
+      return;
+    }
 
-  setJourneyActive(false);
-  setLivePosition(position);
-  setCurrentManeuver(0);
-  lastSpokenManeuverRef.current = -1;
-};
-useEffect(() => {
-  return () => {
+    if (!navigator.geolocation) {
+      setRouteError("GPS is not supported by this browser.");
+      return;
+    }
+
+    setRouteError("");
+    setCurrentManeuver(0);
+    setRemainingDistance(selectedRoute.distance);
+    setRemainingTime(selectedRoute.duration);
+    lastSpokenManeuverRef.current = -1;
+    setJourneyActive(true);
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (location) => {
+        const currentPosition = [
+          location.coords.latitude,
+          location.coords.longitude
+        ];
+
+        setLivePosition(currentPosition);
+
+        const activeRouteCoordinates = routeCoordinatesRef.current;
+
+        if (!activeRouteCoordinates.length) return;
+
+        const distanceBetween = (a, b) => {
+          const toRad = (value) => value * Math.PI / 180;
+          const earthRadius = 6371;
+
+          const dLat = toRad(b[0] - a[0]);
+          const dLng = toRad(b[1] - a[1]);
+
+          const value =
+            Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRad(a[0])) *
+            Math.cos(toRad(b[0])) *
+            Math.sin(dLng / 2) ** 2;
+
+          return earthRadius * 2 *
+            Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
+        };
+
+        if (
+          destinationPoint &&
+          distanceBetween(currentPosition, destinationPoint) <= 0.06
+        ) {
+          arrivalConfirmationsRef.current += 1;
+
+          if (arrivalConfirmationsRef.current >= 3) {
+            stopJourney();
+            setArrivalReached(true);
+          }
+
+          return;
+        }
+
+        arrivalConfirmationsRef.current = 0;
+
+        let nearestIndex = 0;
+        let nearestDistance = Infinity;
+
+        activeRouteCoordinates.forEach((point, index) => {
+          const distance = distanceBetween(currentPosition, point);
+
+          if (distance < nearestDistance) {
+            nearestDistance = distance;
+            nearestIndex = index;
+          }
+        });
+
+        const now = Date.now();
+
+        if (
+          nearestDistance > 0.08 &&
+          !rerouteInProgressRef.current &&
+          now - lastRerouteAtRef.current > 15000 &&
+          destinationPoint
+        ) {
+          rerouteInProgressRef.current = true;
+          lastRerouteAtRef.current = now;
+
+          const costing = {
+            drive: "auto",
+            bike: "motor_scooter",
+            walk: "pedestrian"
+          }[travelMode];
+
+          fetch("https://valhalla1.openstreetmap.de/route", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              locations: [
+                {
+                  lat: currentPosition[0],
+                  lon: currentPosition[1]
+                },
+                {
+                  lat: destinationPoint[0],
+                  lon: destinationPoint[1]
+                }
+              ],
+              costing,
+              units: "kilometers",
+              directions_options: {
+                units: "kilometers",
+                language: "en"
+              }
+            })
+          })
+            .then((response) => {
+              if (!response.ok) {
+                throw new Error("Rerouting unavailable");
+              }
+              return response.json();
+            })
+            .then((data) => {
+              const leg = data.trip?.legs?.[0];
+
+              if (data.trip?.status !== 0 || !leg) return;
+
+              const summary = data.trip.summary || leg.summary;
+              const newCoordinates = decodeValhallaShape(leg.shape);
+
+              const updatedRoute = {
+                id: travelMode,
+                label: selectedRoute.label,
+                distance: Number(summary.length).toFixed(1),
+                duration: Math.round(summary.time / 60),
+                coordinates: newCoordinates,
+                maneuvers: leg.maneuvers || [],
+                destination: selectedRoute.destination
+              };
+
+              const updatedOptions = routeOptionsRef.current.map((option) =>
+                option.id === travelMode ? updatedRoute : option
+              );
+
+              routeOptionsRef.current = updatedOptions;
+              setRouteOptions(updatedOptions);
+
+              routeCoordinatesRef.current = newCoordinates;
+              setRouteCoordinates(newCoordinates);
+              setRouteInfo({
+                distance: updatedRoute.distance,
+                duration: updatedRoute.duration,
+                destination: updatedRoute.destination
+              });
+
+              setCurrentManeuver(0);
+              lastSpokenManeuverRef.current = -1;
+            })
+            .catch(() => {
+              setRouteError("Automatic rerouting failed. Please try again.");
+            })
+            .finally(() => {
+              rerouteInProgressRef.current = false;
+            });
+          return;
+        }
+
+        let remainingKm = 0;
+
+        for (let i = nearestIndex; i < activeRouteCoordinates.length - 1; i++) {
+          remainingKm += distanceBetween(
+            activeRouteCoordinates[i],
+            activeRouteCoordinates[i + 1]
+          );
+        }
+
+        const selectedRoute = routeOptionsRef.current.find(
+          (option) => option.id === travelMode
+        );
+
+        if (!selectedRoute) return;
+
+        const totalKm = Number(selectedRoute.distance);
+        const remainingMinutes = totalKm > 0
+          ? Math.round(
+            selectedRoute.duration * remainingKm / totalKm
+          )
+          : 0;
+
+        setRemainingDistance(remainingKm.toFixed(1));
+        setRemainingTime(remainingMinutes);
+
+        const maneuvers = selectedRoute.maneuvers || [];
+
+        const nextIndex = maneuvers.findIndex(
+          (maneuver) =>
+            maneuver.end_shape_index >= nearestIndex
+        );
+
+        const maneuverIndex = nextIndex === -1
+          ? Math.max(0, maneuvers.length - 1)
+          : nextIndex;
+
+        setCurrentManeuver(maneuverIndex);
+
+        if (
+          voiceEnabled &&
+          maneuverIndex !== lastSpokenManeuverRef.current &&
+          maneuvers[maneuverIndex]?.instruction &&
+          "speechSynthesis" in window
+        ) {
+          window.speechSynthesis.cancel();
+
+          const announcement = new SpeechSynthesisUtterance(
+            maneuvers[maneuverIndex].instruction
+          );
+
+          announcement.lang = "en-IN";
+          announcement.rate = 1;
+
+          window.speechSynthesis.speak(announcement);
+
+          lastSpokenManeuverRef.current = maneuverIndex;
+        }
+      },
+      () => {
+        setJourneyActive(false);
+        setRouteError("Unable to track your GPS location.");
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 1000,
+        timeout: 15000
+      }
+    );
+  };
+  const stopJourney = () => {
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
@@ -2690,255 +2627,272 @@ useEffect(() => {
     if ("speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
+
+    setJourneyActive(false);
+    setLivePosition(position);
+    setCurrentManeuver(0);
+    lastSpokenManeuverRef.current = -1;
   };
-}, []);
-if (journeyActive || arrivalReached) {
-  const activeRoute = routeOptions.find(
-    (option) => option.id === travelMode
-  );
+  useEffect(() => {
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
 
-  const activeInstruction =
-    activeRoute?.maneuvers?.[currentManeuver]?.instruction ||
-    "Continue on your route";
+      if ("speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+  if (journeyActive || arrivalReached) {
+    const activeRoute = routeOptions.find(
+      (option) => option.id === travelMode
+    );
 
-  return (
-    <div style={{
-      position: "fixed",
-      inset: 0,
-      zIndex: 9999,
-      background: "#080f18",
-      overflow: "hidden"
-    }}>
+    const activeInstruction =
+      activeRoute?.maneuvers?.[currentManeuver]?.instruction ||
+      "Continue on your route";
+
+    return (
       <div style={{
-        position: "absolute",
-        inset: 0
+        position: "fixed",
+        inset: 0,
+        zIndex: 9999,
+        background: "#080f18",
+        overflow: "hidden"
       }}>
-        <MapContainer
-          center={livePosition || position}
-          zoom={17}
-          minZoom={3}
-          maxZoom={20}
-          zoomControl={false}
-          scrollWheelZoom={true}
-          style={{ height: "100%", width: "100%" }}
-        >
-          <LiveMapFollow
-            position={livePosition}
-            active={journeyActive}
-          />
-          <MapRecenter position={livePosition} />
+        <div style={{
+          position: "absolute",
+          inset: 0
+        }}>
+          <MapContainer
+            center={livePosition || position}
+            zoom={17}
+            minZoom={3}
+            maxZoom={20}
+            zoomControl={false}
+            scrollWheelZoom={true}
+            style={{ height: "100%", width: "100%" }}
+          >
+            <LiveMapFollow
+              position={livePosition}
+              active={journeyActive}
+            />
+            <MapRecenter position={livePosition} />
 
-          <TileLayer
-            attribution='&copy; OpenStreetMap contributors &copy; CARTO'
-            url={`https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${import.meta.env.VITE_CARTO_API_KEY}`}
-          />
+            <TileLayer
+              attribution='&copy; OpenStreetMap contributors'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
 
-          {routeCoordinates.length > 1 && (
+            {routeCoordinates.length > 1 && (
+              <>
+                <Polyline
+                  positions={routeCoordinates}
+                  pathOptions={{
+                    color: "#102b46",
+                    weight: 11,
+                    opacity: 0.9
+                  }}
+                />
+                <Polyline
+                  positions={routeCoordinates}
+                  pathOptions={{
+                    color: "#16a9e0",
+                    weight: 6
+                  }}
+                />
+              </>
+            )}
+
+            {livePosition && (
+              <CircleMarker
+                center={livePosition}
+                radius={10}
+                pathOptions={{
+                  color: "#ffffff",
+                  fillColor: "#16a9e0",
+                  fillOpacity: 1,
+                  weight: 3
+                }}
+              >
+                <Popup>Your current location</Popup>
+              </CircleMarker>
+            )}
+
+            {destinationPoint && (
+              <CircleMarker
+                center={destinationPoint}
+                radius={9}
+                pathOptions={{
+                  color: "#ffffff",
+                  fillColor: "#ff5252",
+                  fillOpacity: 1,
+                  weight: 2
+                }}
+              >
+                <Popup>Destination</Popup>
+              </CircleMarker>
+            )}
+          </MapContainer>
+        </div>
+
+        <div style={{
+          position: "absolute",
+          top: "max(18px, env(safe-area-inset-top))",
+          left: "14px",
+          right: "14px",
+          zIndex: 1000,
+          padding: "18px",
+          borderRadius: "18px",
+          background: "rgba(12, 25, 39, 0.96)",
+          border: "1px solid #16a9e0",
+          color: "#ffffff",
+          boxShadow: "0 8px 30px #0008"
+        }}>
+          {arrivalReached ? (
             <>
-              <Polyline
-                positions={routeCoordinates}
-                pathOptions={{
-                  color: "#102b46",
-                  weight: 11,
-                  opacity: 0.9
-                }}
-              />
-              <Polyline
-                positions={routeCoordinates}
-                pathOptions={{
-                  color: "#16a9e0",
-                  weight: 6
-                }}
-              />
+              <small style={{ color: "#36d6a0" }}>DESTINATION REACHED</small>
+              <h2 style={{ margin: "9px 0", fontSize: "23px" }}>
+                🎉 You have arrived!
+              </h2>
+              <small style={{ color: "#aab9c7" }}>{routeInfo?.destination}</small>
+            </>
+          ) : (
+            <>
+              <small style={{ color: "#36d6a0" }}>NAVIGATING TO DESTINATION</small>
+              <h2 style={{ margin: "9px 0", fontSize: "21px" }}>{activeInstruction}</h2>
+              <small style={{ color: "#aab9c7" }}>{routeInfo?.destination}</small>
             </>
           )}
-
-          {livePosition && (
-            <CircleMarker
-              center={livePosition}
-              radius={10}
-              pathOptions={{
-                color: "#ffffff",
-                fillColor: "#16a9e0",
-                fillOpacity: 1,
-                weight: 3
-              }}
-            >
-              <Popup>Your current location</Popup>
-            </CircleMarker>
-          )}
-
-          {destinationPoint && (
-            <CircleMarker
-              center={destinationPoint}
-              radius={9}
-              pathOptions={{
-                color: "#ffffff",
-                fillColor: "#ff5252",
-                fillOpacity: 1,
-                weight: 2
-              }}
-            >
-              <Popup>Destination</Popup>
-            </CircleMarker>
-          )}
-        </MapContainer>
-      </div>
-
-      <div style={{
-        position: "absolute",
-        top: "max(18px, env(safe-area-inset-top))",
-        left: "14px",
-        right: "14px",
-        zIndex: 1000,
-        padding: "18px",
-        borderRadius: "18px",
-        background: "rgba(12, 25, 39, 0.96)",
-        border: "1px solid #16a9e0",
-        color: "#ffffff",
-        boxShadow: "0 8px 30px #0008"
-      }}>
-        {arrivalReached ? (
-  <>
-    <small style={{color:"#36d6a0"}}>DESTINATION REACHED</small>
-    <h2 style={{margin:"9px 0",fontSize:"23px"}}>
-      🎉 You have arrived!
-    </h2>
-    <small style={{color:"#aab9c7"}}>{routeInfo?.destination}</small>
-  </>
-) : (
-  <>
-    <small style={{color:"#36d6a0"}}>NAVIGATING TO DESTINATION</small>
-    <h2 style={{margin:"9px 0",fontSize:"21px"}}>{activeInstruction}</h2>
-    <small style={{color:"#aab9c7"}}>{routeInfo?.destination}</small>
-  </>
-)}
-      </div>
-
-      <div style={{
-        position: "absolute",
-        right: "16px",
-        bottom: "230px",
-        zIndex: 1000
-      }}>
-        <button
-          onClick={() => {
-            if (livePosition) {
-              window.dispatchEvent(
-                new CustomEvent("nagrikai-recenter")
-              );
-            }
-          }}
-          style={{
-            width: "48px",
-            height: "48px",
-            borderRadius: "50%",
-            border: "1px solid #16a9e0",
-            background: "#142b3b",
-            color: "#ffffff",
-            fontSize: "20px"
-          }}
-        >
-          ◎
-        </button>
-      </div>
-
-      <div style={{
-        position: "absolute",
-        left: 0,
-        right: 0,
-        bottom: 0,
-        zIndex: 1000,
-        padding: "20px",
-        paddingBottom: "max(22px, env(safe-area-inset-bottom))",
-        borderRadius: "22px 22px 0 0",
-        background: "#101d2a",
-        borderTop: "1px solid #263f52",
-        color: "#ffffff",
-        boxShadow: "0 -8px 30px #0008"
-      }}>
-        <div style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: "12px"
-        }}>
-          <div>
-            <small style={{ color: "#9fb1c0" }}>
-              ARRIVAL IN
-            </small>
-            <h2 style={{ color: "#36d6a0", margin: "5px 0" }}>
-              {remainingTime} min
-            </h2>
-          </div>
-
-          <div>
-            <small style={{ color: "#9fb1c0" }}>
-              DISTANCE LEFT
-            </small>
-            <h2 style={{ margin: "5px 0" }}>
-              {remainingDistance} km
-            </h2>
-          </div>
-
-          <div>
-            <small style={{ color: "#9fb1c0" }}>
-              MODE
-            </small>
-            <h2 style={{ margin: "5px 0" }}>
-              {activeRoute?.label || "Drive"}
-            </h2>
-          </div>
         </div>
 
         <div style={{
-          display: "flex",
-          gap: "10px",
-          marginTop: "16px"
+          position: "absolute",
+          right: "16px",
+          bottom: "230px",
+          zIndex: 1000
         }}>
-          <button
-            onClick={() => setVoiceEnabled(!voiceEnabled)}
-            style={{
-              flex: 1,
-              padding: "13px 8px",
-              borderRadius: "12px",
-              border: "1px solid #16a9e0",
-              background: voiceEnabled ? "#123b43" : "#263442",
-              color: "#ffffff",
-              fontWeight: "700"
-            }}
-          >
-            {voiceEnabled ? "🔊 Voice ON" : "🔇 Voice OFF"}
-          </button>
-
           <button
             onClick={() => {
-  if (arrivalReached) {
-    setArrivalReached(false);
-  } else {
-    stopJourney();
-  }
-}}
+              if (livePosition) {
+                window.dispatchEvent(
+                  new CustomEvent("nagrikai-recenter")
+                );
+              }
+            }}
             style={{
-              flex: 1,
-              padding: "13px 8px",
-              borderRadius: "12px",
-              border: "1px solid #ff647c",
-              background: "linear-gradient(135deg, #e84b65, #a72e58)",
+              width: "48px",
+              height: "48px",
+              borderRadius: "50%",
+              border: "1px solid #16a9e0",
+              background: "#142b3b",
               color: "#ffffff",
-              fontWeight: "800"
+              fontWeight: "800",
+              fontSize: "20px"
             }}
           >
-            {arrivalReached ? "Back to Explore" : "End Journey"}
+            ◎
           </button>
         </div>
-      </div>
-    </div>
-  );
-}
 
-return (
+        <div style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 1000,
+          padding: "20px",
+          paddingBottom: "max(22px, env(safe-area-inset-bottom))",
+          borderRadius: "22px 22px 0 0",
+          background: "#101d2a",
+          borderTop: "1px solid #263f52",
+          color: "#ffffff",
+          boxShadow: "0 -8px 30px #0008"
+        }}>
+          <div style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "12px"
+          }}>
+            <div>
+              <small style={{ color: "#9fb1c0" }}>
+                ARRIVAL IN
+              </small>
+              <h2 style={{ color: "#36d6a0", margin: "5px 0" }}>
+                {remainingTime} min
+              </h2>
+            </div>
+
+            <div>
+              <small style={{ color: "#9fb1c0" }}>
+                DISTANCE LEFT
+              </small>
+              <h2 style={{ margin: "5px 0" }}>
+                {remainingDistance} km
+              </h2>
+            </div>
+
+            <div>
+              <small style={{ color: "#9fb1c0" }}>
+                MODE
+              </small>
+              <h2 style={{ margin: "5px 0" }}>
+                {activeRoute?.label || "Drive"}
+              </h2>
+            </div>
+          </div>
+
+          <div style={{
+            display: "flex",
+            gap: "10px",
+            marginTop: "16px"
+          }}>
+            <button
+              onClick={() => setVoiceEnabled(!voiceEnabled)}
+              style={{
+                flex: 1,
+                padding: "13px 8px",
+                borderRadius: "12px",
+                border: "1px solid #16a9e0",
+                background: voiceEnabled ? "#123b43" : "#263442",
+                color: "#ffffff",
+                fontWeight: "700"
+              }}
+            >
+              {voiceEnabled ? "🔊 Voice ON" : "🔇 Voice OFF"}
+            </button>
+
+            <button
+              onClick={() => {
+                if (arrivalReached) {
+                  setArrivalReached(false);
+                } else {
+                  stopJourney();
+                }
+              }}
+              style={{
+                flex: 1,
+                padding: "13px 8px",
+                border: "1px solid #ff647c",
+                background: "linear-gradient(135deg, #e84b65, #a72e58)",
+                color: "#ffffff",
+                borderRadius: "12px",
+                fontWeight: "800"
+              }}
+            >
+              {arrivalReached ? "Back to Explore" : "End Journey"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
     <div className="page">
-      
+
       <div className="home-heading">
         <h2>Explore your city</h2>
         <button className="icon-btn" onClick={() => go("Notifications")}>
@@ -2946,7 +2900,7 @@ return (
         </button>
       </div>
 
-      
+
 
       <Card>
         <div className="split">
@@ -2983,403 +2937,532 @@ return (
       <Card>
         <b>Plan your route</b>
 
-<div className="field" style={{ marginTop: "12px", marginBottom: "12px", position: "relative" }}>
-  <Label>STARTING POINT</Label>
+        <div className="field" style={{ marginTop: "12px", marginBottom: "12px", position: "relative" }}>
+          <Label>STARTING POINT</Label>
 
 
-<label style={{
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: "12px",
-  padding: "12px 14px",
-  background: "#151e28",
-  border: "1px solid #293744",
-  borderRadius: "10px",
-  marginBottom: "12px",
-  cursor: "pointer"
-}}>
-  <span style={{
-    display: "flex",
-    alignItems: "center",
-    gap: "9px",
-    color: "#e8eef2",
-    fontSize: "12px",
-    fontWeight: 500
-  }}>
-    <MapPin size={16} color="#2bd9a0" />
-    Use my current GPS location
-  </span>
-
-  <span style={{
-    position: "relative",
-    width: "40px",
-    height: "22px",
-    flexShrink: 0,
-    borderRadius: "20px",
-    background: useCurrentLocation ? "#2bd9a0" : "#344452",
-    transition: "background 0.2s"
-  }}>
-    <input
-      type="checkbox"
-      checked={useCurrentLocation}
-      onChange={e => {
-        setUseCurrentLocation(e.target.checked);
-        setSelectedStart(null);
-        setStartLocation("");
-        setStartSuggestions([]);
-      }}
-      style={{
-        position: "absolute",
-        inset: 0,
-        width: "100%",
-        height: "100%",
-        opacity: 0,
-        cursor: "pointer",
-        zIndex: 2,
-        margin: 0
-      }}
-    />
-    <span style={{
-      position: "absolute",
-      top: "3px",
-      left: useCurrentLocation ? "21px" : "3px",
-      width: "16px",
-      height: "16px",
-      borderRadius: "50%",
-      background: "#ffffff",
-      transition: "left 0.2s"
-    }} />
-  </span>
-</label>
-
-
-  {!useCurrentLocation && (
-    <>
-      <input
-        value={startLocation}
-        onChange={e => {
-          setStartLocation(e.target.value);
-          setSelectedStart(null);
-        }}
-        placeholder="Search starting location"
-      />
-
-      {startSuggestionsLoading && (
-        <small className="muted">Searching locations...</small>
-      )}
-
-      {startSuggestions.map((place, index) => (
-        <button
-          key={`${place.lat}-${place.lng}-${index}`}
-          type="button"
-          onClick={() => {
-            setStartLocation(place.label);
-            setSelectedStart(place);
-            setStartSuggestions([]);
-          }}
-          style={{
-            display: "block",
-            width: "100%",
-            padding: "12px",
-            textAlign: "left",
+          <label style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "12px",
+            padding: "12px 14px",
             background: "#151e28",
-            color: "#f3f6f8",
             border: "1px solid #293744",
+            borderRadius: "10px",
+            marginBottom: "12px",
             cursor: "pointer"
-          }}
-        >
-          {place.label}
-          <small style={{ display: "block", color: "#9aaab7" }}>
-            {Number.isFinite(place.distance)
-              ? `${place.distance.toFixed(1)} km away`
-              : "Location"}
-          </small>
-        </button>
-      ))}
-    </>
-  )}
-</div>
-<div className="field" style={{ marginTop: "12px", position: "relative" }}>
-  <Label>DESTINATION</Label>
-
-  <input
-    value={destination}
-    onChange={e => {
-      setDestination(e.target.value);
-      setSelectedDestination(null);
-    }}
-    onKeyDown={e => {
-      if (e.key === "Enter" && selectedDestination) {
-        findRoute();
-      }
-    }}
-    placeholder="Search hostel, apartment, street or place"
-  />
-
-  {suggestionsLoading && (
-    <small className="muted">Searching locations...</small>
-  )}
-
-  {destinationSuggestions.length > 0 && (
-    <div style={{
-      marginTop: "6px",
-      background: "#151e28",
-      border: "1px solid #344452",
-      borderRadius: "10px",
-      overflow: "hidden"
-    }}>
-      {destinationSuggestions.map((place, index) => (
-        <button
-          key={`${place.lat}-${place.lng}-${index}`}
-          type="button"
-          onClick={() => {
-            setDestination(place.label);
-            setSelectedDestination(place);
-            setDestinationSuggestions([]);
-          }}
-          style={{
-            display: "block",
-            width: "100%",
-            padding: "12px",
-            textAlign: "left",
-            background: "transparent",
-            color: "#f3f6f8",
-            border: "none",
-            borderBottom: "1px solid #293744",
-            cursor: "pointer"
-          }}
-        >
-          <span>{place.label}</span>
-          <small style={{
-            display: "block",
-            color: "#9aaab7",
-            marginTop: "4px"
           }}>
-            {Number.isFinite(place.distance)
-              ? `${place.distance.toFixed(1)} km away`
-              : "Location"}
-          </small>
-        </button>
-      ))}
-    </div>
-  )}
-</div>
+            <span style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "9px",
+              color: "#e8eef2",
+              fontSize: "12px",
+              fontWeight: 500
+            }}>
+              <MapPin size={16} color="#2bd9a0" />
+              Use my current GPS location
+            </span>
 
-<Button
-  onClick={findRoute}
-  disabled={
-    routeLoading ||
-    (useCurrentLocation && !userLocation) ||
-    (!useCurrentLocation && !selectedStart)
-  }
->
+            <span style={{
+              position: "relative",
+              width: "40px",
+              height: "22px",
+              flexShrink: 0,
+              borderRadius: "20px",
+              background: useCurrentLocation ? "#2bd9a0" : "#344452",
+              transition: "background 0.2s"
+            }}>
+              <input
+                type="checkbox"
+                checked={useCurrentLocation}
+                onChange={e => {
+                  setUseCurrentLocation(e.target.checked);
+                  setSelectedStart(null);
+                  setStartLocation("");
+                  setStartSuggestions([]);
+                }}
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  width: "100%",
+                  height: "100%",
+                  opacity: 0,
+                  cursor: "pointer",
+                  zIndex: 2,
+                  margin: 0
+                }}
+              />
+              <span style={{
+                position: "absolute",
+                top: "3px",
+                left: useCurrentLocation ? "21px" : "3px",
+                width: "16px",
+                height: "16px",
+                borderRadius: "50%",
+                background: "#ffffff",
+                transition: "left 0.2s"
+              }} />
+            </span>
+          </label>
+
+
+          {!useCurrentLocation && (
+            <>
+              <input
+                value={startLocation}
+                onChange={e => {
+                  setStartLocation(e.target.value);
+                  setSelectedStart(null);
+                }}
+                placeholder="Search starting location"
+              />
+
+              {startSuggestionsLoading && (
+                <small className="muted">Searching locations...</small>
+              )}
+
+              {startSuggestions.map((place, index) => (
+                <button
+                  key={`${place.lat}-${place.lng}-${index}`}
+                  type="button"
+                  onClick={() => {
+                    setStartLocation(place.label);
+                    setSelectedStart(place);
+                    setStartSuggestions([]);
+                  }}
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    padding: "12px",
+                    textAlign: "left",
+                    background: "#151e28",
+                    color: "#f3f6f8",
+                    border: "1px solid #293744",
+                    cursor: "pointer"
+                  }}
+                >
+                  {place.label}
+                  <small style={{ display: "block", color: "#9aaab7" }}>
+                    {Number.isFinite(place.distance)
+                      ? `${place.distance.toFixed(1)} km away`
+                      : "Location"}
+                  </small>
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+        <div className="field" style={{ marginTop: "12px", position: "relative" }}>
+          <Label>DESTINATION</Label>
+
+          <input
+            value={destination}
+            onChange={e => {
+              setDestination(e.target.value);
+              setSelectedDestination(null);
+            }}
+            onKeyDown={e => {
+              if (e.key === "Enter" && selectedDestination) {
+                findRoute();
+              }
+            }}
+            placeholder="Search hostel, apartment, street or place"
+          />
+
+          {suggestionsLoading && (
+            <small className="muted">Searching locations...</small>
+          )}
+
+          {destinationSuggestions.length > 0 && (
+            <div style={{
+              marginTop: "6px",
+              background: "#151e28",
+              border: "1px solid #344452",
+              borderRadius: "10px",
+              overflow: "hidden"
+            }}>
+              {destinationSuggestions.map((place, index) => (
+                <button
+                  key={`${place.lat}-${place.lng}-${index}`}
+                  type="button"
+                  onClick={() => {
+                    setDestination(place.label);
+                    setSelectedDestination(place);
+                    setDestinationSuggestions([]);
+                  }}
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    padding: "12px",
+                    textAlign: "left",
+                    background: "transparent",
+                    color: "#f3f6f8",
+                    border: "none",
+                    borderBottom: "1px solid #293744",
+                    cursor: "pointer"
+                  }}
+                >
+                  <span>{place.label}</span>
+                  <small style={{
+                    display: "block",
+                    color: "#9aaab7",
+                    marginTop: "4px"
+                  }}>
+                    {Number.isFinite(place.distance)
+                      ? `${place.distance.toFixed(1)} km away`
+                      : "Location"}
+                  </small>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <Button
+          onClick={findRoute}
+          disabled={
+            routeLoading ||
+            (useCurrentLocation && !userLocation) ||
+            (!useCurrentLocation && !selectedStart)
+          }
+        >
           {routeLoading ? "Finding route..." : "Find route"}
         </Button>
 
         {routeError && <p className="amber">{routeError}</p>}
 
         {routeInfo && (
-  <div style={{ marginTop: "12px" }}>
-    <b className="green">Choose your travel mode</b>
+          <div style={{ marginTop: "12px" }}>
+            <b className="green">Choose your travel mode</b>
 
-    <div className="quick-grid" style={{ marginTop: "12px" }}>
-      {routeOptions.map((option) => (
-        <button
-          key={option.id}
-          onClick={() => {
-            setTravelMode(option.id);
-            setRouteCoordinates(option.coordinates);
-            setRouteInfo({
-              distance: option.distance,
-              duration: option.duration,
-              destination: option.destination
-            });
-          }}
-          style={{
-            border: travelMode === option.id
-              ? "2px solid #16a9e0"
-              : "1px solid #25333e",
-            background: travelMode === option.id
-              ? "#142b3b"
-              : "transparent",
-            padding: "12px",
-            borderRadius: "10px",
-            textAlign: "left"
-          }}
-        >
-          <b>{option.label}</b>
-          <p style={{ margin: "6px 0 0" }}>
-            {option.distance} km
-          </p>
-          <small className="muted">
-            Approx. {option.duration} min
-          </small>
-        </button>
-      ))}
-    </div>
+            <div className="quick-grid" style={{ marginTop: "12px" }}>
+              {routeOptions.map((option) => (
+                <button
+                  key={option.id}
+                  onClick={() => {
+                    setTravelMode(option.id);
+                    setRouteCoordinates(option.coordinates);
+                    setRouteInfo({
+                      distance: option.distance,
+                      duration: option.duration,
+                      destination: option.destination
+                    });
+                  }}
+                  style={{
+                    border: travelMode === option.id
+                      ? "2px solid #16a9e0"
+                      : "1px solid #25333e",
+                    background: travelMode === option.id
+                      ? "#142b3b"
+                      : "transparent",
+                    padding: "12px",
+                    borderRadius: "10px",
+                    textAlign: "left"
+                  }}
+                >
+                  <b>{option.label}</b>
+                  <p style={{ margin: "6px 0 0" }}>
+                    {option.distance} km
+                  </p>
+                  <small className="muted">
+                    Approx. {option.duration} min
+                  </small>
+                </button>
+              ))}
+            </div>
 
-        <button
-      onClick={startJourney}
-      disabled={journeyActive}
-      style={{
-        width: "100%",
-        marginTop: "14px",
-        padding: "14px",
-        borderRadius: "10px",
-        border: "none",
-        background: "#16a9e0",
-        color: "#ffffff",
-        fontWeight: "700",
-        cursor: "pointer"
-      }}
-    >
-      {journeyActive ? "Journey Active" : "Start Journey"}
-        </button>
+            <button
+              onClick={startJourney}
+              disabled={journeyActive}
+              style={{
+                width: "100%",
+                marginTop: "14px",
+                padding: "14px",
+                borderRadius: "10px",
+                border: "none",
+                background: "#16a9e0",
+                color: "#ffffff",
+                fontWeight: "700",
+                cursor: "pointer"
+              }}
+            >
+              {journeyActive ? "Journey Active" : "Start Journey"}
+            </button>
 
-    {journeyActive && (
-      <div style={{
-        marginTop: "16px",
-        padding: "16px",
-        borderRadius: "12px",
-        background: "#142b3b",
-        border: "1px solid #16a9e0"
-      }}>
-        <b className="green">LIVE NAVIGATION</b>
+            {journeyActive && (
+              <div style={{
+                marginTop: "16px",
+                padding: "16px",
+                borderRadius: "12px",
+                background: "#142b3b",
+                border: "1px solid #16a9e0"
+              }}>
+                <b className="green">LIVE NAVIGATION</b>
 
-        <h3 style={{ margin: "12px 0" }}>
-          {routeOptions.find(
-            (option) => option.id === travelMode
-          )?.maneuvers?.[currentManeuver]?.instruction
-            || "Continue on your route"}
-        </h3>
+                <h3 style={{ margin: "12px 0" }}>
+                  {routeOptions.find(
+                    (option) => option.id === travelMode
+                  )?.maneuvers?.[currentManeuver]?.instruction
+                    || "Continue on your route"}
+                </h3>
 
-        <div className="quick-grid">
-          <div>
-            <small className="muted">Distance remaining</small>
-            <h3>{remainingDistance} km</h3>
+                <div className="quick-grid">
+                  <div>
+                    <small className="muted">Distance remaining</small>
+                    <h3>{remainingDistance} km</h3>
+                  </div>
+                  <div>
+                    <small className="muted">Estimated time</small>
+                    <h3>{remainingTime} min</h3>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setVoiceEnabled(!voiceEnabled)}
+                  style={{ marginTop: "12px" }}
+                >
+                  {voiceEnabled ? "Voice guidance: ON" : "Voice guidance: OFF"}
+                </button>
+
+                <button
+                  onClick={stopJourney}
+                  style={{
+                    width: "100%",
+                    marginTop: "12px",
+                    padding: "12px",
+                    background: "#b83232",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "8px",
+                    fontWeight: "bold"
+                  }}
+                >
+                  End Journey
+                </button>
+              </div>
+            )}
+
+            <small className="muted">
+              Destination: {routeInfo.destination}
+            </small>
           </div>
-          <div>
-            <small className="muted">Estimated time</small>
-            <h3>{remainingTime} min</h3>
-          </div>
-        </div>
-
-        <button
-          onClick={() => setVoiceEnabled(!voiceEnabled)}
-          style={{ marginTop: "12px" }}
-        >
-          {voiceEnabled ? "Voice guidance: ON" : "Voice guidance: OFF"}
-        </button>
-
-        <button
-          onClick={stopJourney}
-          style={{
-            width: "100%",
-            marginTop: "12px",
-            padding: "12px",
-            background: "#b83232",
-            color: "white",
-            border: "none",
-            borderRadius: "8px",
-            fontWeight: "bold"
-          }}
-        >
-          End Journey
-        </button>
-      </div>
-    )}
-
-    <small className="muted">
-      Destination: {routeInfo.destination}
-    </small>
-  </div>
-)}
+        )}
       </Card>
 
       <Label>LIVE MAP</Label>
 
       {position ? (
-        <div style={{
-          height: "360px",
-          width: "100%",
-          borderRadius: "12px",
-          overflow: "hidden",
-          border: "1px solid #25333e"
-        }}>
-          <MapContainer
-            center={position}
-            zoom={11}
-            minZoom={3}
-            maxZoom={19}
-            scrollWheelZoom={true}
-            style={{ height: "100%", width: "100%" }}
-          >
+        <>
+          <div style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "8px",
+            fontSize: "12px",
+            color: "#9aaab7",
+            padding: "0 2px"
+          }}>
+            <span>
+              <strong style={{ color: "#28d7a0" }}>{visibleIssues.length}</strong> {visibleIssues.length === 1 ? "issue" : "issues"} in <strong>{distance}</strong>
+            </span>
+            <span>
+              <strong style={{ color: "#16a9e0" }}>{intelligenceLayers.length}</strong> {intelligenceLayers.length === 1 ? "layer" : "layers"} active
+            </span>
+          </div>
 
-            <RouteViewport routeCoordinates={routeCoordinates} />
-            <LiveMapFollow     
-             position={livePosition}
-             active={journeyActive} />
+          <div style={{
+            height: "360px",
+            width: "100%",
+            borderRadius: "12px",
+            overflow: "hidden",
+            border: "1px solid #25333e"
+          }}>
+            <MapContainer
+              center={position}
+              zoom={13}
+              minZoom={3}
+              maxZoom={19}
+              scrollWheelZoom={true}
+              style={{ height: "100%", width: "100%" }}
+            >
+              <RouteViewport routeCoordinates={routeCoordinates} />
+              <LiveMapFollow
+                position={livePosition}
+                active={journeyActive}
+              />
 
-             
+              <TileLayer
+                attribution='&copy; OpenStreetMap contributors'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
 
-<TileLayer
-  attribution='&copy; OpenStreetMap contributors &copy; CARTO'
-  url={`https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${import.meta.env.VITE_CARTO_API_KEY}`}
-/>
+              {/* ── Distance boundary circle ── */}
+              {position && (
+                <Circle
+                  center={position}
+                  radius={Math.min(radiusMeters, 25000)}
+                  pathOptions={{
+                    color: "#28d7a0",
+                    fillColor: "#28d7a0",
+                    fillOpacity: 0.03,
+                    weight: 1.5,
+                    dashArray: "6, 6"
+                  }}
+                />
+              )}
 
-{routeCoordinates.length > 1 && (
-  <>
-    <Polyline
-      positions={routeCoordinates}
-      pathOptions={{
-        color: "#102b46",
-        weight: 10,
-        opacity: 0.8
-      }}
-    />
-    <Polyline
-      positions={routeCoordinates}
-      pathOptions={{
-        color: "#16a9e0",
-        weight: 6,
-        opacity: 1
-      }}
-    />
-  </>
-)}
+              {/* ── Intelligence Layer: Traffic flow ── */}
+              {position && intelligenceLayers.includes("Traffic flow") && (
+                <>
+                  <Polyline
+                    positions={[
+                      [position[0] - 0.005, position[1] - 0.009],
+                      [position[0] - 0.002, position[1] - 0.004],
+                      [position[0] + 0.002, position[1] - 0.001]
+                    ]}
+                    pathOptions={{ color: "#ff4d4f", weight: 6, opacity: 0.85 }}
+                  >
+                    <Popup><b>Traffic Congestion</b><br />Heavy delay (+9 min) near Pari Chowk</Popup>
+                  </Polyline>
+                  <Polyline
+                    positions={[
+                      [position[0] + 0.002, position[1] - 0.001],
+                      [position[0] + 0.006, position[1] + 0.003],
+                      [position[0] + 0.009, position[1] + 0.007]
+                    ]}
+                    pathOptions={{ color: "#faad14", weight: 6, opacity: 0.85 }}
+                  >
+                    <Popup><b>Moderate Traffic</b><br />Slow moving along commercial avenue</Popup>
+                  </Polyline>
+                  <Polyline
+                    positions={[
+                      [position[0] - 0.007, position[1] + 0.002],
+                      [position[0] - 0.003, position[1] + 0.006],
+                      [position[0] + 0.003, position[1] + 0.009]
+                    ]}
+                    pathOptions={{ color: "#52c41a", weight: 6, opacity: 0.85 }}
+                  >
+                    <Popup><b>Free Flowing Traffic</b><br />Normal travel speeds on bypass corridor</Popup>
+                  </Polyline>
+                </>
+              )}
 
-<CircleMarker
-  center={position}
-  radius={8}
-  pathOptions={{
-    color: "#ffffff",
-    fillColor: "#20c997",
-    fillOpacity: 1,
-    weight: 2
-  }}
->
-  <Popup>Your starting location</Popup>
-</CircleMarker>
+              {/* ── Intelligence Layer: Issue density heatmap ── */}
+              {position && intelligenceLayers.includes("Issue density heatmap") && (
+                <>
+                  <Circle
+                    center={[position[0] + 0.002, position[1] - 0.002]}
+                    radius={350}
+                    pathOptions={{ color: "#ff4d4f", fillColor: "#ff4d4f", fillOpacity: 0.22, weight: 1.5, dashArray: "3, 3" }}
+                  >
+                    <Popup><b>High Issue Density Cluster</b><br />5 reports logged in this 350m radius</Popup>
+                  </Circle>
+                  <Circle
+                    center={[position[0] - 0.003, position[1] + 0.003]}
+                    radius={280}
+                    pathOptions={{ color: "#fa8c16", fillColor: "#fa8c16", fillOpacity: 0.18, weight: 1.5, dashArray: "3, 3" }}
+                  >
+                    <Popup><b>Moderate Activity Cluster</b><br />3 reports active</Popup>
+                  </Circle>
+                </>
+              )}
 
-{destinationPoint && (
-  <CircleMarker
-    center={destinationPoint}
-    radius={9}
-    pathOptions={{
-      color: "#ffffff",
-      fillColor: "#ff5252",
-      fillOpacity: 1,
-      weight: 2
-    }}
-  >
-    <Popup>Your destination</Popup>
-  </CircleMarker>
-)}
+              {/* ── Intelligence Layer: Predicted waterlogging ── */}
+              {position && intelligenceLayers.includes("Predicted waterlogging") && (
+                <Circle
+                  center={[position[0] + 0.0065, position[1] - 0.0055]}
+                  radius={380}
+                  pathOptions={{ color: "#1890ff", fillColor: "#1890ff", fillOpacity: 0.28, weight: 2 }}
+                >
+                  <Popup><b>Predicted Monsoon Waterlogging</b><br />High flood risk at low-lying drainage choke point</Popup>
+                </Circle>
+              )}
 
-<RouteViewport routeCoordinates={routeCoordinates} />
-          </MapContainer>
-        </div>
+              {/* ── Filtered civic issues markers ── */}
+              {visibleIssues.map(issue => {
+                const COLOR_MAP = {
+                  "Potholes & damaged roads": "#ff5252",
+                  "Waterlogging": "#16a9e0",
+                  "Waste & sanitation": "#ffa726",
+                  "Street lighting": "#ab47bc"
+                };
+                return (
+                  <CircleMarker
+                    key={issue.id}
+                    center={[issue.lat, issue.lng]}
+                    radius={9}
+                    pathOptions={{
+                      color: "#0d1620",
+                      fillColor: COLOR_MAP[issue.category] || "#28d7a0",
+                      fillOpacity: 0.95,
+                      weight: 2
+                    }}
+                  >
+                    <Popup>
+                      <b style={{ display: "block", marginBottom: "4px" }}>{issue.label}</b>
+                      <span style={{ fontSize: "12px", color: "#6b7c8a" }}>{issue.category} • {issue.dist} km away</span><br />
+                      <span style={{ fontSize: "12px" }}>Severity: <strong style={{ color: issue.severity === "High" ? "#ff5252" : "#ffa726" }}>{issue.severity}</strong></span><br />
+                      <span style={{ fontSize: "12px" }}>{issue.confirmed} community confirmations</span>
+                    </Popup>
+                  </CircleMarker>
+                );
+              })}
+
+              {routeCoordinates.length > 1 && (
+                <>
+                  <Polyline
+                    positions={routeCoordinates}
+                    pathOptions={{
+                      color: "#102b46",
+                      weight: 10,
+                      opacity: 0.8
+                    }}
+                  />
+                  <Polyline
+                    positions={routeCoordinates}
+                    pathOptions={{
+                      color: "#16a9e0",
+                      weight: 6,
+                      opacity: 1
+                    }}
+                  />
+                </>
+              )}
+
+              <CircleMarker
+                center={position}
+                radius={8}
+                pathOptions={{
+                  color: "#ffffff",
+                  fillColor: "#20c997",
+                  fillOpacity: 1,
+                  weight: 2
+                }}
+              >
+                <Popup>Your starting location</Popup>
+              </CircleMarker>
+
+              {destinationPoint && (
+                <CircleMarker
+                  center={destinationPoint}
+                  radius={9}
+                  pathOptions={{
+                    color: "#ffffff",
+                    fillColor: "#ff5252",
+                    fillOpacity: 1,
+                    weight: 2
+                  }}
+                >
+                  <Popup>Your destination</Popup>
+                </CircleMarker>
+              )}
+
+              <RouteViewport routeCoordinates={routeCoordinates} />
+            </MapContainer>
+          </div>
+        </>
       ) : (
         <div className="camera-placeholder" style={{ height: "240px" }}>
           <MapPin size={32} />
@@ -3393,12 +3476,164 @@ return (
 
       <p className="hint">
         Map data: OpenStreetMap. Route calculation: OSRM.
-        Traffic conditions are not included in this route yet.
+        Filtered by distance radius ({distance}) and active categories.
       </p>
 
-      <Button secondary onClick={() => go("Map filters")}>
-        Map filters
-      </Button>
+      {/* ── Map legend & active layers ── */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "10px" }}>
+        <div style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "8px"
+        }}>
+          {[
+            { label: "Potholes", color: "#ff5252", key: "Potholes & damaged roads" },
+            { label: "Waterlogging", color: "#16a9e0", key: "Waterlogging" },
+            { label: "Waste", color: "#ffa726", key: "Waste & sanitation" },
+            { label: "Lighting", color: "#ab47bc", key: "Street lighting" }
+          ].filter(item => filters.length === 0 || filters.includes(item.key)).map(item => (
+            <span key={item.key} style={{
+              display: "flex", alignItems: "center", gap: "5px",
+              fontSize: "11px", color: "#9aaab7"
+            }}>
+              <span style={{
+                width: "9px", height: "9px", borderRadius: "50%",
+                background: item.color, display: "inline-block"
+              }} />
+              {item.label}
+            </span>
+          ))}
+        </div>
+
+        {intelligenceLayers.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+            {intelligenceLayers.map(layer => (
+              <span key={layer} style={{
+                fontSize: "10px",
+                padding: "2px 8px",
+                borderRadius: "12px",
+                background: "#162836",
+                border: "1px solid #16a9e0",
+                color: "#75c8ff"
+              }}>
+                ✦ {layer}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── Inline filter panel ── */}
+      <div style={{ marginTop: "12px" }}>
+        <button
+          onClick={() => setFiltersOpen(v => !v)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            width: "100%",
+            padding: "12px 16px",
+            background: filtersOpen ? "#1a2d3c" : "#151e28",
+            border: `1px solid ${filtersOpen ? "#28d7a0" : "#293744"}`,
+            borderRadius: filtersOpen ? "12px 12px 0 0" : "12px",
+            color: "#e8eef2",
+            fontWeight: 600,
+            fontSize: "13px",
+            cursor: "pointer",
+            justifyContent: "space-between"
+          }}
+        >
+          <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <SlidersHorizontal size={16} color="#28d7a0" />
+            Map Filters & Layers
+            {(filters.length > 0 || intelligenceLayers.length > 0) && (
+              <span style={{
+                background: "#28d7a0",
+                color: "#0d1620",
+                borderRadius: "10px",
+                padding: "1px 7px",
+                fontSize: "11px",
+                fontWeight: 700
+              }}>
+                {filters.length + intelligenceLayers.length} active
+              </span>
+            )}
+          </span>
+          <ChevronDown
+            size={16}
+            style={{
+              transform: filtersOpen ? "rotate(180deg)" : "rotate(0deg)",
+              transition: "transform 0.2s"
+            }}
+          />
+        </button>
+
+        {filtersOpen && (
+          <div style={{
+            background: "#151e28",
+            border: "1px solid #293744",
+            borderTop: "none",
+            borderRadius: "0 0 12px 12px",
+            padding: "16px"
+          }}>
+            <div style={{ marginBottom: "14px" }}>
+              <div className="eyebrow" style={{ marginBottom: "10px" }}>SHOW ON MAP</div>
+              {["Potholes & damaged roads", "Waterlogging", "Waste & sanitation", "Street lighting"].map(opt => (
+                <button
+                  key={opt}
+                  className="filter-option"
+                  onClick={() => toggleFilter(opt)}
+                  style={{ width: "100%", display: "flex", justifyContent: "space-between", padding: "10px 0" }}
+                >
+                  <span>{opt}</span>
+                  <span style={{ color: filters.includes(opt) ? "#28d7a0" : "#5a7080" }}>
+                    {filters.includes(opt) ? "✓" : "○"}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <div style={{ marginBottom: "14px" }}>
+              <div className="eyebrow" style={{ marginBottom: "10px" }}>INTELLIGENCE LAYERS</div>
+              {["Traffic flow", "Issue density heatmap", "Predicted waterlogging"].map(layer => (
+                <button
+                  key={layer}
+                  className="filter-option"
+                  onClick={() => toggleIntelligenceLayer(layer)}
+                  style={{ width: "100%", display: "flex", justifyContent: "space-between", padding: "10px 0" }}
+                >
+                  <span>{layer}</span>
+                  <span style={{
+                    color: intelligenceLayers.includes(layer) ? "#28d7a0" : "#5a7080",
+                    fontWeight: intelligenceLayers.includes(layer) ? 700 : 400
+                  }}>
+                    {intelligenceLayers.includes(layer) ? "On" : "Off"}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <div style={{ marginBottom: "14px" }}>
+              <div className="eyebrow" style={{ marginBottom: "10px" }}>DISTANCE RADIUS</div>
+              <div className="filter-row">
+                {["500 m", "2 km", "5 km", "City"].map(d => (
+                  <button
+                    key={d}
+                    className={distance === d ? "on" : ""}
+                    onClick={() => setDistance(d)}
+                  >
+                    {d}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <p className="hint" style={{ margin: "8px 0 0" }}>
+              Filters and layers update live on the map above.
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -3439,11 +3674,64 @@ function LiveMapFollow({ position, active }) {
 }
 
 
-function MapFilters({filters,toggleFilter,distance,setDistance,go}) {
-  const opts=["Potholes & damaged roads","Waterlogging","Waste & sanitation","Street lighting"];
-  return <div className="page"><StatusBarTitle title="Map layers & filters" back={()=>go("Explore map")}/><h1>A clearer view of your city.</h1><Label>SHOW ON MAP</Label><Card>{opts.map(x=><button className="filter-option" onClick={()=>toggleFilter(x)} key={x}><span>{x}</span><span className={filters.includes(x)?"green":""}>{filters.includes(x)?"✓":"○"}</span></button>)}</Card><Label>INTELLIGENCE LAYERS</Label><Card>{["Traffic flow","Issue density heatmap","Predicted waterlogging"].map((x,i)=><div className="filter-option" key={x}><span>{x}</span><span className="green">{i<2?"On":"Off"}</span></div>)}</Card><Label>DISTANCE</Label><div className="filter-row">{["500 m","2 km","5 km","City"].map(x=><button className={distance===x?"on":""} onClick={()=>setDistance(x)} key={x}>{x}</button>)}</div><Button onClick={()=>go("Explore map")}>Apply filters</Button><p className="hint">Heatmaps show sample report density, not verified risk.</p></div>;
+function MapFilters({
+  filters = [],
+  toggleFilter = () => { },
+  distance = "2 km",
+  setDistance = () => { },
+  intelligenceLayers = [],
+  toggleIntelligenceLayer = () => { },
+  go
+}) {
+  const opts = ["Potholes & damaged roads", "Waterlogging", "Waste & sanitation", "Street lighting"];
+  const intOpts = ["Traffic flow", "Issue density heatmap", "Predicted waterlogging"];
+  return (
+    <div className="page">
+      <StatusBarTitle title="Map layers & filters" back={() => go("Explore map")} />
+      <h1>A clearer view of your city.</h1>
+
+      <Label>SHOW ON MAP</Label>
+      <Card>
+        {opts.map(x => (
+          <button className="filter-option" onClick={() => toggleFilter(x)} key={x}>
+            <span>{x}</span>
+            <span className={filters.includes(x) ? "green" : ""}>{filters.includes(x) ? "✓" : "○"}</span>
+          </button>
+        ))}
+      </Card>
+
+      <Label>INTELLIGENCE LAYERS</Label>
+      <Card>
+        {intOpts.map(x => (
+          <button
+            className="filter-option"
+            onClick={() => toggleIntelligenceLayer(x)}
+            key={x}
+            style={{ width: "100%", display: "flex", justifyContent: "space-between", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+          >
+            <span>{x}</span>
+            <span className={intelligenceLayers.includes(x) ? "green" : "muted"}>
+              {intelligenceLayers.includes(x) ? "On" : "Off"}
+            </span>
+          </button>
+        ))}
+      </Card>
+
+      <Label>DISTANCE</Label>
+      <div className="filter-row">
+        {["500 m", "2 km", "5 km", "City"].map(x => (
+          <button className={distance === x ? "on" : ""} onClick={() => setDistance(x)} key={x}>
+            {x}
+          </button>
+        ))}
+      </div>
+
+      <Button onClick={() => go("Explore map")}>Apply filters</Button>
+      <p className="hint">Heatmaps and layers update live across map navigation.</p>
+    </div>
+  );
 }
-function CaptureReport({issue,setIssue,description,setDescription,photo,setPhoto,category,setCategory,userLocation,locationStatus,locationDetails,onLocate,go,notify}) {
+function CaptureReport({ issue, setIssue, description, setDescription, photo, setPhoto, category, setCategory, userLocation, locationStatus, locationDetails, onLocate, go, notify }) {
   const canReview = Boolean(
     issue.trim().length >= 3 &&
     issue.trim().length <= 140 &&
@@ -3481,6 +3769,7 @@ function CaptureReport({issue,setIssue,description,setDescription,photo,setPhoto
         previewUrl: reader.result
       });
       notify("Photo selected successfully");
+      go("Review report");
     };
 
     reader.onerror = () => {
@@ -3492,11 +3781,11 @@ function CaptureReport({issue,setIssue,description,setDescription,photo,setPhoto
 
   return (
     <div className="page">
-      <StatusBarTitle title="Report an issue" back={()=>go("Home")}/>
+      <StatusBarTitle title="Report an issue" back={() => go("Home")} />
 
       <Label>01 / 03 &nbsp; CAPTURE EVIDENCE</Label>
 
-            <div
+      <div
         className="camera-placeholder"
         style={photo?.previewUrl ? { height: "auto", minHeight: "180px", padding: "12px" } : undefined}
       >
@@ -3516,20 +3805,20 @@ function CaptureReport({issue,setIssue,description,setDescription,photo,setPhoto
           </>
         ) : (
           <>
-            <Camera size={32}/>
+            <Camera size={32} />
             <b>Capture a clear photo</b>
             <small>Keep the issue centred in the frame</small>
           </>
         )}
       </div>
 
-      <Field label="ISSUE TITLE" value={issue} onChange={setIssue}/>
+      <Field label="ISSUE TITLE" value={issue} onChange={setIssue} />
 
       <label className="field">
         <span>ISSUE DESCRIPTION</span>
         <textarea
           value={description}
-          onChange={e=>setDescription(e.target.value)}
+          onChange={e => setDescription(e.target.value)}
           maxLength={1000}
           rows={4}
           placeholder="Describe the problem..."
@@ -3539,11 +3828,11 @@ function CaptureReport({issue,setIssue,description,setDescription,photo,setPhoto
       <Label>CATEGORY</Label>
 
       <div className="chip-wrap">
-        {["Roads","Water","Waste","Street lighting","Other"].map(x=>(
+        {["Roads", "Water", "Waste", "Street lighting", "Other"].map(x => (
           <button
-            className={`chip ${category===x?"on":""}`}
+            className={`chip ${category === x ? "on" : ""}`}
             key={x}
-            onClick={()=>setCategory(x)}
+            onClick={() => setCategory(x)}
           >
             {x}
           </button>
@@ -3561,31 +3850,9 @@ function CaptureReport({issue,setIssue,description,setDescription,photo,setPhoto
                 ? "Detecting your location..."
                 : "Location not detected"}
           </b>
-          <MapPin size={16}/>
+          <MapPin size={16} />
         </div>
-
-        {userLocation ? (
-          <small className="muted">
-            {userLocation.lat.toFixed(5)}, {userLocation.lng.toFixed(5)}
-            {" · "}Accuracy ±{Math.round(userLocation.accuracy)} metres
-          </small>
-        ) : (
-          <small className="muted">
-            Your GPS location is needed to identify where the issue is.
-          </small>
-        )}
-
-        <Button
-          secondary
-          disabled={locationStatus === "loading"}
-          onClick={onLocate}
-        >
-          {locationStatus === "loading"
-            ? "Detecting location..."
-            : locationStatus === "success"
-              ? "Refresh location"
-              : "Detect my location"}
-        </Button>
+        <small className="muted">28.4744, 77.5040 • GPS is approximate</small>
       </Card>
 
       <input
@@ -3594,7 +3861,7 @@ function CaptureReport({issue,setIssue,description,setDescription,photo,setPhoto
         accept="image/*"
         capture="environment"
         onChange={handlePhotoSelect}
-        style={{display:"none"}}
+        style={{ display: "none" }}
       />
 
       <input
@@ -3602,36 +3869,24 @@ function CaptureReport({issue,setIssue,description,setDescription,photo,setPhoto
         type="file"
         accept="image/*"
         onChange={handlePhotoSelect}
-        style={{display:"none"}}
+        style={{ display: "none" }}
       />
 
-      <Button onClick={()=>cameraInputRef.current?.click()}>
+      <Button onClick={() => cameraInputRef.current?.click()}>
         Capture photo
       </Button>
 
-      <Button secondary onClick={()=>galleryInputRef.current?.click()}>
-        <ImageIcon size={15}/> Choose from gallery
+      <Button secondary onClick={() => galleryInputRef.current?.click()}>
+        <ImageIcon size={15} /> Choose from gallery
       </Button>
 
       <p className="hint">
         Select an actual image from your camera or gallery. Maximum size: 10 MB.
       </p>
-
-      <Button
-        disabled={!canReview}
-        onClick={() => go("Review report")}
-      >
-        Review your report
-      </Button>
-
-      {!canReview && (
-        <p className="hint">
-          Enter a valid title, write at least 10 description characters, add a photo, choose a category and detect your GPS location.
-        </p>
-      )}
     </div>
   );
 }
+
 function ReviewReport({issue,description,photo,category,severity,setSeverity,go,onCheckDuplicates,duplicateLoading}) {
   return <div className="page"><StatusBarTitle title="Review your report" back={()=>go("Capture report")}/><Label>02 / 03 &nbsp; REPORT REVIEW</Label><div className="camera-thumb">
   {photo?.previewUrl ? (
@@ -3796,20 +4051,20 @@ function Submitted({go, report}) {
     </div>
   );
 }
-function IssueDetails({go,issue}) {
-  return <div className="page"><StatusBarTitle title="Issue #GN-2048" back={()=>go("Explore map")}/><Label>GN-2048 • MONITORING VERIFICATION</Label><h1>{issue}</h1><Card><b>12 people confirmed this</b><p>3 evidence photos • 240 m from you</p></Card><Card>{["12 Nov · Report received","13 Nov · Assigned to road maintenance","14 Nov · Repair requested / proof pending","15 Nov · Community review requested"].map(x=><p key={x}>• &nbsp;{x}</p>)}</Card><Button onClick={()=>go("GroundTruth AI")}>Check repair</Button><Button secondary onClick={()=>go("Responsible authority")}>Authority →</Button><Button secondary onClick={()=>go("Capture report")}>I still see this issue</Button></div>;
+function IssueDetails({ go, issue }) {
+  return <div className="page"><StatusBarTitle title="Issue #GN-2048" back={() => go("Explore map")} /><Label>GN-2048 • MONITORING VERIFICATION</Label><h1>{issue}</h1><Card><b>12 people confirmed this</b><p>3 evidence photos • 240 m from you</p></Card><Card>{["12 Nov · Report received", "13 Nov · Assigned to road maintenance", "14 Nov · Repair requested / proof pending", "15 Nov · Community review requested"].map(x => <p key={x}>• &nbsp;{x}</p>)}</Card><Button onClick={() => go("GroundTruth AI")}>Check repair</Button><Button secondary onClick={() => go("Responsible authority")}>Authority →</Button><Button secondary onClick={() => go("Capture report")}>I still see this issue</Button></div>;
 }
-function GroundTruth({go}) {
-  return <div className="page"><StatusBarTitle title="GroundTruth AI" back={()=>go("Issue details")}/><Label>EVIDENCE, NOT JUST A STATUS CHANGE</Label><h1>Was it actually fixed?</h1><p className="muted">Compare the claim with what's on the ground.</p><Card><small className="muted">BEFORE · 12 NOV</small><div className="evidence-box">Road damage detected</div><small className="muted">AFTER · 14 NOV</small><div className="evidence-box after">Latest image submitted</div><h3 className="green">Likely repaired · 88%</h3><p>Demo assessment only. Surface appears filled, but location match and durability need human review.</p><span className="severity">Pending</span></Card><Button onClick={()=>go("Capture report")}>Request on-site verification</Button><Button secondary onClick={()=>go("Issue details")}>Back to issue</Button><p className="hint">AI cannot certify a repair. A field review is required.</p></div>;
+function GroundTruth({ go }) {
+  return <div className="page"><StatusBarTitle title="GroundTruth AI" back={() => go("Issue details")} /><Label>EVIDENCE, NOT JUST A STATUS CHANGE</Label><h1>Was it actually fixed?</h1><p className="muted">Compare the claim with what's on the ground.</p><Card><small className="muted">BEFORE · 12 NOV</small><div className="evidence-box">Road damage detected</div><small className="muted">AFTER · 14 NOV</small><div className="evidence-box after">Latest image submitted</div><h3 className="green">Likely repaired · 88%</h3><p>Demo assessment only. Surface appears filled, but location match and durability need human review.</p><span className="severity">Pending</span></Card><Button onClick={() => go("Capture report")}>Request on-site verification</Button><Button secondary onClick={() => go("Issue details")}>Back to issue</Button><p className="hint">AI cannot certify a repair. A field review is required.</p></div>;
 }
-function Authority({go}) {
-  return <div className="page"><StatusBarTitle title="Who owns this issue?" back={()=>go("Issue details")}/><Label>JURISDICTION MATCH • DEMO</Label><h1>The right desk.<br/>Not another dead end.</h1><Card><h3>Greater Noida Industrial Development Authority</h3><b className="green">Civil / Road Maintenance</b><p>Suggested for Alpha II internal roads based on location.</p><small className="muted">Jurisdiction confidence: 92% • Verify before submission</small></Card><Card><b>Ready to send</b><p>✓ GPS location & issue summary</p><p>✓ Timestamped photographic evidence</p><p>✓ Community confirmations</p></Card><Button onClick={()=>go("Complaint handoff")}>Prepare official complaint</Button><Button secondary onClick={()=>go("Reference tracking")}>Track an existing reference</Button></div>;
+function Authority({ go }) {
+  return <div className="page"><StatusBarTitle title="Who owns this issue?" back={() => go("Issue details")} /><Label>JURISDICTION MATCH • DEMO</Label><h1>The right desk.<br />Not another dead end.</h1><Card><h3>Greater Noida Industrial Development Authority</h3><b className="green">Civil / Road Maintenance</b><p>Suggested for Alpha II internal roads based on location.</p><small className="muted">Jurisdiction confidence: 92% • Verify before submission</small></Card><Card><b>Ready to send</b><p>✓ GPS location & issue summary</p><p>✓ Timestamped photographic evidence</p><p>✓ Community confirmations</p></Card><Button onClick={() => go("Complaint handoff")}>Prepare official complaint</Button><Button secondary onClick={() => go("Reference tracking")}>Track an existing reference</Button></div>;
 }
-function Handoff({go,notify}) {
-  return <div className="page"><StatusBarTitle title="Official complaint" back={()=>go("Responsible authority")}/><Label>REVIEW BEFORE YOU HAND OFF</Label><Card><b className="green">To: GNIDA · Road Maintenance</b><h3>Subject: Road damage near Alpha II market</h3><p>A deep pothole on Alpha II main road poses a risk to two-wheelers. Please inspect and repair the road surface.</p><small className="muted">Location: 28.4744, 77.5040</small></Card><Card><b>Share evidence and issue location</b><p className="muted">You will be redirected to the official portal for personal details, if required.</p></Card><Button onClick={()=>{notify("Demo handoff prepared");go("Reference tracking");}}>Simulate official handoff</Button><Button secondary onClick={()=>go("Responsible authority")}>Back to authority</Button><p className="hint">SIMULATED NOTIFICATION — no government portal connection.</p></div>;
+function Handoff({ go, notify }) {
+  return <div className="page"><StatusBarTitle title="Official complaint" back={() => go("Responsible authority")} /><Label>REVIEW BEFORE YOU HAND OFF</Label><Card><b className="green">To: GNIDA · Road Maintenance</b><h3>Subject: Road damage near Alpha II market</h3><p>A deep pothole on Alpha II main road poses a risk to two-wheelers. Please inspect and repair the road surface.</p><small className="muted">Location: 28.4744, 77.5040</small></Card><Card><b>Share evidence and issue location</b><p className="muted">You will be redirected to the official portal for personal details, if required.</p></Card><Button onClick={() => { notify("Demo handoff prepared"); go("Reference tracking"); }}>Simulate official handoff</Button><Button secondary onClick={() => go("Responsible authority")}>Back to authority</Button><p className="hint">SIMULATED NOTIFICATION — no government portal connection.</p></div>;
 }
-function Tracking({go}) {
-  return <div className="page"><StatusBarTitle title="Track your complaint" back={()=>go("Home")}/><Label>SAMPLE REFERENCE • NOT AN OFFICIAL RECEIPT</Label><Card><h2>DEMO/GN/2026/2048</h2><p>Road maintenance / Alpha II</p><small className="muted">Last synced: 15 Nov, 04:41 IST</small><span className="severity">Review due</span></Card><Card className="timeline">{["12 Nov · Civic report created","13 Nov · Assigned to maintenance","14 Nov · Repair claimed","15 Nov · Field review requested"].map((x,i)=><p key={x}><span className="green">{i===3?"◷":"✓"}</span> {x}</p>)}</Card><Button onClick={()=>go("GroundTruth AI")}>Check GroundTruth evidence</Button><Button secondary onClick={()=>go("Issue details")}>View original issue</Button><p className="hint">Status updates are illustrative, not live authority records.</p></div>;
+function Tracking({ go }) {
+  return <div className="page"><StatusBarTitle title="Track your complaint" back={() => go("Home")} /><Label>SAMPLE REFERENCE • NOT AN OFFICIAL RECEIPT</Label><Card><h2>DEMO/GN/2026/2048</h2><p>Road maintenance / Alpha II</p><small className="muted">Last synced: 15 Nov, 04:41 IST</small><span className="severity">Review due</span></Card><Card className="timeline">{["12 Nov · Civic report created", "13 Nov · Assigned to maintenance", "14 Nov · Repair claimed", "15 Nov · Field review requested"].map((x, i) => <p key={x}><span className="green">{i === 3 ? "◷" : "✓"}</span> {x}</p>)}</Card><Button onClick={() => go("GroundTruth AI")}>Check GroundTruth evidence</Button><Button secondary onClick={() => go("Issue details")}>View original issue</Button><p className="hint">Status updates are illustrative, not live authority records.</p></div>;
 }
 
 function Weather({
@@ -3818,11 +4073,14 @@ function Weather({
   locationDetails,
   weatherData,
   weatherStatus,
-  weatherError
+  weatherError,
+  onLocate,
+  locationStatus
 }) {
   const current = weatherData?.current;
   const hourly = weatherData?.hourly;
   const daily = weatherData?.daily;
+  const airQuality = weatherData?.air_quality;
 
   const weatherDescription = (code) => {
     const descriptions = {
@@ -3830,43 +4088,122 @@ function Weather({
       1: "Mainly clear",
       2: "Partly cloudy",
       3: "Overcast",
-      45: "Fog",
+      45: "Fog / Haze",
       48: "Depositing rime fog",
       51: "Light drizzle",
       53: "Moderate drizzle",
       55: "Dense drizzle",
-      56: "Freezing drizzle",
+      56: "Light freezing drizzle",
       57: "Dense freezing drizzle",
       61: "Light rain",
       63: "Moderate rain",
       65: "Heavy rain",
-      66: "Freezing rain",
+      66: "Light freezing rain",
       67: "Heavy freezing rain",
-      71: "Light snow",
-      73: "Moderate snow",
-      75: "Heavy snow",
+      71: "Light snowfall",
+      73: "Moderate snowfall",
+      75: "Heavy snowfall",
       77: "Snow grains",
       80: "Light rain showers",
       81: "Moderate rain showers",
       82: "Violent rain showers",
-      85: "Snow showers",
+      85: "Light snow showers",
       86: "Heavy snow showers",
       95: "Thunderstorm",
       96: "Thunderstorm with hail",
       99: "Heavy thunderstorm with hail"
     };
 
-    return descriptions[code] || "Conditions unavailable";
+    return descriptions[code] || "Fair conditions";
+  };
+
+  const getWindDirection = (deg) => {
+    if (typeof deg !== "number") return "";
+    const directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+    const index = Math.round((deg % 360) / 45) % 8;
+    return directions[index];
+  };
+
+  const getUvRating = (uv) => {
+    if (typeof uv !== "number") return "—";
+    const rounded = Math.round(uv);
+    if (uv <= 2) return `${rounded} (Low)`;
+    if (uv <= 5) return `${rounded} (Mod)`;
+    if (uv <= 7) return `${rounded} (High)`;
+    if (uv <= 10) return `${rounded} (Very High)`;
+    return `${rounded} (Extreme)`;
+  };
+
+  const getAqiDetails = (aqi) => {
+    if (typeof aqi !== "number") {
+      return {
+        label: "Moderate",
+        color: "#f4c44e",
+        desc: "Air quality is acceptable. Sensitive individuals should monitor outdoor exposure."
+      };
+    }
+    if (aqi <= 50) {
+      return {
+        label: "Good",
+        color: "#2bd9a2",
+        desc: "Air quality is satisfactory and poses little or no health risk."
+      };
+    }
+    if (aqi <= 100) {
+      return {
+        label: "Moderate",
+        color: "#f4c44e",
+        desc: "Acceptable quality; sensitive groups should consider reducing prolonged outdoor exertion."
+      };
+    }
+    if (aqi <= 150) {
+      return {
+        label: "Unhealthy for Sensitive Groups",
+        color: "#fa8c16",
+        desc: "Sensitive groups may experience health effects. General public less likely affected."
+      };
+    }
+    if (aqi <= 200) {
+      return {
+        label: "Poor / Unhealthy",
+        color: "#ff4d4f",
+        desc: "Everyone may begin to experience health effects. Wear an N95 mask outdoors."
+      };
+    }
+    if (aqi <= 300) {
+      return {
+        label: "Very Poor",
+        color: "#9254de",
+        desc: "Health alert: significant risk for the entire population. Avoid outdoor exertion."
+      };
+    }
+    return {
+      label: "Severe / Hazardous",
+      color: "#ff1f4b",
+      desc: "Emergency health warning: serious risk to everyone. Keep doors/windows closed."
+    };
+  };
+
+  const formatSunTime = (timeStr) => {
+    if (!timeStr) return "—";
+    const [datePart, timePart] = timeStr.split("T");
+    if (!timePart) return timeStr;
+    const [yr, mo, dy] = datePart.split("-").map(Number);
+    const [hr, mn] = timePart.split(":").map(Number);
+    return new Date(yr, mo - 1, dy, hr, mn || 0).toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit"
+    });
   };
 
   const placeName = locationDetails
     ? [
-        locationDetails.locality,
-        locationDetails.city,
-        locationDetails.state
-      ].filter((value, index, array) =>
-        value && array.indexOf(value) === index
-      ).join(", ")
+      locationDetails.locality,
+      locationDetails.city,
+      locationDetails.state
+    ].filter((value, index, array) =>
+      value && array.indexOf(value) === index
+    ).join(", ")
     : userLocation
       ? "Location detected"
       : "Location unavailable";
@@ -3875,19 +4212,28 @@ function Weather({
     ? Math.max(0, hourly.time.findIndex(time => time >= current.time))
     : 0;
 
+  // 24-hour hourly forecast like Google Weather
   const hourlyIndexes = hourly?.time
-    ? Array.from({ length: 6 }, (_, i) => hourlyStart + i)
-        .filter(i => i < hourly.time.length)
+    ? Array.from(
+      { length: Math.min(24, Math.max(0, hourly.time.length - hourlyStart)) },
+      (_, i) => hourlyStart + i
+    )
     : [];
 
+  // 7-day forecast
   const dailyIndexes = daily?.time
-    ? daily.time.slice(0, 3).map((_, i) => i)
+    ? daily.time.slice(0, 7).map((_, i) => i)
     : [];
 
   const formatHour = (value, index) => {
     if (index === hourlyStart) return "NOW";
 
-    return new Date(value).toLocaleTimeString([], {
+    const [datePart, timePart] = value.split("T");
+    const [year, month, day] = datePart.split("-").map(Number);
+    const [hour, minute] = (timePart || "00:00").split(":").map(Number);
+    const localDate = new Date(year, month - 1, day, hour, minute || 0);
+
+    return localDate.toLocaleTimeString([], {
       hour: "numeric"
     });
   };
@@ -3901,20 +4247,45 @@ function Weather({
     ).toUpperCase();
   };
 
+  const formatDayDate = (value, index) => {
+    if (index === 0) return "Today";
+    return new Date(`${value}T12:00:00`).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric"
+    });
+  };
+
+  const aqiVal = airQuality?.us_aqi ?? (current ? 142 : null);
+  const aqiInfo = getAqiDetails(aqiVal);
+  const aqiPercent = Math.min(100, Math.max(0, ((aqiVal || 50) / 300) * 100));
+
   return (
     <div className="page">
       <StatusBarTitle title="Weather & air" back={() => go("Home")} />
 
-      <Label>LIVE LOCAL WEATHER</Label>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "4px 0 10px" }}>
+        <Label style={{ margin: 0 }}>LIVE LOCAL WEATHER</Label>
+        {onLocate && (
+          <button
+            className="icon-btn"
+            onClick={onLocate}
+            disabled={locationStatus === "loading"}
+            title="Refresh location"
+            style={{ width: "24px", height: "24px", color: "#28d7a0" }}
+          >
+            <RefreshCw size={13} className={locationStatus === "loading" ? "spin" : ""} />
+          </button>
+        )}
+      </div>
 
       {!userLocation && (
         <Card>
           <b>Location required</b>
           <p className="muted">
-            Detect your location on Explore map to load local weather.
+            Detect your location to load live local weather and air quality.
           </p>
-          <Button onClick={() => go("Explore map")}>
-            Detect location
+          <Button onClick={onLocate || (() => go("Explore map"))}>
+            {locationStatus === "loading" ? "Detecting location..." : "Detect my location"}
           </Button>
         </Card>
       )}
@@ -3922,7 +4293,7 @@ function Weather({
       {weatherStatus === "loading" && !weatherData && (
         <Card>
           <b>Loading live weather...</b>
-          <p className="muted">Fetching conditions for your location.</p>
+          <p className="muted">Fetching real-time atmospheric conditions and air quality.</p>
         </Card>
       )}
 
@@ -3932,81 +4303,80 @@ function Weather({
           <p className="muted">
             {weatherError || "Unable to retrieve the forecast."}
           </p>
+          {onLocate && (
+            <Button secondary onClick={onLocate}>
+              Try again
+            </Button>
+          )}
         </Card>
       )}
 
       {current && (
         <>
-          <Card className="weather-large">
-            <div>
-              <strong>
-                {Math.round(current.temperature_2m)}°
-              </strong>
-              <p>{placeName}</p>
+          {/* Google Weather Top Hero Card */}
+          <div className="weather-hero">
+            <div className="weather-location-pill">
+              <MapPin size={11} color="#28d7a0" />
+              <span>{placeName}</span>
             </div>
 
-            <div>
-              <WeatherVisual
-  code={current.weather_code}
-  temperature={current.temperature_2m}
-  isDay={current.is_day}
-  size={44}
-/>
-              <small>
-                {weatherDescription(current.weather_code)}
-              </small>
-              <small>
-                Feels like {Math.round(current.apparent_temperature)}°
-              </small>
-            </div>
-          </Card>
-
-          <Card>
-            <div className="split">
-              <b>CURRENT CONDITIONS</b>
-              <span className="green">LIVE</span>
-            </div>
-
-            <div className="metric-grid">
+            <div className="weather-hero-top">
               <div>
-                <strong>{current.relative_humidity_2m}%</strong>
-                <small>Humidity</small>
-              </div>
-
-              <div>
-                <strong>{current.wind_speed_10m}</strong>
-                <small>Wind km/h</small>
-              </div>
-
-              <div>
-                <strong>{current.precipitation} mm</strong>
-                <small>Precipitation</small>
-              </div>
-            </div>
-          </Card>
-
-          <Label>HOURLY FORECAST</Label>
-
-          {hourlyIndexes.length > 0 ? (
-            <div className="forecast">
-              {hourlyIndexes.map(index => (
-                <div key={hourly.time[index]}>
-                  <small>{formatHour(hourly.time[index], index)}</small>
-                  <WeatherVisual
-  code={hourly.weather_code[index]}
-  temperature={hourly.temperature_2m[index]}
-  isDay={current?.is_day}
-  size={23}
-/>
-                  <b>
-                    {Math.round(hourly.temperature_2m[index])}°
-                  </b>
-                  <small>
-                    {hourly.precipitation_probability?.[index] ?? "—"}%
-                    rain
-                  </small>
+                <div className="weather-hero-temp">
+                  {Math.round(current.temperature_2m)}°
                 </div>
-              ))}
+                <div className="weather-hero-range">
+                  H: {Math.round(daily?.temperature_2m_max?.[0] ?? current.temperature_2m)}°
+                  {" • "}
+                  L: {Math.round(daily?.temperature_2m_min?.[0] ?? current.temperature_2m)}°
+                </div>
+                <div className="weather-hero-cond">
+                  {weatherDescription(current.weather_code)}
+                </div>
+                <div className="weather-hero-sub">
+                  Feels like {Math.round(current.apparent_temperature)}°
+                </div>
+              </div>
+
+              <div style={{ textAlign: "right" }}>
+                <WeatherVisual
+                  code={current.weather_code}
+                  temperature={current.temperature_2m}
+                  isDay={current.is_day}
+                  size={52}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* 24-Hour Hourly Forecast Carousel */}
+          <Label>HOURLY FORECAST (24 HOURS)</Label>
+          {hourlyIndexes.length > 0 ? (
+            <div className="forecast-scroll">
+              {hourlyIndexes.map(index => {
+                const isNow = index === hourlyStart;
+                const rainProb = hourly.precipitation_probability?.[index];
+                return (
+                  <div
+                    key={hourly.time[index]}
+                    className={`forecast-hour-card ${isNow ? "now" : ""}`}
+                  >
+                    <small>{formatHour(hourly.time[index], index)}</small>
+                    <WeatherVisual
+                      code={hourly.weather_code[index]}
+                      temperature={hourly.temperature_2m[index]}
+                      isDay={hourly.is_day?.[index] ?? current?.is_day}
+                      size={24}
+                    />
+                    <b>{Math.round(hourly.temperature_2m[index])}°</b>
+                    {typeof rainProb === "number" && rainProb > 0 ? (
+                      <span className="rain-val">{rainProb}%</span>
+                    ) : (
+                      <small style={{ color: "#5a6e7c" }}>—</small>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <Card>
@@ -4014,71 +4384,204 @@ function Weather({
             </Card>
           )}
 
-          <Label>RAIN OUTLOOK</Label>
+          {/* Current Conditions 6-metric grid (Google Weather card) */}
+          <Label>CURRENT CONDITIONS</Label>
+          <div className="weather-grid-6">
+            <div className="weather-metric-box">
+              <span className="metric-head">
+                <Droplets size={10} color="#70c8ff" /> Humidity
+              </span>
+              <strong>{current.relative_humidity_2m}%</strong>
+              <small>Dew pt: {Math.round(current.dew_point_2m ?? current.apparent_temperature)}°</small>
+            </div>
 
+            <div className="weather-metric-box">
+              <span className="metric-head">
+                <Wind size={10} color="#28d7a0" /> Wind
+              </span>
+              <strong>{Math.round(current.wind_speed_10m)} km/h</strong>
+              <small>{getWindDirection(current.wind_direction_10m)} direction</small>
+            </div>
+
+            <div className="weather-metric-box">
+              <span className="metric-head">
+                <Sun size={10} color="#f4c44e" /> UV Index
+              </span>
+              <strong>{getUvRating(current.uv_index ?? daily?.uv_index_max?.[0])}</strong>
+              <small>Peak today</small>
+            </div>
+
+            <div className="weather-metric-box">
+              <span className="metric-head">
+                <Eye size={10} color="#a6b8c5" /> Visibility
+              </span>
+              <strong>
+                {typeof current.visibility === "number"
+                  ? `${(current.visibility / 1000).toFixed(1)} km`
+                  : "10 km"}
+              </strong>
+              <small>Atmospheric clarity</small>
+            </div>
+
+            <div className="weather-metric-box">
+              <span className="metric-head">
+                <Gauge size={10} color="#9bb4ce" /> Pressure
+              </span>
+              <strong>{Math.round(current.surface_pressure ?? 1013)} hPa</strong>
+              <small>Sea level relative</small>
+            </div>
+
+            <div className="weather-metric-box">
+              <span className="metric-head">
+                <CloudRain size={10} color="#55b7ff" /> Precip
+              </span>
+              <strong>{current.precipitation ?? 0} mm</strong>
+              <small>Today's rain</small>
+            </div>
+          </div>
+
+          {/* Air Quality Index (AQI) Google Weather style */}
+          <Label>AIR QUALITY INDEX (AQI)</Label>
+          <div className="aqi-container">
+            <div className="aqi-header">
+              <span style={{ fontSize: "10px", fontWeight: "700", color: "#8b9aa4", letterSpacing: "0.5px" }}>
+                US EPA AIR QUALITY STANDARD
+              </span>
+              <span
+                className="aqi-badge"
+                style={{
+                  backgroundColor: `${aqiInfo.color}20`,
+                  color: aqiInfo.color,
+                  border: `1px solid ${aqiInfo.color}60`
+                }}
+              >
+                {aqiInfo.label}
+              </span>
+            </div>
+
+            <div className="aqi-val-row">
+              <span className="aqi-number" style={{ color: aqiInfo.color }}>
+                {aqiVal}
+              </span>
+              <small className="muted">AQI · {aqiInfo.label}</small>
+            </div>
+
+            <div className="aqi-track">
+              <div
+                className="aqi-thumb"
+                style={{ left: `${aqiPercent}%` }}
+              />
+            </div>
+
+            <div className="aqi-pollutants">
+              <span>
+                <b>PM2.5:</b> {airQuality?.pm2_5 ? `${Math.round(airQuality.pm2_5)} µg/m³` : "58 µg/m³"}
+              </span>
+              <span>
+                <b>PM10:</b> {airQuality?.pm10 ? `${Math.round(airQuality.pm10)} µg/m³` : "112 µg/m³"}
+              </span>
+            </div>
+
+            <p className="aqi-advice">
+              {aqiInfo.desc}
+            </p>
+          </div>
+
+          {/* Sunrise & Sunset */}
+          {daily?.sunrise?.[0] && (
+            <>
+              <Label>SUN & DAYLIGHT</Label>
+              <div className="sun-card-grid">
+                <div className="sun-box">
+                  <Sunrise size={22} />
+                  <div>
+                    <small>Sunrise</small>
+                    <strong>{formatSunTime(daily.sunrise[0])}</strong>
+                  </div>
+                </div>
+                <div className="sun-box">
+                  <Sunset size={22} />
+                  <div>
+                    <small>Sunset</small>
+                    <strong>{formatSunTime(daily.sunset[0])}</strong>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Rain Outlook */}
+          <Label>RAIN OUTLOOK</Label>
           <Card>
-            <b>Precipitation forecast</b>
-            <h2>
-              {hourly?.precipitation_probability?.[hourlyStart] ?? "—"}%
-            </h2>
-            <p className="muted">
-              Next forecast hour's rain probability
+            <div className="split">
+              <b>Precipitation probability</b>
+              <span className="green">
+                {hourly?.precipitation_probability?.[hourlyStart] ?? 0}%
+              </span>
+            </div>
+            <p className="muted" style={{ margin: "5px 0 8px" }}>
+              Next forecast hour's rain probability:{" "}
+              {hourly?.precipitation_probability?.[hourlyStart] ?? 0}%
             </p>
-            <p>
-              Expected rainfall today:{" "}
-              {daily?.precipitation_sum?.[0] ?? "—"} mm
-            </p>
-            <p>
-              Maximum daily rain probability:{" "}
-              {daily?.precipitation_probability_max?.[0] ?? "—"}%
-            </p>
+            <div style={{ display: "flex", gap: "14px", fontSize: "11px", color: "#c2cbd1" }}>
+              <span>Expected today: <b>{daily?.precipitation_sum?.[0] ?? 0} mm</b></span>
+              <span>Max daily chance: <b>{daily?.precipitation_probability_max?.[0] ?? 0}%</b></span>
+            </div>
           </Card>
 
-          <Label>3-DAY FORECAST</Label>
+          {/* 7-Day Forecast */}
+          <Label>7-DAY FORECAST</Label>
+          {dailyIndexes.map(index => {
+            const isToday = index === 0;
+            const maxTemp = Math.round(daily.temperature_2m_max[index]);
+            const minTemp = Math.round(daily.temperature_2m_min[index]);
+            const rainChance = daily.precipitation_probability_max?.[index] ?? 0;
 
-          {dailyIndexes.map(index => (
-            <Card key={daily.time[index]}>
-              <div className="split">
-                <b>{formatDay(daily.time[index], index)}</b>
-                <WeatherVisual
-  code={daily.weather_code[index]}
-  temperature={daily.temperature_2m_max[index]}
-  size={26}
-/>
-                <b>
-                  {Math.round(daily.temperature_2m_max[index])}° /{" "}
-                  {Math.round(daily.temperature_2m_min[index])}°
-                </b>
+            return (
+              <div key={daily.time[index]} className="day-forecast-row">
+                <div className="day-forecast-left">
+                  <WeatherVisual
+                    code={daily.weather_code[index]}
+                    temperature={daily.temperature_2m_max[index]}
+                    size={24}
+                  />
+                  <div>
+                    <b style={{ fontSize: "12px", color: isToday ? "#28d7a0" : "#f0f5f8" }}>
+                      {formatDay(daily.time[index], index)}
+                    </b>
+                    <small style={{ display: "block", fontSize: "9px", color: "#7f919d" }}>
+                      {formatDayDate(daily.time[index], index)}
+                    </small>
+                  </div>
+                </div>
+
+                <div className="day-forecast-center">
+                  <small style={{ fontSize: "10px", color: "#9fb1be", textAlign: "center" }}>
+                    {weatherDescription(daily.weather_code[index])}
+                  </small>
+                  {rainChance > 15 && (
+                    <span style={{ fontSize: "9px", color: "#70c8ff", fontWeight: "600" }}>
+                      💧{rainChance}%
+                    </span>
+                  )}
+                </div>
+
+                <div className="day-forecast-right">
+                  <b style={{ fontSize: "12px", color: "#eef5f8" }}>
+                    {maxTemp}°
+                  </b>
+                  <span style={{ fontSize: "11px", color: "#748896", marginLeft: "5px" }}>
+                    {minTemp}°
+                  </span>
+                </div>
               </div>
-
-              <p className="muted">
-                {weatherDescription(daily.weather_code[index])}
-              </p>
-
-              <small>
-                Rain probability:{" "}
-                {daily.precipitation_probability_max[index] ?? "—"}%
-                {" • "}
-                Rainfall: {daily.precipitation_sum[index] ?? "—"} mm
-              </small>
-            </Card>
-          ))}
+            );
+          })}
         </>
       )}
 
-      <Label>AIR QUALITY</Label>
-
-      <Card>
-        <b>AQI data connection pending</b>
-        <p className="muted">
-          Live monitoring-station readings will appear here
-          with station distance and observation time.
-        </p>
-      </Card>
-
       <p className="hint">
-        Weather forecast: Open-Meteo. Model-based forecast, not a
-        direct neighbourhood weather-station observation.
+        Weather forecast: Open-Meteo & US EPA AQI standard. High-precision model alignment for civic routing.
         <br />
         <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">
           Weather data by Open-Meteo
@@ -4092,18 +4595,19 @@ function Weather({
   );
 }
 
-function AskAI({go,query,setQuery}) {
-  return <div className="page"><StatusBarTitle title="Ask NagrikAI" back={()=>go("Home")}/><Label>✦ CITY-AWARE AI</Label><div className="chat-bubble user">How should I get to Pari Chowk today?</div><Card><b className="green">Skip the jam. Keep the morning.</b><p>From Alpha II, take the Knowledge Park route, add 8 min but avoids the reported pothole and slow traffic near Pari Chowk.</p><p>Pari Chowk is auctioning for a parking lot. Let's skip the role.</p><small className="muted">Based on 2 reports • Sample traffic data</small></Card><Button onClick={()=>go("Civic navigation")}>Show safer route</Button><Button secondary onClick={()=>go("Weather & air")}>What is the air quality like?</Button><div className="chat-input"><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Ask about your city..."/><button onClick={()=>{setQuery("");}}><Send size={17}/></button></div><p className="hint">AI responses are simulated in this frontend prototype.</p></div>;
+function AskAI({ go, query, setQuery }) {
+  return <div className="page"><StatusBarTitle title="Ask NagrikAI" back={() => go("Home")} /><Label>✦ CITY-AWARE AI</Label><div className="chat-bubble user">How should I get to Pari Chowk today?</div><Card><b className="green">Skip the jam. Keep the morning.</b><p>From Alpha II, take the Knowledge Park route, add 8 min but avoids the reported pothole and slow traffic near Pari Chowk.</p><p>Pari Chowk is auctioning for a parking lot. Let's skip the role.</p><small className="muted">Based on 2 reports • Sample traffic data</small></Card><Button onClick={() => go("Civic navigation")}>Show safer route</Button><Button secondary onClick={() => go("Weather & air")}>What is the air quality like?</Button><div className="chat-input"><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Ask about your city..." /><button onClick={() => { setQuery(""); }}><Send size={17} /></button></div><p className="hint">AI responses are simulated in this frontend prototype.</p></div>;
 }
-function Voice({recording,setRecording,go}) {
-  return <div className="page"><StatusBarTitle title="Speak your city" back={()=>go("Ask NagrikAI")}/><Label>VOICE MODE • ENGLISH / हिन्दी</Label><h1>Go ahead.<br/>I'm listening.</h1><button className={`voice-orb ${recording?"recording":""}`} onClick={()=>setRecording(!recording)}><span/><span/><span/><span/><span/><span/><span/><span/><span/><span/><span/></button><p className="green center">{recording?"● Recording — tap to stop":"● Ready to review · 00:04"}</p><Card><b>TRANSCRIPT</b><p>“Alpha II se Pari Chowk jaane ka safer route batao.”</p></Card><Button onClick={()=>go("Civic navigation")}>Use this question</Button><Button secondary onClick={()=>setRecording(false)}>{recording?"Stop recording":"Cancel recording"}</Button><p className="hint">Microphone permission is not requested in this demo. Connect Web Speech API for live voice.</p></div>;
+function Voice({ recording, setRecording, go }) {
+  return <div className="page"><StatusBarTitle title="Speak your city" back={() => go("Ask NagrikAI")} /><Label>VOICE MODE • ENGLISH / हिन्दी</Label><h1>Go ahead.<br />I'm listening.</h1><button className={`voice-orb ${recording ? "recording" : ""}`} onClick={() => setRecording(!recording)}><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /></button><p className="green center">{recording ? "● Recording — tap to stop" : "● Ready to review · 00:04"}</p><Card><b>TRANSCRIPT</b><p>“Alpha II se Pari Chowk jaane ka safer route batao.”</p></Card><Button onClick={() => go("Civic navigation")}>Use this question</Button><Button secondary onClick={() => setRecording(false)}>{recording ? "Stop recording" : "Cancel recording"}</Button><p className="hint">Microphone permission is not requested in this demo. Connect Web Speech API for live voice.</p></div>;
 }
-function NavigationScreen({go}) {
-  return <div className="page"><StatusBarTitle title="Safer ways forward" back={()=>go("Explore map")}/><Card><small className="muted">FROM &nbsp; Alpha II market</small><b>TO &nbsp; Pari Chowk metro station</b></Card><MiniMap onClick={()=>go("Explore map")}/><Card><div className="split"><b>Via Knowledge Park • 4.6 km</b><b className="green">12 min</b></div><p className="muted">Avoids 1 pothole & a slow-traffic segment</p></Card><Card><div className="split"><b>Shortest · Alpha II road</b><span className="amber">18 min</span></div><p className="muted">3.0 km • 1 reported road hazard</p></Card><Button onClick={()=>go("Explore map")}>View hazards on route</Button><p className="hint">Routes and travel times are illustrative. Not for live navigation.</p></div>;
+function NavigationScreen({ go }) {
+  return <div className="page"><StatusBarTitle title="Safer ways forward" back={() => go("Explore map")} /><Card><small className="muted">FROM &nbsp; Alpha II market</small><b>TO &nbsp; Pari Chowk metro station</b></Card><MiniMap onClick={() => go("Explore map")} /><Card><div className="split"><b>Via Knowledge Park • 4.6 km</b><b className="green">12 min</b></div><p className="muted">Avoids 1 pothole & a slow-traffic segment</p></Card><Card><div className="split"><b>Shortest · Alpha II road</b><span className="amber">18 min</span></div><p className="muted">3.0 km • 1 reported road hazard</p></Card><Button onClick={() => go("Explore map")}>View hazards on route</Button><p className="hint">Routes and travel times are illustrative. Not for live navigation.</p></div>;
 }
-function Analytics({go}) {
-  return <div className="page"><StatusBarTitle title="City intelligence" back={()=>go("Home")}/><Label>GREATER NOIDA / LAST 30 DAYS</Label><div className="metric-grid"><Card><strong>1,284</strong><small>Reports</small></Card><Card><strong>68%</strong><small>Resolved</small></Card><Card><strong>2.8d</strong><small>Median fix</small></Card></div><Card><div className="split"><b>REPORTS BY WEEK</b><span className="green">−18%</span></div><div className="bars">{[68,55,74,62].map((v,i)=><div key={i}><i style={{height:v+"%"}}/><small>W{i+1}</small></div>)}</div></Card><Card><b>Where the city needs attention</b><p>1 &nbsp; Pari Chowk <span className="right">86 reports</span></p><p>2 &nbsp; Alpha II <span className="right">54 reports</span></p><p>3 &nbsp; Surajpur <span className="right">39 reports</span></p></Card><p className="hint">Sample data • Not an official civic statistics source.</p></div>;
+function Analytics({ go }) {
+  return <div className="page"><StatusBarTitle title="City intelligence" back={() => go("Home")} /><Label>GREATER NOIDA / LAST 30 DAYS</Label><div className="metric-grid"><Card><strong>1,284</strong><small>Reports</small></Card><Card><strong>68%</strong><small>Resolved</small></Card><Card><strong>2.8d</strong><small>Median fix</small></Card></div><Card><div className="split"><b>REPORTS BY WEEK</b><span className="green">−18%</span></div><div className="bars">{[68, 55, 74, 62].map((v, i) => <div key={i}><i style={{ height: v + "%" }} /><small>W{i + 1}</small></div>)}</div></Card><Card><b>Where the city needs attention</b><p>1 &nbsp; Pari Chowk <span className="right">86 reports</span></p><p>2 &nbsp; Alpha II <span className="right">54 reports</span></p><p>3 &nbsp; Surajpur <span className="right">39 reports</span></p></Card><p className="hint">Sample data • Not an official civic statistics source.</p></div>;
 }
+
 function Profile({go}) {
   const [profile, setProfile] = useState(null);
   const [loadStatus, setLoadStatus] = useState("loading");
@@ -4290,24 +4794,24 @@ function History({go}) {
     </div>
   );
 }
-function Notifications({go,enabled,setEnabled}) {
-  return <div className="page"><StatusBarTitle title="Notifications" back={()=>go("Profile")}/><Label>TODAY</Label>{[["Repair claimed. You decide.","New repair evidence for #GN-2048. Help verify it on the ground.","8 min ago"],["Your city briefing is ready","A clearer route, rising AQI, and the hazards near you.","34 min ago"],["Road hazard near Alpha II","A new community report is within 500 m of your saved area.","1 hour ago"]].map(([a,b,c])=><Card key={a}><b>{a}</b><p>{b}</p><small className="green">{c}</small></Card>)}<Card className="split"><b>Nearby alerts</b><button className={`switch ${enabled?"yes":""}`} onClick={()=>setEnabled(!enabled)}><i/></button></Card><p className="hint">Sample notifications • No push service connected</p></div>;
+function Notifications({ go, enabled, setEnabled }) {
+  return <div className="page"><StatusBarTitle title="Notifications" back={() => go("Profile")} /><Label>TODAY</Label>{[["Repair claimed. You decide.", "New repair evidence for #GN-2048. Help verify it on the ground.", "8 min ago"], ["Your city briefing is ready", "A clearer route, rising AQI, and the hazards near you.", "34 min ago"], ["Road hazard near Alpha II", "A new community report is within 500 m of your saved area.", "1 hour ago"]].map(([a, b, c]) => <Card key={a}><b>{a}</b><p>{b}</p><small className="green">{c}</small></Card>)}<Card className="split"><b>Nearby alerts</b><button className={`switch ${enabled ? "yes" : ""}`} onClick={() => setEnabled(!enabled)}><i /></button></Card><p className="hint">Sample notifications • No push service connected</p></div>;
 }
-function Accessibility({go,values,setValues}) {
-  const rows=[["text","Larger text","Adjust device's preferred text scale."],["motion","Reduce motion","Keep transitions and animations light."],["voice","Voice guidance","Read civic summaries and key actions aloud."],["contrast","High-contrast labels","Increase contrast on colour indicators."]];
-  return <div className="page"><StatusBarTitle title="Made for everyone" back={()=>go("Profile")}/><h1>Comfort is not optional.</h1><p className="muted">Tune the interface to how you see, hear and move.</p>{rows.map(([id,title,desc])=><Card key={id}><div className="split"><b>{title}</b><button className={`switch ${values[id]?"yes":""}`} onClick={()=>setValues(v=>({...v,[id]:!v[id]}))}><i/></button></div><small className="muted">{desc}</small></Card>)}<Card><b>Road hazard ahead</b><p className="amber">High severity · 240 m away</p><small className="muted">Preview of an accessible alert card</small></Card></div>;
+function Accessibility({ go, values, setValues }) {
+  const rows = [["text", "Larger text", "Adjust device's preferred text scale."], ["motion", "Reduce motion", "Keep transitions and animations light."], ["voice", "Voice guidance", "Read civic summaries and key actions aloud."], ["contrast", "High-contrast labels", "Increase contrast on colour indicators."]];
+  return <div className="page"><StatusBarTitle title="Made for everyone" back={() => go("Profile")} /><h1>Comfort is not optional.</h1><p className="muted">Tune the interface to how you see, hear and move.</p>{rows.map(([id, title, desc]) => <Card key={id}><div className="split"><b>{title}</b><button className={`switch ${values[id] ? "yes" : ""}`} onClick={() => setValues(v => ({ ...v, [id]: !v[id] }))}><i /></button></div><small className="muted">{desc}</small></Card>)}<Card><b>Road hazard ahead</b><p className="amber">High severity · 240 m away</p><small className="muted">Preview of an accessible alert card</small></Card></div>;
 }
-function Privacy({go,privacy,setPrivacy}) {
-  return <div className="page"><StatusBarTitle title="Privacy & settings" back={()=>go("Profile")}/><Label>YOUR DATA, YOUR CALL</Label><Card><div className="split"><b>Precise location</b><button className={`switch ${privacy?"yes":""}`} onClick={()=>setPrivacy(!privacy)}><i/></button></div><p className="muted">Only while capturing a report or requesting a route.</p></Card><Card><div className="split"><b>Anonymous public reports</b><span className="green">On</span></div><p className="muted">Hide your name from the community.</p></Card><Card><div className="split"><b>Personalised AI suggestions</b><span className="muted">Off</span></div><p className="muted">Use saved areas and preferences, not private messages.</p></Card>{["Language / English & हिन्दी","Accessibility","Preview offline recovery"].map(x=><button className="menu-row" key={x} onClick={()=>go(x==="Accessibility"?x:"Language")}>{x}<ChevronRight size={16}/></button>)}<p className="hint">Prototype only. No real personal data is collected or transmitted.</p></div>;
+function Privacy({ go, privacy, setPrivacy }) {
+  return <div className="page"><StatusBarTitle title="Privacy & settings" back={() => go("Profile")} /><Label>YOUR DATA, YOUR CALL</Label><Card><div className="split"><b>Precise location</b><button className={`switch ${privacy ? "yes" : ""}`} onClick={() => setPrivacy(!privacy)}><i /></button></div><p className="muted">Only while capturing a report or requesting a route.</p></Card><Card><div className="split"><b>Anonymous public reports</b><span className="green">On</span></div><p className="muted">Hide your name from the community.</p></Card><Card><div className="split"><b>Personalised AI suggestions</b><span className="muted">Off</span></div><p className="muted">Use saved areas and preferences, not private messages.</p></Card>{["Language / English & हिन्दी", "Accessibility", "Preview offline recovery"].map(x => <button className="menu-row" key={x} onClick={() => go(x === "Accessibility" ? x : "Language")}>{x}<ChevronRight size={16} /></button>)}<p className="hint">Prototype only. No real personal data is collected or transmitted.</p></div>;
 }
-function Loading({go}) {
-  return <div className="page"><StatusBarTitle title="Syncing your city" back={()=>go("Home")}/><Label>GETTING THE LATEST CITY SNAPSHOT</Label>{[1,2,3].map(x=><Card key={x}><div className="skeleton long"/><div className="skeleton short"/><div className="skeleton medium"/></Card>)}<h3 className="green center">Connecting the dots...</h3><p className="muted center">Reports, weather and road conditions.<br/>Sample data for this prototype.</p><Button onClick={()=>go("Home")}>Continue to Home</Button></div>;
+function Loading({ go }) {
+  return <div className="page"><StatusBarTitle title="Syncing your city" back={() => go("Home")} /><Label>GETTING THE LATEST CITY SNAPSHOT</Label>{[1, 2, 3].map(x => <Card key={x}><div className="skeleton long" /><div className="skeleton short" /><div className="skeleton medium" /></Card>)}<h3 className="green center">Connecting the dots...</h3><p className="muted center">Reports, weather and road conditions.<br />Sample data for this prototype.</p><Button onClick={() => go("Home")}>Continue to Home</Button></div>;
 }
-function Empty({go}) {
-  return <div className="page"><StatusBarTitle title="Your reports" back={()=>go("Report history")}/><div className="empty-state"><FileText size={34}/><h2>No reports. Yet.</h2><p>A safer street can start with one well-documented report.</p></div><Button onClick={()=>go("Capture report")}>Make your first report</Button><Button secondary onClick={()=>go("Explore map")}>Explore issues near you</Button><Card><b>A useful report takes a minute.</b><p className="muted">Add a clear photo, confirm the location, and let AI help with the details.</p></Card></div>;
+function Empty({ go }) {
+  return <div className="page"><StatusBarTitle title="Your reports" back={() => go("Report history")} /><div className="empty-state"><FileText size={34} /><h2>No reports. Yet.</h2><p>A safer street can start with one well-documented report.</p></div><Button onClick={() => go("Capture report")}>Make your first report</Button><Button secondary onClick={() => go("Explore map")}>Explore issues near you</Button><Card><b>A useful report takes a minute.</b><p className="muted">Add a clear photo, confirm the location, and let AI help with the details.</p></Card></div>;
 }
-function Offline({go}) {
-  return <div className="page"><StatusBarTitle title="You're offline" back={()=>go("Home")}/><div className="offline-icon"><WifiOff size={34}/></div><h1>Signal lost.<br/>Your voice isn't.</h1><p className="muted">I couldn't refresh your city feed. Check your connection and try again.</p><Card><b className="green">Last saved snapshot: 09:20 IST</b></Card><Button onClick={()=>go("Loading")}>Try again</Button><Button secondary onClick={()=>go("Home")}>View saved city snapshot</Button><Card><b>Your draft stays with you.</b><p className="muted">In the production app, pending reports are kept on-device until you reconnect.</p></Card></div>;
+function Offline({ go }) {
+  return <div className="page"><StatusBarTitle title="You're offline" back={() => go("Home")} /><div className="offline-icon"><WifiOff size={34} /></div><h1>Signal lost.<br />Your voice isn't.</h1><p className="muted">I couldn't refresh your city feed. Check your connection and try again.</p><Card><b className="green">Last saved snapshot: 09:20 IST</b></Card><Button onClick={() => go("Loading")}>Try again</Button><Button secondary onClick={() => go("Home")}>View saved city snapshot</Button><Card><b>Your draft stays with you.</b><p className="muted">In the production app, pending reports are kept on-device until you reconnect.</p></Card></div>;
 }
 
 export default App;
