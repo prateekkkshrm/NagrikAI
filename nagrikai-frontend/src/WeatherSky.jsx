@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import React, { useMemo } from "react";
 import "./weatherSky.css";
 
 /**
@@ -30,7 +30,9 @@ function toCondition(code) {
 // Open-Meteo returns local-time strings ("2026-11-25T06:52") for the requested
 // location, so comparing them as plain values is safe.
 const minutes = (iso) => {
+  if (!iso || typeof iso !== "string" || !iso.includes("T")) return 0;
   const [d, t] = iso.split("T");
+  if (!d || !t) return 0;
   const [y, mo, da] = d.split("-").map(Number);
   const [h, mi] = t.split(":").map(Number);
   return Date.UTC(y, mo - 1, da, h, mi) / 60000;
@@ -46,10 +48,16 @@ function clockPhaseGuess() {
 
 function toPhase(w) {
   if (!w?.time || !w.sunrise || !w.sunset) return clockPhaseGuess();
-  const now = minutes(w.time);
-  if (Math.abs(now - minutes(w.sunrise)) <= 40) return "dawn";
-  if (Math.abs(now - minutes(w.sunset)) <= 40) return "dusk";
-  return w.isDay ? "day" : "night";
+  try {
+    const now = minutes(w.time);
+    const sr = minutes(w.sunrise);
+    const ss = minutes(w.sunset);
+    if (sr && Math.abs(now - sr) <= 40) return "dawn";
+    if (ss && Math.abs(now - ss) <= 40) return "dusk";
+    return w.isDay ? "day" : "night";
+  } catch {
+    return clockPhaseGuess();
+  }
 }
 
 /* ---------- scene recipe ---------- */
@@ -126,7 +134,9 @@ export default function WeatherSky({ weather = null, reduceMotion = false, overr
   const fromWeather = weather
     ? { condition: toCondition(weather.code), phase: toPhase(weather) }
     : { condition: "clear", phase: clockPhaseGuess() };
-  const { condition, phase } = override || fromUrl || fromWeather;
+  const picked = override || fromUrl || fromWeather;
+  const condition = (picked?.condition && picked.condition in CLOUD_COUNT) ? picked.condition : "cloudy";
+  const phase = ["day", "night", "dawn", "dusk"].includes(picked?.phase) ? picked.phase : "day";
 
   const scene = useMemo(
     () => buildScene(condition, phase, reduceMotion),

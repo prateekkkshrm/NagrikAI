@@ -1,4 +1,5 @@
 import WeatherSky from "./WeatherSky";
+import HeadlinesCarousel from "./HeadlinesCarousel";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { Geolocation } from "@capacitor/geolocation";
@@ -980,7 +981,7 @@ const handleVerifyEmailOtp = async () => {
     <aside className="screen-index">
       <div className="index-head"><div className="brand-mark small">N</div><div><b>NagrikAI</b><small>Prototype navigation</small></div></div>
       <p className="index-caption">ALL 30 SCREENS</p>
-      <div className="index-grid">{screens.map((s, i) => <button key={s} className={screen === s ? "active" : ""} onClick={() => go(s)}><span>{String(i + 1).padStart(2, "0")}</span>{s}</button>)}</div>
+      <div className="index-grid">{screens.map((s, i) => <button key={s} className={screen === s ? "active" : ""} onClick={() => setScreen(s)}><span>{String(i + 1).padStart(2, "0")}</span>{s}</button>)}</div>
       <p className="index-note">Use this panel to preview every designed screen. The bottom navigation and in-screen actions are also connected.</p>
     </aside>
   </div>;
@@ -1443,376 +1444,7 @@ function HomeScreen({
   const now = useCurrentTime();
 
 
-  const [newsArticles, setNewsArticles] = useState([]);
-  const [newsStatus, setNewsStatus] = useState("idle");
-  const [newsError, setNewsError] = useState("");
-
-  const [expandedNewsUrl, setExpandedNewsUrl] = useState("");
-  const [newsDetails, setNewsDetails] = useState({});
-  const [newsDetailStatus, setNewsDetailStatus] = useState({});
-
-  const newsTerms = [
-    locationDetails?.locality,
-    locationDetails?.city,
-    locationDetails?.state
-  ]
-    .filter(value => typeof value === "string" && value.trim())
-    .map(value => value.trim());
-
-  const isGautamBudhNagar = newsTerms.some(
-    value => value.toLowerCase().includes("gautam budh nagar")
-  );
-
-  if (isGautamBudhNagar) {
-    newsTerms.push("Noida", "Greater Noida");
-  }
-
-  const uniqueNewsTerms = [...new Set(newsTerms)];
-
-  const newsLocation = uniqueNewsTerms.join(", ");
-
-  useEffect(() => {
-
-    const controller = new AbortController();
-    let active = true;
-    let hasLoaded = false;
-
-    const translateHeadline = async (title) => {
-      const cacheKey = `nagrikai-news-hi:${title}`;
-
-      const cached = localStorage.getItem(cacheKey);
-      if (cached) return cached;
-
-      const params = new URLSearchParams({
-        q: title,
-        langpair: "en|hi"
-      });
-
-      const response = await fetch(
-        `https://api.mymemory.translated.net/get?${params}`,
-        { signal: controller.signal }
-      );
-
-      if (!response.ok) {
-        throw new Error("Hindi translation service unavailable.");
-      }
-
-      const result = await response.json();
-
-      if (
-        Number(result.responseStatus) !== 200 ||
-        !result.responseData?.translatedText
-      ) {
-        throw new Error(
-          result.responseDetails || "Hindi translation unavailable."
-        );
-      }
-
-      const translated = result.responseData.translatedText;
-
-      localStorage.setItem(cacheKey, translated);
-
-      return translated;
-    };
-
-    const loadNews = async () => {
-      try {
-        setNewsStatus(hasLoaded ? "refreshing" : "loading");
-        setNewsError("");
-
-        const query = "sourcecountry:IN sourcelang:English"; `(${uniqueNewsTerms
-          .map(term => `"${term.replace(/"/g, "")}"`)
-          .join(" OR ")}) sourcelang:english`;
-
-        const params = new URLSearchParams({
-          query,
-          mode: "ArtList",
-          format: "json",
-          maxrecords: "6",
-          timespan: "3d",
-          sort: "DateDesc"
-        });
-
-        const response = await fetch(
-          `https://api.gdeltproject.org/api/v2/doc/doc?${params}`,
-          { signal: controller.signal }
-        );
-
-        if (!response.ok) {
-          throw new Error(`News service returned ${response.status}.`);
-        }
-
-        const data = await response.json();
-
-        if (!Array.isArray(data.articles)) {
-          throw new Error("Unexpected news service response.");
-        }
-
-        const articles = data.articles
-          .filter(item => item.title && item.url)
-          .slice(0, 6)
-          .map(item => {
-            let source = item.domain || "News publisher";
-
-            try {
-              source = item.domain ||
-                new URL(item.url).hostname.replace(/^www\./, "");
-            } catch {
-              // Retain the available publisher name.
-            }
-
-            return {
-              title: item.title,
-              displayTitle: item.title,
-              url: item.url,
-              source,
-              seenDate: item.seendate || null,
-              translationFailed: false
-            };
-          });
-
-        let translatedArticles = articles;
-
-        if (language === "Hindi") {
-          translatedArticles = await Promise.all(
-            articles.map(async article => {
-              try {
-                return {
-                  ...article,
-                  displayTitle: await translateHeadline(article.title)
-                };
-              } catch (error) {
-                if (error.name === "AbortError") throw error;
-
-                return {
-                  ...article,
-                  displayTitle: "इस समाचार का हिंदी अनुवाद उपलब्ध नहीं है।",
-                  translationFailed: true
-                };
-              }
-            })
-          );
-        }
-
-        if (!active) return;
-
-        setNewsArticles(translatedArticles);
-        setNewsStatus("success");
-        setNewsError("");
-        hasLoaded = true;
-
-      } catch (error) {
-        if (error.name === "AbortError") return;
-        if (!active) return;
-
-        console.error("NagrikAI news error:", error);
-
-        setNewsStatus("error");
-        setNewsError(error.message || "Unable to load news.");
-      }
-    };
-
-    loadNews();
-
-    const refresh = window.setInterval(
-      loadNews,
-      15 * 60 * 1000
-    );
-
-    return () => {
-      active = false;
-      controller.abort();
-      window.clearInterval(refresh);
-    };
-
-  }, [language]);
-
-  const formatNewsDate = value => {
-    if (!value) return "समय उपलब्ध नहीं है";
-
-    const match = String(value).match(
-      /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/
-    );
-
-    const handleNewsClick = async (article) => {
-      if (expandedNewsUrl === article.url) {
-        setExpandedNewsUrl("");
-        return;
-      }
-
-      setExpandedNewsUrl(article.url);
-
-      if (
-        newsDetails[article.url] ||
-        newsDetailStatus[article.url] === "loading"
-      ) {
-        return;
-      }
-
-      setNewsDetailStatus(prev => ({
-        ...prev,
-        [article.url]: "loading"
-      }));
-
-      try {
-        const hostname = new URL(article.url).hostname.replace(/^www\./, "");
-
-        const stopWords = new Set([
-          "the", "and", "for", "with", "from", "that",
-          "this", "have", "has", "was", "were", "will",
-          "after", "before", "over", "into", "about",
-          "says", "said", "their", "they", "there",
-          "been", "being", "what", "when", "where"
-        ]);
-
-        const keywords = article.title
-          .toLowerCase()
-          .replace(/[^a-z0-9\s]/g, " ")
-          .split(/\s+/)
-          .filter(word => word.length > 3 && !stopWords.has(word))
-          .slice(0, 3);
-
-        if (!keywords.length) {
-          throw new Error("Could not identify article search terms.");
-        }
-
-        const params = new URLSearchParams({
-          query: `domain:${hostname} ${keywords.join(" ")}`,
-          mode: "artlist",
-          format: "json",
-          maxrecords: "10",
-          timespan: "24h",
-          sort: "DateDesc"
-        });
-
-        const response = await fetch(
-          `https://api.gdeltproject.org/api/v2/context/context?${params}`
-        );
-
-        if (!response.ok) {
-          throw new Error("Unable to retrieve article context.");
-        }
-
-        const data = await response.json();
-
-        const articles = Array.isArray(data.articles)
-          ? data.articles
-          : [];
-
-        const normalizeUrl = value => {
-          try {
-            const parsed = new URL(value);
-            return (
-              parsed.hostname.toLowerCase().replace(/^www\./, "") +
-              parsed.pathname.replace(/\/+$/, "")
-            );
-          } catch {
-            return "";
-          }
-        };
-
-        const matchedArticle = articles.find(
-          item => normalizeUrl(item.url) === normalizeUrl(article.url)
-        );
-
-        const rawContext = (
-          matchedArticle?.context ||
-          matchedArticle?.sentence ||
-          ""
-        ).trim().slice(0, 450);
-
-        let summary = rawContext;
-
-        if (!rawContext) {
-          summary = language === "Hindi"
-            ? "इस समाचार का विस्तृत संदर्भ अभी उपलब्ध नहीं है।"
-            : "No matching article context is available from the news index.";
-        }
-
-        if (rawContext && language === "Hindi") {
-          const cacheKey = `nagrikai-news-context-hi:${rawContext}`;
-
-          try {
-            const cached = localStorage.getItem(cacheKey);
-
-            if (cached) {
-              summary = cached;
-            } else {
-              const translationParams = new URLSearchParams({
-                q: rawContext,
-                langpair: "en|hi"
-              });
-
-              const translationResponse = await fetch(
-                `https://api.mymemory.translated.net/get?${translationParams}`
-              );
-
-              const translationData = await translationResponse.json();
-
-              if (
-                !translationResponse.ok ||
-                Number(translationData.responseStatus) !== 200 ||
-                !translationData.responseData?.translatedText
-              ) {
-                throw new Error("Hindi translation unavailable.");
-              }
-
-              summary = translationData.responseData.translatedText;
-              localStorage.setItem(cacheKey, summary);
-            }
-          } catch (translationError) {
-            console.error("Article translation error:", translationError);
-            summary = "इस समाचार का हिंदी संदर्भ अभी उपलब्ध नहीं है। मूल लेख के लिए स्रोत लिंक खोलें।";
-          }
-        }
-
-        setNewsDetails(prev => ({
-          ...prev,
-          [article.url]: {
-            summary,
-            hasContext: Boolean(rawContext),
-            source: article.source,
-            date: article.seenDate
-          }
-        }));
-
-        setNewsDetailStatus(prev => ({
-          ...prev,
-          [article.url]: "success"
-        }));
-
-      } catch (error) {
-        console.error("Article details error:", error);
-
-        setNewsDetailStatus(prev => ({
-          ...prev,
-          [article.url]: "error"
-        }));
-      }
-    };
-
-
-    const date = match
-      ? new Date(
-        `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}Z`
-      )
-      : new Date(value);
-
-    if (Number.isNaN(date.getTime())) {
-      return "Time unavailable";
-    }
-
-    return date.toLocaleString(
-      language === "Hindi" ? "hi-IN" : "en-IN",
-      {
-        day: "numeric",
-        month: "short",
-        hour: "numeric",
-        minute: "2-digit"
-      }
-    );
-  };
-
+  // Headlines are rendered via HeadlinesCarousel
 
   const dateText = new Intl.DateTimeFormat(undefined, {
     weekday: "long",
@@ -1894,8 +1526,8 @@ function HomeScreen({
                   code: currentWeather.weather_code,
                   isDay: currentWeather.is_day,
                   time: currentWeather.time,
-                  sunrise: dailyWeather.sunrise[0],
-                  sunset: dailyWeather.sunset[0]
+                  sunrise: dailyWeather?.sunrise?.[0] || null,
+                  sunset: dailyWeather?.sunset?.[0] || null
                 }
               : null
           }
@@ -1963,7 +1595,7 @@ function HomeScreen({
             : weatherError || "Waiting for your local weather forecast."}
         </small>
 
-        {currentWeather && dailyWeather && (
+        {currentWeather && dailyWeather?.temperature_2m_max?.[0] != null && dailyWeather?.temperature_2m_min?.[0] != null && (
           <p>
             H {Math.round(dailyWeather.temperature_2m_max[0])}°
             {" / "}
@@ -2037,165 +1669,11 @@ function HomeScreen({
       )}
 
 
-      <Label>{language === "Hindi"
-        ? "भारत • GDELT News • हर 15 मिनट में अपडेट"
-        : "India-wide • GDELT News • Updates every 15 minutes"}</Label>
-
-      <Card className="insight news-panel">
-        <div className="split">
-          <b className="green">
-            {language === "Hindi" ? "ताज़ा सुर्खियाँ" : "LATEST HEADLINES"}
-          </b>
-
-          <small className="muted">
-            {newsStatus === "loading"
-              ? language === "Hindi" ? "खबरें खोज रहे हैं..." : "Fetching..."
-              : newsStatus === "refreshing"
-                ? language === "Hindi" ? "अपडेट हो रहा है..." : "Updating..."
-                : newsStatus === "success"
-                  ? language === "Hindi" ? "लाइव फ़ीड" : "Live feed"
-                  : language === "Hindi" ? "उपलब्ध नहीं" : "Unavailable"}
-          </small>
-        </div>
-
-        {newsStatus === "loading" && newsArticles.length === 0 && (
-          <p className="muted">
-            {language === "Hindi"
-              ? `${newsLocation} की खबरें खोजी जा रही हैं...`
-              : `Finding recent news for ${newsLocation}...`}
-          </p>
-        )}
-
-        {newsError && <p className="amber">{newsError}</p>}
-
-        {newsArticles.map((article, index) => {
-          const isExpanded = expandedNewsUrl === article.url;
-          const detailStatus = newsDetailStatus[article.url];
-          const details = newsDetails[article.url];
-
-          return (
-            <div className="news-item" key={article.url}>
-              <button
-                className="news-headline-button"
-                onClick={() => handleNewsClick(article)}
-              >
-                <span className="news-number">
-                  {String(index + 1).padStart(2, "0")}
-                </span>
-
-                <span className="news-headline-text">
-                  {article.displayTitle}
-                </span>
-
-                <ChevronDown
-                  size={17}
-                  className={isExpanded ? "news-chevron expanded" : "news-chevron"}
-                />
-              </button>
-
-              {article.translationFailed && (
-                <small className="amber">
-                  {language === "Hindi"
-                    ? "हिंदी अनुवाद उपलब्ध नहीं है"
-                    : "Translation unavailable"}
-                </small>
-              )}
-
-              <div className="news-meta">
-                <span>{article.source}</span>
-                <span>•</span>
-                <span>
-                  {language === "Hindi" ? "इंडेक्स समय: " : "Indexed: "}
-                  {formatNewsDate(article.seenDate)}
-                </span>
-              </div>
-
-              {isExpanded && (
-                <div className="news-details">
-                  {detailStatus === "loading" && (
-                    <p className="muted">
-                      {language === "Hindi"
-                        ? "लेख का संदर्भ प्राप्त किया जा रहा है..."
-                        : "Retrieving article context..."}
-                    </p>
-                  )}
-
-                  {detailStatus === "error" && (
-                    <p className="amber">
-                      {language === "Hindi"
-                        ? "लेख का सारांश अभी उपलब्ध नहीं है। मूल समाचार स्रोत देखें।"
-                        : "Article context is unavailable. Please open the original source."}
-                    </p>
-                  )}
-
-                  {details && (
-                    <>
-                      <b className="green">
-                        {language === "Hindi"
-                          ? "लेख का संदर्भ"
-                          : "ARTICLE CONTEXT"}
-                      </b>
-
-                      <p>{details.summary}</p>
-
-                      {!details.hasContext && (
-                        <small className="muted">
-                          {language === "Hindi"
-                            ? "स्रोत से मिलान किया गया संदर्भ उपलब्ध नहीं था।"
-                            : "No matching article context was returned by the source."}
-                        </small>
-                      )}
-                    </>
-                  )}
-
-                  <a
-                    className="news-source-link"
-                    href={article.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {language === "Hindi"
-                      ? `पूरा समाचार पढ़ें · ${article.source}`
-                      : `Read full article · ${article.source}`}
-                    <ArrowRight size={13} />
-                  </a>
-                </div>
-              )}
-
-              <a
-                className="news-small-source"
-                href={article.url}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {language === "Hindi" ? "स्रोत देखें" : "View source"}
-              </a>
-            </div>
-          );
-        })}
-
-        {newsStatus === "success" && newsArticles.length === 0 && (
-          <p className="muted">
-            {language === "Hindi"
-              ? "इस स्थान के लिए हाल की खबरें नहीं मिलीं।"
-              : "No recent headlines matched this location."}
-          </p>
-        )}
-
-        {newsStatus === "error" && newsArticles.length === 0 && (
-          <p className="muted">
-            {language === "Hindi"
-              ? "अभी स्थानीय खबरें लोड नहीं हो सकीं।"
-              : "Local headlines could not be loaded right now."}
-          </p>
-        )}
-
-        <p className="hint">
-          {language === "Hindi"
-            ? `स्थान: ${newsLocation} • GDELT News • हर 15 मिनट में अपडेट`
-            : `Location: ${newsLocation} • GDELT News • Updates every 15 minutes`}
-        </p>
-      </Card>
+      <HeadlinesCarousel
+        language={language}
+        locationDetails={locationDetails}
+        notify={notify}
+      />
 
       <Card>
         <div className="split">
@@ -4997,14 +4475,14 @@ const aqiPercent = aqiVal === null
                   <Sunrise size={22} />
                   <div>
                     <small>Sunrise</small>
-                    <strong>{formatSunTime(daily.sunrise[0])}</strong>
+                    <strong>{formatSunTime(daily?.sunrise?.[0])}</strong>
                   </div>
                 </div>
                 <div className="sun-box">
                   <Sunset size={22} />
                   <div>
                     <small>Sunset</small>
-                    <strong>{formatSunTime(daily.sunset[0])}</strong>
+                    <strong>{formatSunTime(daily?.sunset?.[0])}</strong>
                   </div>
                 </div>
               </div>
@@ -5034,8 +4512,8 @@ const aqiPercent = aqiVal === null
           <Label>7-DAY FORECAST</Label>
           {dailyIndexes.map(index => {
             const isToday = index === 0;
-            const maxTemp = Math.round(daily.temperature_2m_max[index]);
-            const minTemp = Math.round(daily.temperature_2m_min[index]);
+            const maxTemp = Math.round(daily?.temperature_2m_max?.[index] ?? 0);
+            const minTemp = Math.round(daily?.temperature_2m_min?.[index] ?? 0);
             const rainChance = daily.precipitation_probability_max?.[index] ?? 0;
 
             return (
