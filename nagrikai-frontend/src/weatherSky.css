@@ -1,0 +1,219 @@
+/* WeatherSky — translucent live sky behind the Home screen.
+   Tune the overall strength with:  --sky-opacity  (default .55)       */
+
+.wsky {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+  opacity: var(--sky-opacity, 0.85);
+  /* strongest at the top, fades out so lower content stays crisp */
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 40%, rgba(0, 0, 0, 0.35) 75%, rgba(0, 0, 0, 0.12) 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 40%, rgba(0, 0, 0, 0.35) 75%, rgba(0, 0, 0, 0.12) 100%);
+  contain: layout paint style;
+  --cloud: rgba(255, 255, 255, 0.95);
+  --rain: rgba(190, 215, 245, 0.9);
+}
+
+/* ---------- sky gradients by time of day ---------- */
+.wsky__sky {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, var(--sky-a), var(--sky-b));
+  transition: filter 1s;
+}
+.wsky--day   { --sky-a: #5fb3f0; --sky-b: #d3ebfb; }
+.wsky--night { --sky-a: #14265a; --sky-b: #2f4a8f; --cloud: rgba(165, 180, 215, 0.6); }
+.wsky--dawn  { --sky-a: #3d4283; --sky-b: #f4a583; --cloud: rgba(255, 226, 210, 0.9); }
+.wsky--dusk  { --sky-a: #55467f; --sky-b: #f08d5f; --cloud: rgba(255, 215, 195, 0.88); }
+
+/* ---------- weather moods ---------- */
+.wsky--cloudy .wsky__sky  { filter: saturate(0.6) brightness(0.92); }
+.wsky--fog .wsky__sky     { filter: saturate(0.4) brightness(1.05); }
+.wsky--drizzle .wsky__sky,
+.wsky--rain .wsky__sky    { filter: saturate(0.45) brightness(0.78); }
+.wsky--storm .wsky__sky   { filter: saturate(0.35) brightness(0.55); }
+.wsky--snow .wsky__sky    { filter: saturate(0.35) brightness(1.02); }
+
+.wsky--cloudy { --cloud: rgba(225, 230, 238, 0.95); }
+.wsky--drizzle, .wsky--rain { --cloud: rgba(150, 160, 178, 0.95); }
+.wsky--storm  { --cloud: rgba(78, 84, 104, 0.97); }
+.wsky--snow   { --cloud: rgba(238, 242, 248, 0.95); }
+.wsky--night.wsky--cloudy { --cloud: rgba(120, 132, 165, 0.7); }
+.wsky--night.wsky--drizzle,
+.wsky--night.wsky--rain   { --cloud: rgba(80, 90, 115, 0.9); }
+.wsky--night.wsky--storm  { --cloud: rgba(52, 58, 80, 0.95); }
+.wsky--night.wsky--snow   { --cloud: rgba(170, 180, 205, 0.85); }
+
+/* ---------- sun ---------- */
+.wsky__sun {
+  position: absolute;
+  top: 7%;
+  right: 10%;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 40%, #fff9d6 0%, #ffd84d 55%, #ffb300 100%);
+  box-shadow: 0 0 40px 18px rgba(255, 200, 60, 0.55), 0 0 110px 50px rgba(255, 170, 40, 0.28);
+  animation: wsky-pulse 6s ease-in-out infinite;
+}
+.wsky__sun::before {
+  content: "";
+  position: absolute;
+  inset: -60px;
+  border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg, rgba(255, 224, 100, 0.6) 0 4deg, transparent 4deg 20deg);
+  -webkit-mask-image: radial-gradient(closest-side, transparent 44%, #000 48%, transparent 100%);
+  mask-image: radial-gradient(closest-side, transparent 44%, #000 48%, transparent 100%);
+  animation: wsky-spin 60s linear infinite;
+}
+.wsky--dawn .wsky__sun { top: 20%; right: auto; left: 10%; filter: hue-rotate(-18deg) saturate(1.2); }
+.wsky--dusk .wsky__sun { top: 20%; right: 8%; filter: hue-rotate(-22deg) saturate(1.25); }
+
+/* ---------- moon + stars ---------- */
+.wsky__moon {
+  position: absolute;
+  top: 8%;
+  right: 12%;
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  box-shadow: inset -20px 4px 0 0 #f4f0d2;
+  filter: drop-shadow(0 0 14px rgba(244, 240, 210, 0.55));
+  animation: wsky-float 9s ease-in-out infinite;
+}
+.wsky__star {
+  position: absolute;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
+  animation: wsky-twinkle var(--dur) ease-in-out var(--delay) infinite;
+}
+
+/* ---------- clouds ---------- */
+.wsky__cloud {
+  position: absolute;
+  left: 0;
+  width: var(--w);
+  height: calc(var(--w) * 0.3);
+  border-radius: 999px;
+  background: var(--cloud);
+  opacity: var(--o, 1);
+  filter: blur(0.6px);
+  animation: wsky-drift var(--dur) linear var(--delay) infinite;
+  will-change: transform;
+}
+.wsky__cloud::before,
+.wsky__cloud::after {
+  content: "";
+  position: absolute;
+  background: inherit;
+  border-radius: 50%;
+}
+.wsky__cloud::before { width: 46%; height: 150%; left: 14%; top: -62%; }
+.wsky__cloud::after  { width: 34%; height: 118%; right: 12%; top: -38%; }
+
+/* ---------- fog ---------- */
+.wsky__fog {
+  position: absolute;
+  left: -20%;
+  width: 140%;
+  height: 90px;
+  background: linear-gradient(90deg, transparent, rgba(236, 241, 246, 0.8), transparent);
+  filter: blur(18px);
+  animation: wsky-fog 24s ease-in-out var(--delay) infinite alternate;
+}
+
+/* ---------- rain / snow ---------- */
+.wsky__drop {
+  position: absolute;
+  top: -40px;
+  width: 1.5px;
+  height: var(--h);
+  background: linear-gradient(to bottom, transparent, var(--rain));
+  animation: wsky-fall var(--dur) linear var(--delay) infinite;
+  will-change: transform;
+}
+.wsky__flake {
+  position: absolute;
+  top: -12px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.8);
+  animation: wsky-snow var(--dur) linear var(--delay) infinite;
+  will-change: transform;
+}
+
+/* ---------- lightning ---------- */
+.wsky__flash {
+  position: absolute;
+  inset: 0;
+  background: rgba(235, 240, 255, 0.75);
+  opacity: 0;
+  animation: wsky-flash 8s linear infinite;
+}
+.wsky__bolt {
+  position: absolute;
+  top: 4%;
+  width: 44px;
+  height: 88px;
+  fill: #fff6c2;
+  filter: drop-shadow(0 0 10px rgba(255, 246, 194, 0.9));
+  opacity: 0;
+  animation: wsky-flash 8s linear infinite;
+}
+.wsky__bolt--b { animation-delay: -3.7s; animation-duration: 11s; transform: scale(0.8); }
+
+/* ---------- keyframes ---------- */
+@keyframes wsky-spin    { to { transform: rotate(360deg); } }
+@keyframes wsky-pulse   { 50% { transform: scale(1.05); box-shadow: 0 0 52px 24px rgba(255, 200, 60, 0.6), 0 0 130px 60px rgba(255, 170, 40, 0.3); } }
+@keyframes wsky-float   { 50% { transform: translateY(8px); } }
+@keyframes wsky-twinkle { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+@keyframes wsky-drift   { from { transform: translateX(-60vw); } to { transform: translateX(115vw); } }
+@keyframes wsky-fog     { from { transform: translateX(-8%); } to { transform: translateX(8%); } }
+@keyframes wsky-fall {
+  from { transform: translate3d(0, -10vh, 0) rotate(12deg); }
+  to   { transform: translate3d(-40px, 110vh, 0) rotate(12deg); }
+}
+@keyframes wsky-snow {
+  from { transform: translate3d(0, -5vh, 0); }
+  50%  { transform: translate3d(var(--sway), 50vh, 0); }
+  to   { transform: translate3d(0, 108vh, 0); }
+}
+@keyframes wsky-flash {
+  0%, 89%, 100% { opacity: 0; }
+  90%   { opacity: 0.85; }
+  91.5% { opacity: 0.15; }
+  93%   { opacity: 0.7; }
+  96%   { opacity: 0; }
+}
+
+/* ---------- reduced motion ---------- */
+.wsky--still *,
+.wsky--still *::before {
+  animation: none !important;
+}
+.wsky--still .wsky__flash,
+.wsky--still .wsky__bolt { display: none; }
+.wsky--still .wsky__cloud { transform: translateX(8vw); }
+@media (prefers-reduced-motion: reduce) {
+  .wsky *, .wsky *::before { animation: none !important; }
+  .wsky__flash, .wsky__bolt { display: none; }
+  .wsky__cloud { transform: translateX(8vw); }
+}
+
+.home-sky { position: relative; }
+
+.wsky-anchor {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: min(75vh, 560px);
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.wsky-anchor .wsky { position: absolute; inset: 0; height: 100%; }
+
+.home-sky > *:not(.wsky-anchor) { position: relative; z-index: 1; }

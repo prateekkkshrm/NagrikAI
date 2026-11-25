@@ -1,8 +1,10 @@
+import WeatherSky from "./WeatherSky";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { Geolocation } from "@capacitor/geolocation";
 import { translateDOM } from "./translations";
 import { supabase } from "./supabaseClient";
+
 import {
   MapContainer,
   TileLayer,
@@ -80,6 +82,12 @@ function App() {
   const [accessibility, setAccessibility] = useState({ motion: true, contrast: true, text: false, voice: false });
   const [reportCount, setReportCount] = useState(8);
   const [selectedTab, setSelectedTab] = useState("Home");
+  const [duplicateStatus, setDuplicateStatus] = useState("idle");
+  const [duplicateReports, setDuplicateReports] = useState([]);
+  const [duplicateError, setDuplicateError] = useState("");
+  const [submissionLoading, setSubmissionLoading] = useState(false);
+  const [submittedReport, setSubmittedReport] = useState(null);
+  const [evidenceLoading, setEvidenceLoading] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -102,6 +110,7 @@ function App() {
       authListener.subscription.unsubscribe();
     };
   }, []);
+
   useEffect(() => {
     if (!authReady || authRestoreHandled.current) return;
 
@@ -112,7 +121,7 @@ function App() {
       const pendingEmail = user.new_email || "";
 
       setName(user.user_metadata?.full_name || "");
-      setPhone((user.phone || "").replace(/^\+91/, ""));
+      setPhone((user.user_metadata?.phone || "").replace(/^\+91/, ""));
       setEmail(pendingEmail || user.email || "");
       setScreen(pendingEmail ? "Email verification" : "Home");
     }
@@ -929,7 +938,7 @@ function Welcome({
     : "Enable location to personalise your experience";
 
   return (
-    <div className="page">
+            <div className="page">
       <Label>YOUR CITY, DECODED.</Label>
 
       <div className="city-hero">
@@ -944,7 +953,6 @@ function Welcome({
           <span>{timeText}</span>
         </div>
       </div>
-
       {!userLocation && (
         <Button
           secondary
@@ -1745,7 +1753,22 @@ function HomeScreen({
     : [];
 
   return (
-    <div className="page">
+        <div className="page home-sky">
+      <div className="wsky-anchor">
+        <WeatherSky
+          weather={
+            currentWeather && dailyWeather
+              ? {
+                  code: currentWeather.weather_code,
+                  isDay: currentWeather.is_day,
+                  time: currentWeather.time,
+                  sunrise: dailyWeather.sunrise[0],
+                  sunset: dailyWeather.sunset[0]
+                }
+              : null
+          }
+        />
+      </div>
 
       <div className="home-heading">
   <div>
@@ -4927,7 +4950,7 @@ const aqiPercent = aqiVal === null
       )}
 
       <p className="hint">
-        Weather forecast: Open-Meteo & US EPA AQI standard. High-precision model alignment for civic routing.
+        Weather forecast and modelled pollutant data by Open-Meteo. AQI is an estimate calculated using CPCB breakpoint categories, not an official CPCB monitoring-station reading.
         <br />
         <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">
           Weather data by Open-Meteo
