@@ -1,8 +1,25 @@
 
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "https://placeholder.supabase.co";
-const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || "placeholder-key";
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
+const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || "";
 
-// Supabase is only needed for OTP login. The rest of the app works without it.
-export const supabase = createClient(supabaseUrl, supabaseKey);
+export const isSupabaseConfigured = Boolean(
+  supabaseUrl &&
+  supabaseKey &&
+  !supabaseUrl.includes("placeholder") &&
+  !supabaseKey.includes("placeholder")
+);
+
+if (!isSupabaseConfigured) {
+  console.warn(
+    "⚠️ Supabase is not configured. Missing VITE_SUPABASE_URL and/or VITE_SUPABASE_PUBLISHABLE_KEY in .env file.\n" +
+    "Copy .env from your other machine or see .env.example."
+  );
+}
+
+export const supabase = createClient(
+  isSupabaseConfigured ? supabaseUrl : "https://placeholder.supabase.co",
+  isSupabaseConfigured ? supabaseKey : "placeholder-key"
+);
+
