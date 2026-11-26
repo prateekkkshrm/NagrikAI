@@ -50,7 +50,7 @@ import {
   Info, Calendar, Languages, Layers, LocateFixed, LockKeyhole, Mail, Map, MapPin, Menu,
   Mic, MicOff, Moon, Navigation, Phone, Plus, RefreshCw, Search, Send, Settings, Shield,
   ShieldCheck, SlidersHorizontal, Sparkles, Sun, Sunrise, Sunset, TrendingUp, User, Users,
-  Volume2, WifiOff, Wind, Trash2, X, Camera, Image as ImageIcon, MessageCircle, BarChart3
+  Volume2, WifiOff, Wind, X, Camera, Image as ImageIcon, MessageCircle, BarChart3
 } from "lucide-react";
 
 const GREEN = "#28d7a0";
@@ -5258,89 +5258,21 @@ function Profile({go, onLogout, authLoading}) {
   const [profile, setProfile] = useState(null);
   const [loadStatus, setLoadStatus] = useState("loading");
   const [loadError, setLoadError] = useState("");
-  const [avatarUrl, setAvatarUrl] = useState(null);
-  const [avatarStorageKey, setAvatarStorageKey] = useState(null);
-  const [showPresets, setShowPresets] = useState(false);
-  const [avatarNotice, setAvatarNotice] = useState("");
-  const fileInputRef = useRef(null);
-
-  const CIVIC_PRESETS = [
-    { id: "p1", emoji: "👨‍💼", label: "Citizen" },
-    { id: "p2", emoji: "👩‍💼", label: "Leader" },
-    { id: "p3", emoji: "👷", label: "Engineer" },
-    { id: "p4", emoji: "🧑‍💻", label: "Tech" },
-    { id: "p5", emoji: "🌿", label: "Eco" },
-    { id: "p6", emoji: "🛡️", label: "Guardian" }
-  ];
-
-  const handleImageSelect = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      setAvatarNotice("Please select a valid image (PNG, JPG, WebP).");
-      return;
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      setAvatarNotice("Image size must be under 5 MB.");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result;
-      if (dataUrl) {
-        setAvatarUrl(dataUrl);
-        try {
-          if (avatarStorageKey) localStorage.setItem(avatarStorageKey, dataUrl);
-        } catch (storageErr) {
-          console.warn("Storage warning:", storageErr);
-        }
-        setShowPresets(false);
-        setAvatarNotice("Profile picture updated!");
-        setTimeout(() => setAvatarNotice(""), 3000);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleSelectPreset = (preset) => {
-    const data = `preset:${preset.emoji}`;
-    setAvatarUrl(data);
-    try {
-      if (avatarStorageKey) localStorage.setItem(avatarStorageKey, data);
-    } catch {}
-    setShowPresets(false);
-    setAvatarNotice(`Avatar set to ${preset.label}!`);
-    setTimeout(() => setAvatarNotice(""), 3000);
-  };
-
-  const handleRemovePhoto = () => {
-    setAvatarUrl(null);
-    try {
-      if (avatarStorageKey) localStorage.removeItem(avatarStorageKey);
-    } catch {}
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-    setShowPresets(false);
-    setAvatarNotice("Profile picture removed.");
-    setTimeout(() => setAvatarNotice(""), 3000);
-  };
 
   useEffect(() => {
     let active = true;
 
-    const loadProfile = async () => {
-      if (!isSupabaseConfigured) {
-        if (active) {
-          setProfile(null);
-          setLoadError("Secure profile is unavailable. Check your Supabase configuration.");
-          setLoadStatus("error");
-        }
-        return;
-      }
+
+  
+const loadProfile = async () => {
+  if (!isSupabaseConfigured) {
+    if (active) {
+      setProfile(null);
+      setLoadError("Secure profile is unavailable. Check your Supabase configuration.");
+      setLoadStatus("error");
+    }
+    return;
+  }
 
       try {
         const { data: authData, error: authError } =
@@ -5354,20 +5286,12 @@ function Profile({go, onLogout, authLoading}) {
           throw new Error("Please sign in to view your profile.");
         }
 
-        const userAvatarKey = `nagrikai_citizen_avatar_${user.id}`;
-        setAvatarStorageKey(userAvatarKey);
-
-        try {
-          setAvatarUrl(localStorage.getItem(userAvatarKey) || null);
-        } catch {
-          setAvatarUrl(null);
-        }
-
-        const { data: citizenData, error: citizenError } = await supabase
-          .from("citizen_profiles")
-          .select("full_name, phone, email, email_verified_at, updated_at")
-          .eq("user_id", user.id)
-          .maybeSingle();
+    // Fetch only the authenticated citizen's profile.
+    const { data: citizenData, error: citizenError } = await supabase
+      .from("citizen_profiles")
+      .select("full_name, phone, email, email_verified_at, updated_at")
+      .eq("user_id", user.id)
+      .maybeSingle();
 
         if (citizenError) throw citizenError;
 
@@ -5605,35 +5529,18 @@ function Profile({go, onLogout, authLoading}) {
         </div>
       )}
 
-      {/* Navigation Menu Rows with Clean Alignment & Icons */}
-      <div className="profile-menu-section">
-        {[
-          { label: "Your reports", screen: "Report history", icon: FileText, badge: profile ? `${profile.reportCount}` : null },
-          { label: "AI conversations", screen: "AI conversations", icon: MessageCircle, badge: "Voice & Text" },
-          { label: "Notifications", screen: "Notifications", icon: Bell },
-          { label: "Accessibility", screen: "Accessibility", icon: Eye },
-          { label: "Privacy & settings", screen: "Privacy & settings", icon: LockKeyhole },
-          { label: "Language / English & हिन्दी", screen: "Language", icon: Languages }
-        ].map(({ label, screen, icon: Icon, badge }) => (
-          <button className="profile-nav-row" key={label} onClick={() => go(screen)}>
-            <div className="profile-nav-left">
-              <div className="profile-nav-icon-box">
-                <Icon size={15} />
-              </div>
-              <span className="profile-nav-label">{label}</span>
-            </div>
-            <div className="profile-nav-right">
-              {badge && <span className="profile-nav-badge">{badge}</span>}
-              <ChevronRight size={15} className="chevron-icon" />
-            </div>
-          </button>
-        ))}
-      </div>
-      <div className="profile-logout-action">
-        <Button secondary onClick={onLogout} disabled={authLoading}>
-          {authLoading ? "Logging out..." : "Log out"}
-        </Button>
-      </div>
+      {[
+        ["Your reports", "Report history"],
+        ["AI conversations", "AI conversations"],
+        ["Notifications", "Notifications"],
+        ["Accessibility", "Accessibility"],
+        ["Privacy & settings", "Privacy & settings"],
+        ["Language / English & हिन्दी", "Language"]
+      ].map(([x, y]) => (
+        <button className="menu-row" key={x} onClick={() => go(y)}>
+          {x}<ChevronRight size={16}/>
+        </button>
+      ))}
     </div>
   );
 }
