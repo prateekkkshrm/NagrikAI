@@ -47,10 +47,10 @@ import {
   CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clock3,
   CloudSun, CloudMoon, CloudFog, Cloud, CloudRain, CloudLightning, CloudSnow, CloudDrizzle,
   Compass, Copy, Droplets, Eye, FileText, Filter, Gauge, Globe2, Headphones, Home,
-  Info, Languages, Layers, LocateFixed, LockKeyhole, Map, MapPin, Menu,
-  Mic, MicOff, Moon, Navigation, Plus, RefreshCw, Search, Send, Settings, Shield,
+  Info, Calendar, Languages, Layers, LocateFixed, LockKeyhole, Mail, Map, MapPin, Menu,
+  Mic, MicOff, Moon, Navigation, Phone, Plus, RefreshCw, Search, Send, Settings, Shield,
   ShieldCheck, SlidersHorizontal, Sparkles, Sun, Sunrise, Sunset, TrendingUp, User, Users,
-  Volume2, WifiOff, Wind, X, Camera, Image as ImageIcon, MessageCircle, BarChart3
+  Volume2, WifiOff, Wind, Trash2, X, Camera, Image as ImageIcon, MessageCircle, BarChart3
 } from "lucide-react";
 
 const GREEN = "#28d7a0";
@@ -163,6 +163,7 @@ function App() {
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [accountMode, setAccountMode] = useState("existing");
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [emailOtp, setEmailOtp] = useState(["", "", "", "", "", ""]);
   const [authLoading, setAuthLoading] = useState(false);
@@ -532,42 +533,51 @@ const detectUserLocation = async () => {
 }, []);
 
   const handleSendOtp = async () => {
-    const digits = phone.replace(/\D/g, "");
-    const cleanName = name.trim();
     const cleanEmail = email.trim().toLowerCase();
-
-    if (cleanName.length < 2) {
-      notify("Enter your full name.");
-      return;
-    }
+    const cleanName = name.trim();
+    const digits = phone.replace(/\D/g, "");
+    const isNewAccount = accountMode === "new";
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
       notify("Enter a valid email address.");
       return;
     }
 
-    if (!/^[6-9]\d{9}$/.test(digits)) {
-      notify("Enter a valid 10-digit Indian mobile number.");
-      return;
+    if (isNewAccount) {
+      if (cleanName.length < 2 || cleanName.length > 100) {
+        notify("Enter your full name.");
+        return;
+      }
+
+      if (!/^[6-9]\d{9}$/.test(digits)) {
+        notify("Enter a valid 10-digit Indian mobile number.");
+        return;
+      }
     }
 
     if (!isSupabaseConfigured) {
-  notify("Secure login is unavailable. Check Supabase configuration.");
-  return;
-}
+      notify("Secure login is unavailable. Check Supabase configuration.");
+      return;
+    }
 
     setAuthLoading(true);
 
     try {
+      const options = isNewAccount
+        ? {
+            shouldCreateUser: true,
+            data: {
+              full_name: cleanName,
+              phone: `+91${digits}`
+            }
+          }
+        : {
+            shouldCreateUser: false
+          };
+
       const { error } = await supabase.auth.signInWithOtp({
         email: cleanEmail,
-        options: {
-          shouldCreateUser: true,
-          data: {
-            full_name: cleanName,
-            phone: `+91${digits}`
-          }
-        }
+        options
       });
 
       if (error) throw error;
@@ -576,175 +586,266 @@ const detectUserLocation = async () => {
       setEmailOtp(["", "", "", "", "", ""]);
 
       go("Email verification");
-      notify("Email verification code sent.");
+      notify(
+        isNewAccount
+          ? "Registration verification code sent."
+          : "Login verification code sent."
+      );
 
     } catch (error) {
       console.error("Email OTP request failed:", error);
       notify(
-  error.message === "Failed to fetch"
-    ? "Unable to connect to Supabase. Check your internet and retry."
-    : error.message || "Unable to send email OTP."
-);
+        error.message === "Failed to fetch"
+          ? "Unable to connect to Supabase. Check your internet and retry."
+          : error.message || "Unable to send email OTP."
+      );
     } finally {
       setAuthLoading(false);
     }
   };
 
   const handleResendEmailOtp = async () => {
-  const digits = phone.replace(/\D/g, "");
-  const cleanName = name.trim();
-  const cleanEmail = email.trim().toLowerCase();
+    const cleanEmail = email.trim().toLowerCase();
+    const isNewAccount = accountMode === "new";
 
-  if (!isSupabaseConfigured) {
-    notify("Secure login is unavailable. Please check the app configuration.");
-    return false;
-  }
-
-  try {
-    const { error } = await supabase.auth.signInWithOtp({
-      email: cleanEmail,
-      options: {
-        shouldCreateUser: true,
-        data: {
-          full_name: cleanName,
-          phone: `+91${digits}`
-        }
-      }
-    });
-
-    if (error) throw error;
-
-    notify("A new verification code has been sent.");
-    return true;
-
-  } catch (error) {
-    console.error("Email OTP resend failed:", error);
-
-    notify(
-      error.message === "Failed to fetch"
-        ? "Unable to connect. Check your internet and try again."
-        : error.message || "Unable to resend email OTP."
-    );
-
-    return false;
-  }
-};
-
-const handleVerifyEmailOtp = async () => {
-  const token = emailOtp.join("");
-  const cleanEmail = email.trim().toLowerCase();
-  const cleanName = name.trim();
-  const digits = phone.replace(/\D/g, "");
-
-  if (!isSupabaseConfigured) {
-    notify("Secure login is unavailable. Please check the app configuration.");
-    return;
-  }
-
-  if (!/^\d{6}$/.test(token)) {
-    notify("Enter all 6 email OTP digits.");
-    return;
-  }
-
-  if (cleanName.length < 2 || cleanName.length > 100) {
-    notify("Enter a valid full name.");
-    return;
-  }
-
-  if (!/^[6-9]\d{9}$/.test(digits)) {
-    notify("Enter a valid 10-digit mobile number.");
-    return;
-  }
-
-  setAuthLoading(true);
-
-  let verifiedSession = false;
-
-  try {
-    const { data, error } = await supabase.auth.verifyOtp({
-      email: cleanEmail,
-      token,
-      type: "email"
-    });
-
-    if (error) throw error;
-
-    if (!data.session || !data.user) {
-      throw new Error("Email authentication session was not created.");
+    if (!isSupabaseConfigured) {
+      notify("Secure login is unavailable. Check your app configuration.");
+      return false;
     }
 
-    verifiedSession = true;
-
-    const phoneE164 = `+91${digits}`;
-
-    const { data: updatedData, error: updateError } =
-      await supabase.auth.updateUser({
-        data: {
-          full_name: cleanName,
-          phone: phoneE164
+    const options = isNewAccount
+      ? {
+          shouldCreateUser: true,
+          data: {
+            full_name: name.trim(),
+            phone: `+91${phone.replace(/\D/g, "")}`
+          }
         }
-      });
+      : {
+          shouldCreateUser: false
+        };
 
-    if (updateError) throw updateError;
-
-    const currentUser = updatedData.user || data.user;
-
-    const { error: profileError } = await supabase
-      .from("citizen_profiles")
-      .upsert({
-        user_id: currentUser.id,
-        full_name: cleanName,
-        phone: phoneE164,
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
         email: cleanEmail,
-        email_verified_at:
-          currentUser.email_confirmed_at || new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: "user_id"
+        options
       });
 
-    if (profileError) {
-      if (profileError.code === "23505") {
-        throw new Error(
-          "This email is already linked to another citizen account."
+      if (error) throw error;
+
+      notify("A new verification code has been sent.");
+      return true;
+
+    } catch (error) {
+      console.error("Email OTP resend failed:", error);
+      notify(error.message || "Unable to resend email OTP.");
+      return false;
+    }
+  };
+
+  const handleVerifyEmailOtp = async () => {
+    const token = emailOtp.join("");
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanName = name.trim();
+    const digits = phone.replace(/\D/g, "");
+    const isNewAccount = accountMode === "new";
+
+    if (!isSupabaseConfigured) {
+      notify("Secure login is unavailable. Check your app configuration.");
+      return;
+    }
+
+    if (!/^\d{6}$/.test(token)) {
+      notify("Enter all 6 email OTP digits.");
+      return;
+    }
+
+    if (isNewAccount) {
+      if (cleanName.length < 2 || cleanName.length > 100) {
+        notify("Enter a valid full name.");
+        return;
+      }
+
+      if (!/^[6-9]\d{9}$/.test(digits)) {
+        notify("Enter a valid 10-digit mobile number.");
+        return;
+      }
+    }
+
+    setAuthLoading(true);
+    let verifiedSession = false;
+
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: cleanEmail,
+        token,
+        type: "email"
+      });
+
+      if (error) throw error;
+
+      if (!data.session || !data.user) {
+        throw new Error("Email authentication session was not created.");
+      }
+
+      verifiedSession = true;
+
+      if (isNewAccount) {
+        // Never overwrite an existing citizen profile during registration.
+        const { data: existingProfile, error: lookupError } = await supabase
+          .from("citizen_profiles")
+          .select("user_id")
+          .eq("user_id", data.user.id)
+          .maybeSingle();
+
+        if (lookupError) throw lookupError;
+
+        if (existingProfile) {
+          throw new Error(
+            "This email already has a NagrikAI profile. Select Existing User to log in."
+          );
+        }
+
+        const phoneE164 = `+91${digits}`;
+
+        const { error: profileError } = await supabase
+          .from("citizen_profiles")
+          .insert({
+            user_id: data.user.id,
+            full_name: cleanName,
+            phone: phoneE164,
+            email: cleanEmail,
+            email_verified_at:
+              data.user.email_confirmed_at || new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+
+        if (profileError) {
+          if (profileError.code === "23505") {
+            throw new Error(
+              "This email already belongs to a citizen account. Select Existing User."
+            );
+          }
+          throw profileError;
+        }
+
+        const { data: updatedData, error: updateError } =
+          await supabase.auth.updateUser({
+            data: {
+              full_name: cleanName,
+              phone: phoneE164
+            }
+          });
+
+        if (updateError) throw updateError;
+
+        setName(cleanName);
+        setPhone(digits);
+        setEmail(cleanEmail);
+
+      } else {
+        // Existing users must retrieve their saved profile, not create a new one.
+        const { data: citizenData, error: profileError } = await supabase
+          .from("citizen_profiles")
+          .select("full_name, phone, email")
+          .eq("user_id", data.user.id)
+          .maybeSingle();
+
+        if (profileError) throw profileError;
+
+        if (!citizenData) {
+          throw new Error(
+            "No citizen profile was found for this email. Please check your email or create a new account."
+          );
+        }
+
+        setName(
+          citizenData.full_name || data.user.user_metadata?.full_name || ""
         );
+        setPhone((citizenData.phone || "").replace(/^\+91/, ""));
+        setEmail(citizenData.email || cleanEmail);
       }
 
-      throw profileError;
-    }
+      setAuthSession(data.session);
+      setEmailOtp(["", "", "", "", "", ""]);
+      setSelectedTab("Home");
 
-    setAuthSession(data.session);
-    setName(cleanName);
-    setPhone(digits);
-    setEmail(cleanEmail);
-    setEmailOtp(["", "", "", "", "", ""]);
+      go("Home");
+      notify(
+        isNewAccount
+          ? "Your new NagrikAI account has been created."
+          : "Welcome back! Your existing profile has been restored."
+      );
 
-    go("Home");
-    notify("Email verified successfully. Welcome to NagrikAI.");
+    } catch (error) {
+      console.error("Email verification failed:", error);
 
-  } catch (error) {
-    console.error("Email verification failed:", error);
-
-    // Never retain a partially registered session.
-    if (verifiedSession) {
-      try {
-        await supabase.auth.signOut();
-      } catch (signOutError) {
-        console.error("Session cleanup failed:", signOutError);
+      if (verifiedSession) {
+        try {
+          await supabase.auth.signOut();
+          setAuthSession(null);
+        } catch (signOutError) {
+          console.error("Session cleanup failed:", signOutError);
+        }
       }
+
+      notify(
+        error.message === "Failed to fetch"
+          ? "Connection failed. Please retry."
+          : error.message || "Incorrect or expired email OTP."
+      );
+
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    if (!isSupabaseConfigured) {
+      notify("Secure logout is unavailable. Check Supabase configuration.");
+      return;
     }
 
-    notify(
-      error.message === "Failed to fetch"
-        ? "Connection failed. Your login was not completed. Please retry."
-        : error.message || "Incorrect or expired email OTP."
-    );
+    setAuthLoading(true);
 
-  } finally {
-    setAuthLoading(false);
-  }
-};
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
 
+      // Clear the previous user's in-memory data.
+      setAuthSession(null);
+      setName("");
+      setPhone("");
+      setEmail("");
+      setEmailOtp(["", "", "", "", "", ""]);
+      setAccountMode("existing");
+
+      setReportCount(0);
+      setIssue("");
+      setDescription("");
+      setPhoto(null);
+      setReportLocation(null);
+      setReportLocationDetails(null);
+      setSubmittedReport(null);
+      setSelectedReportId(null);
+      setDuplicateReports([]);
+      setDuplicateStatus("idle");
+      setDuplicateError("");
+      setLiveNearbyReports([]);
+      setLiveReportsStatus("idle");
+
+      setSelectedTab("Home");
+      setScreen("Login");
+
+      notify("You have been logged out successfully.");
+
+    } catch (error) {
+      console.error("Logout failed:", error);
+      notify(error.message || "Unable to log out. Please retry.");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
   const refreshLiveReports = async (loc = userLocation) => {
     if (!isSupabaseConfigured || !authSession?.user) return;
     setLiveReportsStatus("loading");
@@ -1068,7 +1169,7 @@ const handleVerifyEmailOtp = async () => {
            />
          )}
         {screen === "Language" && <Language language={language} setLanguage={setLanguage} go={go}/>}
-        {screen === "Login" && <Login name={name} setName={setName} email={email} setEmail={setEmail} phone={phone} setPhone={setPhone} go={go} notify={notify} onSendOtp={handleSendOtp} authLoading={authLoading}/>}
+        {screen === "Login" && <Login name={name} setName={setName} email={email} setEmail={setEmail} phone={phone} setPhone={setPhone} accountMode={accountMode} setAccountMode={setAccountMode} go={go} onSendOtp={handleSendOtp} authLoading={authLoading}/>}
        {screen === "Email verification" && (
   <EmailVerification
     email={email}
@@ -1245,7 +1346,7 @@ const handleVerifyEmailOtp = async () => {
 )}
         {screen === "Civic navigation" && <NavigationScreen go={go} />}
         {screen === "City analytics" && <Analytics go={go} />}
-        {screen === "Profile" && <Profile go={go} reportCount={reportCount} />}
+        {screen === "Profile" && <Profile go={go} reportCount={reportCount} onLogout={handleLogout} authLoading={authLoading} />}
         {screen === "Report history" && (
           <MyReportsScreen
             go={go}
@@ -1380,7 +1481,7 @@ function Welcome({
       <Card>
         <p>01 &nbsp; See beyond the traffic</p>
         <p>02 &nbsp; Turn evidence into action</p>
-        <p>03 &nbsp; Know what changed — and what didn't</p>
+        <p>03 &nbsp; Know what changed &mdash; and what didn't</p>
       </Card>
 
       <div className="bottom-action">
@@ -1390,48 +1491,143 @@ function Welcome({
   );
 }
 function Language({ language, setLanguage, go }) {
-  return <div className="page"><StatusBarTitle title="Choose your language" back={() => go("Welcome")} /><Label>01 / 03 &nbsp; PERSONALISE</Label><h1>Your city.<br />Your language.</h1><p className="muted">Choose how NagrikAI speaks to you. You can change this anytime.</p>{["English", "Hindi"].map(v => <button className={`choice ${language === v ? "chosen" : ""}`} onClick={() => setLanguage(v)} key={v}><span>{v === "Hindi" ? "हिन्दी" : "English"}</span><small>{language === v ? "Selected language" : "भाषा चुनें"}</small>{language === v && <Check size={17} />}</button>)}<p className="hint">All conversations support both English and Hindi, including voice input.</p><div className="bottom-action"><Button onClick={() => go("Login")}>Continue in {language === "Hindi" ? "हिन्दी" : "English"}</Button></div></div>;
-}
-function Login({ name, setName, email, setEmail, phone, setPhone, go, notify, onSendOtp, authLoading }) {
-  return <div className="page">
-    <StatusBarTitle title="Welcome to NagrikAI" back={()=>go("Language")}/>
-    <Label>02 / 03 &nbsp; SECURE SIGN-IN</Label>
-    <h1>Your voice.<br/>Your identity.</h1>
-    <p className="muted">Create your secure citizen profile to report issues and track updates.</p>
+  return (
+    <div className="page">
+      <StatusBarTitle title="Choose your language" back={() => go("Welcome")} />
+      <Label>01 / 03 &nbsp; PERSONALISE</Label>
+      <h1>Your city.<br />Your language.</h1>
+      <p className="muted">
+        Choose how NagrikAI speaks to you. You can change this anytime.
+      </p>
 
-    <Field
-      label="FULL NAME"
-      value={name}
-      onChange={setName}
-      placeholder="Enter your full name"
-    />
-    <Field
-      label="EMAIL ADDRESS"
-      type="email"
-      value={email}
-      onChange={setEmail}
-      placeholder="Enter your email address"
-    />
-    <Field
-      label="MOBILE NUMBER"
-      value={phone}
-      onChange={value => setPhone(value.replace(/\D/g, "").slice(0, 10))}
-      placeholder="Enter 10-digit mobile number"
-    />
+      {["English", "Hindi"].map(v => (
+        <button
+          className={`choice ${language === v ? "chosen" : ""}`}
+          onClick={() => setLanguage(v)}
+          key={v}
+        >
+          <span>{v === "Hindi" ? "\u0939\u093F\u0928\u094D\u0926\u0940" : "English"}</span>
+          <small>{language === v ? "Selected language" : "\u092D\u093E\u0937\u093E \u091A\u0941\u0928\u0947\u0902"}</small>
+          {language === v && <Check size={17} />}
+        </button>
+      ))}
 
-    <Button onClick={onSendOtp} disabled={authLoading || !name.trim() || !email.trim() || phone.length !== 10}>
-      {authLoading ? "Sending..." : "Send email verification code"}
-    </Button>
+      <p className="hint">
+        All conversations support both English and Hindi, including voice input.
+      </p>
 
-    <Card>
-      <b>Your details stay private.</b>
-      <p className="muted">Your profile connects your reports to you. Your phone number and email are never shown publicly.</p>
-    </Card>
-    <p className="hint">By continuing, you accept the Terms of Service and Privacy Policy.</p>
-   
-  </div>;
-}
-function OTP({ phone, otp, setOtp, go, notify, onVerify, authLoading }) {
+      <div className="bottom-action">
+        <Button onClick={() => go("Login")}>
+          Continue in {language === "Hindi" ? "\u0939\u093F\u0928\u094D\u0926\u0940" : "English"}
+        </Button>
+      </div>
+    </div>
+  );
+}function Login({
+  name, setName, email, setEmail, phone, setPhone,
+  accountMode, setAccountMode, go, onSendOtp, authLoading
+}) {
+  const isNewAccount = accountMode === "new";
+
+  const chooseMode = (mode) => {
+    setAccountMode(mode);
+    setName("");
+    setPhone("");
+  };
+
+  return (
+    <div className="page">
+      <StatusBarTitle title="Welcome to NagrikAI" back={() => go("Language")} />
+      <Label>02 / 03 &nbsp; SECURE SIGN-IN</Label>
+
+      <h1>
+        {isNewAccount
+          ? <>Your voice.<br />Your identity.</>
+          : <>Welcome back.<br />Your city awaits.</>}
+      </h1>
+
+      <p className="muted">
+        {isNewAccount
+          ? "Create a new citizen account to start your civic journey."
+          : "Sign in to access your existing citizen profile and reports."}
+      </p>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, margin: "20px 0" }}>
+        <button
+          type="button"
+          className={`choice ${!isNewAccount ? "chosen" : ""}`}
+          onClick={() => chooseMode("existing")}
+        >
+          <span>Existing user</span>
+          <small>Sign in</small>
+        </button>
+
+        <button
+          type="button"
+          className={`choice ${isNewAccount ? "chosen" : ""}`}
+          onClick={() => chooseMode("new")}
+        >
+          <span>New account</span>
+          <small>Register</small>
+        </button>
+      </div>
+
+      {isNewAccount && (
+        <>
+          <Field
+            label="FULL NAME"
+            value={name}
+            onChange={setName}
+            placeholder="Enter your full name"
+          />
+
+          <Field
+            label="MOBILE NUMBER"
+            value={phone}
+            onChange={value => setPhone(value.replace(/\D/g, "").slice(0, 10))}
+            placeholder="Enter 10-digit mobile number"
+          />
+        </>
+      )}
+
+      <Field
+        label="EMAIL ADDRESS"
+        type="email"
+        value={email}
+        onChange={setEmail}
+        placeholder="Enter your email address"
+      />
+
+      <Button
+        onClick={onSendOtp}
+        disabled={
+          authLoading ||
+          !email.trim() ||
+          (isNewAccount && (!name.trim() || phone.length !== 10))
+        }
+      >
+        {authLoading
+          ? "Sending..."
+          : isNewAccount
+            ? "Create account & send OTP"
+            : "Send login OTP"}
+      </Button>
+
+      <Card>
+        <b>{isNewAccount ? "A fresh start." : "Your data stays yours."}</b>
+        <p className="muted">
+          {isNewAccount
+            ? "Your new account starts with its own profile and independent civic history."
+            : "Your verified email connects you to your saved profile, reports and AI conversations."}
+        </p>
+      </Card>
+
+      <p className="hint">
+        By continuing, you accept the Terms of Service and Privacy Policy.
+      </p>
+    </div>
+  );
+}function OTP({ phone, otp, setOtp, go, notify, onVerify, authLoading }) {
 
   const handleOtpChange = (event, index) => {
     const entered = event.target.value.replace(/\D/g, "");
@@ -1609,7 +1805,7 @@ function EmailVerification({email,emailOtp,setEmailOtp,go,notify,onVerify,authLo
 
   return (
     <div className="page">
-      <StatusBarTitle title="Verify your email" back={() => go("OTP verification")}/>
+      <StatusBarTitle title="Verify your email" back={() => go("Login")}/>
       <Label>EMAIL VERIFICATION</Label>
       <h1>One last check.</h1>
       <p className="muted">
@@ -1642,7 +1838,7 @@ function EmailVerification({email,emailOtp,setEmailOtp,go,notify,onVerify,authLo
 
       <Card>
         <b>Your account, securely connected.</b>
-        <p className="muted">Your verified phone number and email will be linked to the same citizen profile.</p>
+        <p className="muted">Your email verification securely connects you to your NagrikAI citizen profile.</p>
       </Card>
     </div>
   );
@@ -1810,12 +2006,12 @@ function HomeScreen({
   <div>
     <h2>
       {language === "Hindi"
-        ? `नमस्ते, ${name?.trim() ? "प्रतीक" : "नागरिक"}`
+        ? `\u0928\u092E\u0938\u094D\u0924\u0947, ${name?.trim() || "\u0928\u093E\u0917\u0930\u093F\u0915"}`
         : `Hello, ${name?.trim() || "Citizen"}`}
     </h2>
 
     <p>
-      {language === "Hindi" ? "आप यहाँ हैं" : "You're at"}
+      {language === "Hindi" ? "\u0906\u092A \u092F\u0939\u093E\u0901 \u0939\u0948\u0902" : "You're at"}
     </p>
 
     <h3>{placeName}</h3>
@@ -1933,7 +2129,7 @@ function HomeScreen({
                 </b>
 
                 <small>
-                  {hourlyWeather.precipitation_probability?.[index] ?? "—"}%
+                  {hourlyWeather.precipitation_probability?.[index] ?? "Ã¢â‚¬â€"}%
                   rain
                 </small>
               </div>
@@ -1976,7 +2172,7 @@ function HomeScreen({
         </div>
 
         <strong className="score">
-          {cityHealthScore !== null ? `${cityHealthScore} / 100` : "—"}
+          {cityHealthScore !== null ? `${cityHealthScore} / 100` : "Ã¢â‚¬â€"}
         </strong>
 
         <small className="muted">
@@ -2963,7 +3159,7 @@ function ExploreMap({
             <>
               <small style={{ color: "#36d6a0" }}>DESTINATION REACHED</small>
               <h2 style={{ margin: "9px 0", fontSize: "23px" }}>
-                🎉 You have arrived!
+                Ã°Å¸Å½â€° You have arrived!
               </h2>
               <small style={{ color: "#aab9c7" }}>{routeInfo?.destination}</small>
             </>
@@ -3001,7 +3197,7 @@ function ExploreMap({
               fontSize: "20px"
             }}
           >
-            ◎
+            Ã¢â€”Å½
           </button>
         </div>
 
@@ -3069,7 +3265,7 @@ function ExploreMap({
                 fontWeight: "700"
               }}
             >
-              {voiceEnabled ? "🔊 Voice ON" : "🔇 Voice OFF"}
+              {voiceEnabled ? "Ã°Å¸â€Å  Voice ON" : "Ã°Å¸â€â€¡ Voice OFF"}
             </button>
 
             <button
@@ -3128,7 +3324,7 @@ function ExploreMap({
             <p>Latitude: {userLocation.lat.toFixed(6)}</p>
             <p>Longitude: {userLocation.lng.toFixed(6)}</p>
             <small className="muted">
-              GPS accuracy: ±{Math.round(userLocation.accuracy)} metres
+              GPS accuracy: Ã‚Â±{Math.round(userLocation.accuracy)} metres
             </small>
           </>
         )}
@@ -3506,7 +3702,7 @@ function ExploreMap({
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
 
-              {/* ── Distance boundary circle ── */}
+              {/* Ã¢â€â‚¬Ã¢â€â‚¬ Distance boundary circle Ã¢â€â‚¬Ã¢â€â‚¬ */}
               {position && (
                 <Circle
                   center={position}
@@ -3521,7 +3717,7 @@ function ExploreMap({
                 />
               )}
 
-              {/* ── Intelligence Layer: Traffic flow ── */}
+              {/* Ã¢â€â‚¬Ã¢â€â‚¬ Intelligence Layer: Traffic flow Ã¢â€â‚¬Ã¢â€â‚¬ */}
               {position && intelligenceLayers.includes("Traffic flow") && (
                 <>
                   <Polyline
@@ -3557,7 +3753,7 @@ function ExploreMap({
                 </>
               )}
 
-              {/* ── Intelligence Layer: Issue density heatmap ── */}
+              {/* Ã¢â€â‚¬Ã¢â€â‚¬ Intelligence Layer: Issue density heatmap Ã¢â€â‚¬Ã¢â€â‚¬ */}
               {position && intelligenceLayers.includes("Issue density heatmap") && (
                 <>
                   <Circle
@@ -3577,7 +3773,7 @@ function ExploreMap({
                 </>
               )}
 
-              {/* ── Intelligence Layer: Predicted waterlogging ── */}
+              {/* Ã¢â€â‚¬Ã¢â€â‚¬ Intelligence Layer: Predicted waterlogging Ã¢â€â‚¬Ã¢â€â‚¬ */}
               {position && intelligenceLayers.includes("Predicted waterlogging") && (
                 <Circle
                   center={[position[0] + 0.0065, position[1] - 0.0055]}
@@ -3588,7 +3784,7 @@ function ExploreMap({
                 </Circle>
               )}
 
-              {/* ── Filtered civic issues markers ── */}
+              {/* Ã¢â€â‚¬Ã¢â€â‚¬ Filtered civic issues markers Ã¢â€â‚¬Ã¢â€â‚¬ */}
               {visibleIssues.map(issue => {
                 const COLOR_MAP = {
                   "Potholes & damaged roads": "#ff5252",
@@ -3687,7 +3883,7 @@ function ExploreMap({
         Filtered by distance radius ({distance}) and active categories.
       </p>
 
-      {/* ── Map legend & active layers ── */}
+      {/* Ã¢â€â‚¬Ã¢â€â‚¬ Map legend & active layers Ã¢â€â‚¬Ã¢â€â‚¬ */}
       <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "10px" }}>
         <div style={{
           display: "flex",
@@ -3724,14 +3920,14 @@ function ExploreMap({
                 border: "1px solid #16a9e0",
                 color: "#75c8ff"
               }}>
-                ✦ {layer}
+                Ã¢Å“Â¦ {layer}
               </span>
             ))}
           </div>
         )}
       </div>
 
-      {/* ── Inline filter panel ── */}
+      {/* Ã¢â€â‚¬Ã¢â€â‚¬ Inline filter panel Ã¢â€â‚¬Ã¢â€â‚¬ */}
       <div style={{ marginTop: "12px" }}>
         <button
           onClick={() => setFiltersOpen(v => !v)}
@@ -3795,7 +3991,7 @@ function ExploreMap({
                 >
                   <span>{opt}</span>
                   <span style={{ color: filters.includes(opt) ? "#28d7a0" : "#5a7080" }}>
-                    {filters.includes(opt) ? "✓" : "○"}
+                    {filters.includes(opt) ? "Ã¢Å“â€œ" : "Ã¢â€”â€¹"}
                   </span>
                 </button>
               ))}
@@ -3903,7 +4099,7 @@ function MapFilters({
         {opts.map(x => (
           <button className="filter-option" onClick={() => toggleFilter(x)} key={x}>
             <span>{x}</span>
-            <span className={filters.includes(x) ? "green" : ""}>{filters.includes(x) ? "✓" : "○"}</span>
+            <span className={filters.includes(x) ? "green" : ""}>{filters.includes(x) ? "Ã¢Å“â€œ" : "Ã¢â€”â€¹"}</span>
           </button>
         ))}
       </Card>
@@ -4260,13 +4456,13 @@ function Submitted({go, report}) {
   );
 }
 function IssueDetails({ go, issue }) {
-  return <div className="page"><StatusBarTitle title="Issue #GN-2048" back={() => go("Explore map")} /><Label>GN-2048 • MONITORING VERIFICATION</Label><h1>{issue}</h1><Card><b>12 people confirmed this</b><p>3 evidence photos • 240 m from you</p></Card><Card>{["12 Nov · Report received", "13 Nov · Assigned to road maintenance", "14 Nov · Repair requested / proof pending", "15 Nov · Community review requested"].map(x => <p key={x}>• &nbsp;{x}</p>)}</Card><Button onClick={() => go("GroundTruth AI")}>Check repair</Button><Button secondary onClick={() => go("Responsible authority")}>Authority →</Button><Button secondary onClick={() => go("Capture report")}>I still see this issue</Button></div>;
+  return <div className="page"><StatusBarTitle title="Issue #GN-2048" back={() => go("Explore map")} /><Label>GN-2048 • MONITORING VERIFICATION</Label><h1>{issue}</h1><Card><b>12 people confirmed this</b><p>3 evidence photos • 240 m from you</p></Card><Card>{["12 Nov · Report received", "13 Nov · Assigned to road maintenance", "14 Nov · Repair requested / proof pending", "15 Nov · Community review requested"].map(x => <p key={x}>• &nbsp;{x}</p>)}</Card><Button onClick={() => go("GroundTruth AI")}>Check repair</Button><Button secondary onClick={() => go("Responsible authority")}>Authority Ã¢â€ â€™</Button><Button secondary onClick={() => go("Capture report")}>I still see this issue</Button></div>;
 }
 function GroundTruth({ go }) {
   return <div className="page"><StatusBarTitle title="GroundTruth AI" back={() => go("Issue details")} /><Label>EVIDENCE, NOT JUST A STATUS CHANGE</Label><h1>Was it actually fixed?</h1><p className="muted">Compare the claim with what's on the ground.</p><Card><small className="muted">BEFORE · 12 NOV</small><div className="evidence-box">Road damage detected</div><small className="muted">AFTER · 14 NOV</small><div className="evidence-box after">Latest image submitted</div><h3 className="green">Likely repaired · 88%</h3><p>Demo assessment only. Surface appears filled, but location match and durability need human review.</p><span className="severity">Pending</span></Card><Button onClick={() => go("Capture report")}>Request on-site verification</Button><Button secondary onClick={() => go("Issue details")}>Back to issue</Button><p className="hint">AI cannot certify a repair. A field review is required.</p></div>;
 }
 function Authority({ go }) {
-  return <div className="page"><StatusBarTitle title="Who owns this issue?" back={() => go("Issue details")} /><Label>JURISDICTION MATCH • DEMO</Label><h1>The right desk.<br />Not another dead end.</h1><Card><h3>Greater Noida Industrial Development Authority</h3><b className="green">Civil / Road Maintenance</b><p>Suggested for Alpha II internal roads based on location.</p><small className="muted">Jurisdiction confidence: 92% • Verify before submission</small></Card><Card><b>Ready to send</b><p>✓ GPS location & issue summary</p><p>✓ Timestamped photographic evidence</p><p>✓ Community confirmations</p></Card><Button onClick={() => go("Complaint handoff")}>Prepare official complaint</Button><Button secondary onClick={() => go("Reference tracking")}>Track an existing reference</Button></div>;
+  return <div className="page"><StatusBarTitle title="Who owns this issue?" back={() => go("Issue details")} /><Label>JURISDICTION MATCH • DEMO</Label><h1>The right desk.<br />Not another dead end.</h1><Card><h3>Greater Noida Industrial Development Authority</h3><b className="green">Civil / Road Maintenance</b><p>Suggested for Alpha II internal roads based on location.</p><small className="muted">Jurisdiction confidence: 92% • Verify before submission</small></Card><Card><b>Ready to send</b><p>Ã¢Å“â€œ GPS location & issue summary</p><p>Ã¢Å“â€œ Timestamped photographic evidence</p><p>Ã¢Å“â€œ Community confirmations</p></Card><Button onClick={() => go("Complaint handoff")}>Prepare official complaint</Button><Button secondary onClick={() => go("Reference tracking")}>Track an existing reference</Button></div>;
 }
 function Handoff({ go, notify }) {
   return <div className="page"><StatusBarTitle title="Official complaint" back={() => go("Responsible authority")} /><Label>REVIEW BEFORE YOU HAND OFF</Label><Card><b className="green">To: GNIDA · Road Maintenance</b><h3>Subject: Road damage near Alpha II market</h3><p>A deep pothole on Alpha II main road poses a risk to two-wheelers. Please inspect and repair the road surface.</p><small className="muted">Location: 28.4744, 77.5040</small></Card><Card><b>Share evidence and issue location</b><p className="muted">You will be redirected to the official portal for personal details, if required.</p></Card>
@@ -4276,7 +4472,7 @@ function Handoff({ go, notify }) {
 >
   Official handoff unavailable
 </Button>
-<Button secondary onClick={() => go("Responsible authority")}>Back to authority</Button><p className="hint">SIMULATED NOTIFICATION — no government portal connection.</p></div>;
+<Button secondary onClick={() => go("Responsible authority")}>Back to authority</Button><p className="hint">SIMULATED NOTIFICATION Ã¢â‚¬â€ no government portal connection.</p></div>;
 }
 function Tracking({ go }) {
   return (
@@ -4394,7 +4590,7 @@ function Weather({
   };
 
   const getUvRating = (uv) => {
-    if (typeof uv !== "number") return "—";
+    if (typeof uv !== "number") return "Ã¢â‚¬â€";
     const rounded = Math.round(uv);
     if (uv <= 2) return `${rounded} (Low)`;
     if (uv <= 5) return `${rounded} (Mod)`;
@@ -4519,7 +4715,7 @@ function Weather({
 
 
   const formatSunTime = (timeStr) => {
-    if (!timeStr) return "—";
+    if (!timeStr) return "Ã¢â‚¬â€";
     const [datePart, timePart] = timeStr.split("T");
     if (!timePart) return timeStr;
     const [yr, mo, dy] = datePart.split("-").map(Number);
@@ -4815,7 +5011,7 @@ const aqiPercent = aqiVal === null
                     {typeof rainProb === "number" && rainProb > 0 ? (
                       <span className="rain-val">{rainProb}%</span>
                     ) : (
-                      <small style={{ color: "#5a6e7c" }}>—</small>
+                      <small style={{ color: "#5a6e7c" }}>Ã¢â‚¬â€</small>
                     )}
                   </div>
                 );
@@ -4904,7 +5100,7 @@ const aqiPercent = aqiVal === null
 
             <div className="aqi-val-row">
               <span className="aqi-number" style={{ color: aqiInfo.color }}>
-                {aqiVal === null ? "—" : aqiVal}
+                {aqiVal === null ? "Ã¢â‚¬â€" : aqiVal}
               </span>
               <small className="muted">AQI · {aqiInfo.label}</small>
             </div>
@@ -4920,14 +5116,14 @@ const aqiPercent = aqiVal === null
   <span>
     <b>PM2.5:</b>{" "}
     {typeof aqiResult?.averages?.pm2_5 === "number"
-      ? `${Math.round(aqiResult.averages.pm2_5)} µg/m³`
+      ? `${Math.round(aqiResult.averages.pm2_5)} Ã‚Âµg/mÃ‚Â³`
       : "Unavailable"}
   </span>
 
   <span>
     <b>PM10:</b>{" "}
     {typeof aqiResult?.averages?.pm10 === "number"
-      ? `${Math.round(aqiResult.averages.pm10)} µg/m³`
+      ? `${Math.round(aqiResult.averages.pm10)} Ã‚Âµg/mÃ‚Â³`
       : "Unavailable"}
   </span>
 </div>
@@ -5011,7 +5207,7 @@ const aqiPercent = aqiVal === null
                   </small>
                   {rainChance > 15 && (
                     <span style={{ fontSize: "9px", color: "#70c8ff", fontWeight: "600" }}>
-                      💧{rainChance}%
+                      Ã°Å¸â€™Â§{rainChance}%
                     </span>
                   )}
                 </div>
@@ -5046,173 +5242,398 @@ const aqiPercent = aqiVal === null
 }
 
 function LegacyAskAI({ go, query, setQuery }) {
-  return <div className="page"><StatusBarTitle title="Ask NagrikAI" back={() => go("Home")} /><Label>âœ¦ CITY-AWARE AI</Label><div className="chat-bubble user">How should I get to Pari Chowk today?</div><Card><b className="green">Skip the jam. Keep the morning.</b><p>From Alpha II, take the Knowledge Park route, add 8 min but avoids the reported pothole and slow traffic near Pari Chowk.</p><p>Pari Chowk is auctioning for a parking lot. Let's skip the role.</p><small className="muted">Based on 2 reports • Sample traffic data</small></Card><Button onClick={() => go("Civic navigation")}>Show safer route</Button><Button secondary onClick={() => go("Weather & air")}>What is the air quality like?</Button><div className="chat-input"><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Ask about your city..." /><button onClick={() => { setQuery(""); }}><Send size={17} /></button></div><p className="hint">AI responses are simulated in this frontend prototype.</p></div>;
+  return <div className="page"><StatusBarTitle title="Ask NagrikAI" back={() => go("Home")} /><Label>ÃƒÂ¢Ã…â€œÃ‚Â¦ CITY-AWARE AI</Label><div className="chat-bubble user">How should I get to Pari Chowk today?</div><Card><b className="green">Skip the jam. Keep the morning.</b><p>From Alpha II, take the Knowledge Park route, add 8 min but avoids the reported pothole and slow traffic near Pari Chowk.</p><p>Pari Chowk is auctioning for a parking lot. Let's skip the role.</p><small className="muted">Based on 2 reports • Sample traffic data</small></Card><Button onClick={() => go("Civic navigation")}>Show safer route</Button><Button secondary onClick={() => go("Weather & air")}>What is the air quality like?</Button><div className="chat-input"><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Ask about your city..." /><button onClick={() => { setQuery(""); }}><Send size={17} /></button></div><p className="hint">AI responses are simulated in this frontend prototype.</p></div>;
 }
 function LegacyVoice({ recording, setRecording, go }) {
-  return <div className="page"><StatusBarTitle title="Speak your city" back={() => go("Ask NagrikAI")} /><Label>VOICE MODE • ENGLISH / à¤¹à¤¿à¤¨à¥à¤¦à¥€</Label><h1>Go ahead.<br />I'm listening.</h1><button className={`voice-orb ${recording ? "recording" : ""}`} onClick={() => setRecording(!recording)}><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /></button><p className="green center">{recording ? "â— Recording â€” tap to stop" : "â— Ready to review Â· 00:04"}</p><Card><b>TRANSCRIPT</b><p>â€œAlpha II se Pari Chowk jaane ka safer route batao.â€</p></Card><Button onClick={() => go("Civic navigation")}>Use this question</Button><Button secondary onClick={() => setRecording(false)}>{recording ? "Stop recording" : "Cancel recording"}</Button><p className="hint">Microphone permission is not requested in this demo. Connect Web Speech API for live voice.</p></div>;
+  return <div className="page"><StatusBarTitle title="Speak your city" back={() => go("Ask NagrikAI")} /><Label>VOICE MODE • ENGLISH / ÃƒÂ Ã‚Â¤Ã‚Â¹ÃƒÂ Ã‚Â¤Ã‚Â¿ÃƒÂ Ã‚Â¤Ã‚Â¨ÃƒÂ Ã‚Â¥Ã‚ÂÃƒÂ Ã‚Â¤Ã‚Â¦ÃƒÂ Ã‚Â¥Ã¢â€šÂ¬</Label><h1>Go ahead.<br />I'm listening.</h1><button className={`voice-orb ${recording ? "recording" : ""}`} onClick={() => setRecording(!recording)}><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /></button><p className="green center">{recording ? "ÃƒÂ¢Ã¢â‚¬â€Ã‚Â Recording ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â tap to stop" : "ÃƒÂ¢Ã¢â‚¬â€Ã‚Â Ready to review Ãƒâ€š· 00:04"}</p><Card><b>TRANSCRIPT</b><p>ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œAlpha II se Pari Chowk jaane ka safer route batao.ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â</p></Card><Button onClick={() => go("Civic navigation")}>Use this question</Button><Button secondary onClick={() => setRecording(false)}>{recording ? "Stop recording" : "Cancel recording"}</Button><p className="hint">Microphone permission is not requested in this demo. Connect Web Speech API for live voice.</p></div>;
 }
 function NavigationScreen({ go }) {
   return <div className="page"><StatusBarTitle title="Safer ways forward" back={() => go("Explore map")} /><Card><small className="muted">FROM &nbsp; Alpha II market</small><b>TO &nbsp; Pari Chowk metro station</b></Card><MiniMap onClick={() => go("Explore map")} /><Card><div className="split"><b>Via Knowledge Park • 4.6 km</b><b className="green">12 min</b></div><p className="muted">Avoids 1 pothole & a slow-traffic segment</p></Card><Card><div className="split"><b>Shortest · Alpha II road</b><span className="amber">18 min</span></div><p className="muted">3.0 km • 1 reported road hazard</p></Card><Button onClick={() => go("Explore map")}>View hazards on route</Button><p className="hint">Routes and travel times are illustrative. Not for live navigation.</p></div>;
 }
 function Analytics({ go }) {
-  return <div className="page"><StatusBarTitle title="City intelligence" back={() => go("Home")} /><Label>GREATER NOIDA / LAST 30 DAYS</Label><div className="metric-grid"><Card><strong>1,284</strong><small>Reports</small></Card><Card><strong>68%</strong><small>Resolved</small></Card><Card><strong>2.8d</strong><small>Median fix</small></Card></div><Card><div className="split"><b>REPORTS BY WEEK</b><span className="green">−18%</span></div><div className="bars">{[68, 55, 74, 62].map((v, i) => <div key={i}><i style={{ height: v + "%" }} /><small>W{i + 1}</small></div>)}</div></Card><Card><b>Where the city needs attention</b><p>1 &nbsp; Pari Chowk <span className="right">86 reports</span></p><p>2 &nbsp; Alpha II <span className="right">54 reports</span></p><p>3 &nbsp; Surajpur <span className="right">39 reports</span></p></Card><p className="hint">Sample data • Not an official civic statistics source.</p></div>;
+  return <div className="page"><StatusBarTitle title="City intelligence" back={() => go("Home")} /><Label>GREATER NOIDA / LAST 30 DAYS</Label><div className="metric-grid"><Card><strong>1,284</strong><small>Reports</small></Card><Card><strong>68%</strong><small>Resolved</small></Card><Card><strong>2.8d</strong><small>Median fix</small></Card></div><Card><div className="split"><b>REPORTS BY WEEK</b><span className="green">Ã¢Ë†â€™18%</span></div><div className="bars">{[68, 55, 74, 62].map((v, i) => <div key={i}><i style={{ height: v + "%" }} /><small>W{i + 1}</small></div>)}</div></Card><Card><b>Where the city needs attention</b><p>1 &nbsp; Pari Chowk <span className="right">86 reports</span></p><p>2 &nbsp; Alpha II <span className="right">54 reports</span></p><p>3 &nbsp; Surajpur <span className="right">39 reports</span></p></Card><p className="hint">Sample data • Not an official civic statistics source.</p></div>;
 }
 
-function Profile({go}) {
+function Profile({go, onLogout, authLoading}) {
   const [profile, setProfile] = useState(null);
   const [loadStatus, setLoadStatus] = useState("loading");
   const [loadError, setLoadError] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState(null);
+  const [avatarStorageKey, setAvatarStorageKey] = useState(null);
+  const [showPresets, setShowPresets] = useState(false);
+  const [avatarNotice, setAvatarNotice] = useState("");
+  const fileInputRef = useRef(null);
+
+  const CIVIC_PRESETS = [
+    { id: "p1", emoji: "👨‍💼", label: "Citizen" },
+    { id: "p2", emoji: "👩‍💼", label: "Leader" },
+    { id: "p3", emoji: "👷", label: "Engineer" },
+    { id: "p4", emoji: "🧑‍💻", label: "Tech" },
+    { id: "p5", emoji: "🌿", label: "Eco" },
+    { id: "p6", emoji: "🛡️", label: "Guardian" }
+  ];
+
+  const handleImageSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setAvatarNotice("Please select a valid image (PNG, JPG, WebP).");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setAvatarNotice("Image size must be under 5 MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result;
+      if (dataUrl) {
+        setAvatarUrl(dataUrl);
+        try {
+          if (avatarStorageKey) localStorage.setItem(avatarStorageKey, dataUrl);
+        } catch (storageErr) {
+          console.warn("Storage warning:", storageErr);
+        }
+        setShowPresets(false);
+        setAvatarNotice("Profile picture updated!");
+        setTimeout(() => setAvatarNotice(""), 3000);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSelectPreset = (preset) => {
+    const data = `preset:${preset.emoji}`;
+    setAvatarUrl(data);
+    try {
+      if (avatarStorageKey) localStorage.setItem(avatarStorageKey, data);
+    } catch {}
+    setShowPresets(false);
+    setAvatarNotice(`Avatar set to ${preset.label}!`);
+    setTimeout(() => setAvatarNotice(""), 3000);
+  };
+
+  const handleRemovePhoto = () => {
+    setAvatarUrl(null);
+    try {
+      if (avatarStorageKey) localStorage.removeItem(avatarStorageKey);
+    } catch {}
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+    setShowPresets(false);
+    setAvatarNotice("Profile picture removed.");
+    setTimeout(() => setAvatarNotice(""), 3000);
+  };
 
   useEffect(() => {
     let active = true;
 
+    const loadProfile = async () => {
+      if (!isSupabaseConfigured) {
+        if (active) {
+          setProfile(null);
+          setLoadError("Secure profile is unavailable. Check your Supabase configuration.");
+          setLoadStatus("error");
+        }
+        return;
+      }
 
-  
-const loadProfile = async () => {
-  if (!isSupabaseConfigured) {
-    if (active) {
-      setProfile(null);
-      setLoadError("Secure profile is unavailable. Check your Supabase configuration.");
-      setLoadStatus("error");
-    }
-    return;
-  }
+      try {
+        const { data: authData, error: authError } =
+          await supabase.auth.getUser();
 
-  try {
-    const { data: authData, error: authError } =
-      await supabase.auth.getUser();
+        if (authError) throw authError;
 
-    if (authError) throw authError;
+        const user = authData?.user;
 
-    const user = authData?.user;
+        if (!user) {
+          throw new Error("Please sign in to view your profile.");
+        }
 
-    if (!user) {
-      throw new Error("Please sign in to view your profile.");
-    }
+        const userAvatarKey = `nagrikai_citizen_avatar_${user.id}`;
+        setAvatarStorageKey(userAvatarKey);
 
-    // Fetch only the authenticated citizen's profile.
-    const { data: citizenData, error: citizenError } = await supabase
-      .from("citizen_profiles")
-      .select("full_name, phone, email, email_verified_at, updated_at")
-      .eq("user_id", user.id)
-      .maybeSingle();
+        try {
+          setAvatarUrl(localStorage.getItem(userAvatarKey) || null);
+        } catch {
+          setAvatarUrl(null);
+        }
 
-    if (citizenError) throw citizenError;
+        const { data: citizenData, error: citizenError } = await supabase
+          .from("citizen_profiles")
+          .select("full_name, phone, email, email_verified_at, updated_at")
+          .eq("user_id", user.id)
+          .maybeSingle();
 
-    if (!citizenData) {
-      throw new Error(
-        "Your citizen profile was not found. Please sign in again."
-      );
-    }
+        if (citizenError) throw citizenError;
 
-    // Fetch only this citizen's reports.
-    const { data: reportsData, error: reportsError } = await supabase
-      .from("reports")
-      .select("status")
-      .eq("user_id", user.id);
+        if (!citizenData) {
+          throw new Error(
+            "Your citizen profile was not found. Please sign in again."
+          );
+        }
 
-    if (reportsError) throw reportsError;
+        const { data: reportsData, error: reportsError } = await supabase
+          .from("reports")
+          .select("status")
+          .eq("user_id", user.id);
 
-    const userReports = Array.isArray(reportsData)
-      ? reportsData
-      : [];
+        if (reportsError) throw reportsError;
 
-    const resolvedCount = userReports.filter(
-      report => report.status === "Resolved"
-    ).length;
+        const userReports = Array.isArray(reportsData)
+          ? reportsData
+          : [];
 
-    if (active) {
-      setProfile({
-        fullName: citizenData.full_name,
-        phone: citizenData.phone,
-        email: citizenData.email,
-        joinedAt: user.created_at,
-        reportCount: userReports.length,
-        resolvedCount,
-        openCount: userReports.length - resolvedCount
-      });
+        const resolvedCount = userReports.filter(
+          report => report.status === "Resolved"
+        ).length;
 
-      setLoadError("");
-      setLoadStatus("success");
-    }
+        if (active) {
+          setProfile({
+            fullName: citizenData.full_name,
+            phone: citizenData.phone,
+            email: citizenData.email,
+            joinedAt: user.created_at,
+            reportCount: userReports.length,
+            resolvedCount,
+            openCount: userReports.length - resolvedCount
+          });
 
-  } catch (error) {
-    console.error("Profile loading failed:", error);
+          setLoadError("");
+          setLoadStatus("success");
+        }
 
-    if (active) {
-      setProfile(null);
-      setLoadError(error.message || "Could not load your profile.");
-      setLoadStatus("error");
-    }
-  }
-};
+      } catch (error) {
+        console.error("Profile loading failed:", error);
 
-
+        if (active) {
+          setProfile(null);
+          setLoadError(error.message || "Could not load your profile.");
+          setLoadStatus("error");
+        }
+      }
+    };
 
     loadProfile();
     return () => { active = false; };
   }, []);
 
   return (
-    <div className="page">
+    <div className="page profile-page-container">
       <StatusBarTitle title="Your civic footprint" back={() => go("Home")} />
 
-      <Card className="profile-card">
-       <div className="avatar">
-        {(profile?.fullName || "N").charAt(0).toUpperCase()}
-       </div>
-       <h2>
-  {profile?.fullName ||
-    (loadStatus === "loading" ? "Loading profile..." : "Profile unavailable")}
-</h2>
+      <Card className="profile-enhanced-card">
+        {/* Profile Picture / Avatar Interface */}
+        <div className="profile-avatar-wrapper">
+          <div
+            className="profile-avatar-interactive"
+            onClick={() => fileInputRef.current?.click()}
+            title="Click to choose a profile picture"
+          >
+            {avatarUrl ? (
+              avatarUrl.startsWith("preset:") ? (
+                <div className="avatar-preset-circle">
+                  <span>{avatarUrl.replace("preset:", "")}</span>
+                </div>
+              ) : (
+                <img
+                  src={avatarUrl}
+                  alt="Citizen Profile"
+                  className="avatar-photo-preview"
+                />
+              )
+            ) : (
+              <div className="avatar-fallback-initial">
+                {(profile?.fullName || "N").charAt(0).toUpperCase()}
+              </div>
+            )}
 
-        {loadStatus === "success" && (
-          <>
-            <p>{profile.phone}</p>
-            <p>{profile.email}</p>
-            <small className="muted">
-              Joined {profile.joinedAt
-                ? new Date(profile.joinedAt).toLocaleDateString("en-IN", {
-                    month: "long",
-                    year: "numeric"
-                  })
-                : "date unavailable"}
-            </small>
-          </>
-        )}
-        {loadStatus === "loading" && <p className="muted">Loading profile...</p>}
-        {loadStatus === "error" && <p className="amber">{loadError}</p>}
+            <button
+              type="button"
+              className="avatar-badge-trigger"
+              onClick={(e) => {
+                e.stopPropagation();
+                fileInputRef.current?.click();
+              }}
+              title="Change profile picture"
+              aria-label="Change profile picture"
+            >
+              <Camera size={14} />
+            </button>
+          </div>
+
+          {/* Hidden File Picker */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={handleImageSelect}
+          />
+
+          {/* Action Controls: Change Photo / Remove / Presets */}
+          <div className="avatar-action-controls">
+            <button
+              type="button"
+              className="avatar-btn avatar-btn-primary"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Camera size={13} />
+              <span>{avatarUrl ? "Change photo" : "Upload photo"}</span>
+            </button>
+
+            {avatarUrl ? (
+              <button
+                type="button"
+                className="avatar-btn avatar-btn-danger"
+                onClick={handleRemovePhoto}
+              >
+                <Trash2 size={13} />
+                <span>Remove</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                className={`avatar-btn avatar-btn-secondary ${showPresets ? "active" : ""}`}
+                onClick={() => setShowPresets(!showPresets)}
+              >
+                <Sparkles size={13} />
+                <span>Civic avatars</span>
+              </button>
+            )}
+          </div>
+
+          {/* Civic Preset Selection Tray */}
+          {showPresets && (
+            <div className="avatar-preset-tray">
+              <span className="preset-tray-title">Choose Civic Avatar</span>
+              <div className="preset-options-grid">
+                {CIVIC_PRESETS.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className="preset-bubble-btn"
+                    onClick={() => handleSelectPreset(p)}
+                  >
+                    <span className="preset-icon">{p.emoji}</span>
+                    <span className="preset-label">{p.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Local Notification Toast */}
+          {avatarNotice && (
+            <div className="profile-toast-message">
+              <CheckCircle2 size={13} />
+              <span>{avatarNotice}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Citizen Profile Details */}
+        <div className="profile-bio-details">
+          <div className="profile-name-heading">
+            <h2>
+              {profile?.fullName ||
+                (loadStatus === "loading" ? "Loading profile..." : "NagrikAI Citizen")}
+            </h2>
+            <span className="citizen-status-pill">
+              <ShieldCheck size={12} />
+              <span>Verified Citizen</span>
+            </span>
+          </div>
+
+          {loadStatus === "success" && (
+            <div className="profile-contact-list">
+              <div className="profile-info-row">
+                <Phone size={12} className="info-icon" />
+                <span>{profile.phone}</span>
+              </div>
+              <div className="profile-info-row">
+                <Mail size={12} className="info-icon" />
+                <span>{profile.email}</span>
+              </div>
+              <div className="profile-info-row">
+                <Calendar size={12} className="info-icon" />
+                <span>
+                  Joined {profile.joinedAt
+                    ? new Date(profile.joinedAt).toLocaleDateString("en-IN", {
+                        month: "long",
+                        year: "numeric"
+                      })
+                    : "October 2026"}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {loadStatus === "loading" && <p className="muted">Loading profile details...</p>}
+          {loadStatus === "error" && <p className="amber">{loadError}</p>}
+        </div>
       </Card>
 
+      {/* Metric Grid with Balanced Spacing */}
       {loadStatus === "success" && (
-        <div className="metric-grid">
-          <Card>
-            <strong>{profile.reportCount}</strong>
-            <small>Reports</small>
-          </Card>
-          <Card>
-            <strong>{profile.resolvedCount}</strong>
-            <small>Resolved</small>
-          </Card>
-          <Card>
-            <strong>{profile.openCount}</strong>
-            <small>Open</small>
-          </Card>
+        <div className="profile-metrics-enhanced">
+          <div className="profile-metric-box">
+            <span className="metric-number">{profile.reportCount}</span>
+            <span className="metric-tag">
+              <FileText size={11} />
+              <span>Reports</span>
+            </span>
+          </div>
+          <div className="profile-metric-box green-accent">
+            <span className="metric-number">{profile.resolvedCount}</span>
+            <span className="metric-tag">
+              <CheckCircle2 size={11} />
+              <span>Resolved</span>
+            </span>
+          </div>
+          <div className="profile-metric-box amber-accent">
+            <span className="metric-number">{profile.openCount}</span>
+            <span className="metric-tag">
+              <Clock3 size={11} />
+              <span>In Progress</span>
+            </span>
+          </div>
         </div>
       )}
 
-      {[
-        ["Your reports", "Report history"],
-        ["AI conversations", "AI conversations"],
-        ["Notifications", "Notifications"],
-        ["Accessibility", "Accessibility"],
-        ["Privacy & settings", "Privacy & settings"],
-        ["Language / English & हिन्दी", "Language"]
-      ].map(([x, y]) => (
-        <button className="menu-row" key={x} onClick={() => go(y)}>
-          {x}<ChevronRight size={16}/>
-        </button>
-      ))}
+      {/* Navigation Menu Rows with Clean Alignment & Icons */}
+      <div className="profile-menu-section">
+        {[
+          { label: "Your reports", screen: "Report history", icon: FileText, badge: profile ? `${profile.reportCount}` : null },
+          { label: "AI conversations", screen: "AI conversations", icon: MessageCircle, badge: "Voice & Text" },
+          { label: "Notifications", screen: "Notifications", icon: Bell },
+          { label: "Accessibility", screen: "Accessibility", icon: Eye },
+          { label: "Privacy & settings", screen: "Privacy & settings", icon: LockKeyhole },
+          { label: "Language / English & हिन्दी", screen: "Language", icon: Languages }
+        ].map(({ label, screen, icon: Icon, badge }) => (
+          <button className="profile-nav-row" key={label} onClick={() => go(screen)}>
+            <div className="profile-nav-left">
+              <div className="profile-nav-icon-box">
+                <Icon size={15} />
+              </div>
+              <span className="profile-nav-label">{label}</span>
+            </div>
+            <div className="profile-nav-right">
+              {badge && <span className="profile-nav-badge">{badge}</span>}
+              <ChevronRight size={15} className="chevron-icon" />
+            </div>
+          </button>
+        ))}
+      </div>
+      <div className="profile-logout-action">
+        <Button secondary onClick={onLogout} disabled={authLoading}>
+          {authLoading ? "Logging out..." : "Log out"}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -5313,7 +5734,7 @@ function Accessibility({ go, values, setValues }) {
   return <div className="page"><StatusBarTitle title="Made for everyone" back={() => go("Profile")} /><h1>Comfort is not optional.</h1><p className="muted">Tune the interface to how you see, hear and move.</p>{rows.map(([id, title, desc]) => <Card key={id}><div className="split"><b>{title}</b><button className={`switch ${values[id] ? "yes" : ""}`} onClick={() => setValues(v => ({ ...v, [id]: !v[id] }))}><i /></button></div><small className="muted">{desc}</small></Card>)}<Card><b>Road hazard ahead</b><p className="amber">High severity · 240 m away</p><small className="muted">Preview of an accessible alert card</small></Card></div>;
 }
 function Privacy({ go, privacy, setPrivacy }) {
-  return <div className="page"><StatusBarTitle title="Privacy & settings" back={() => go("Profile")} /><Label>YOUR DATA, YOUR CALL</Label><Card><div className="split"><b>Precise location</b><button className={`switch ${privacy ? "yes" : ""}`} onClick={() => setPrivacy(!privacy)}><i /></button></div><p className="muted">Only while capturing a report or requesting a route.</p></Card><Card><div className="split"><b>Anonymous public reports</b><span className="green">On</span></div><p className="muted">Hide your name from the community.</p></Card><Card><div className="split"><b>Personalised AI suggestions</b><span className="muted">Off</span></div><p className="muted">Use saved areas and preferences, not private messages.</p></Card>{["Language / English & हिन्दी", "Accessibility", "Preview offline recovery"].map(x => <button className="menu-row" key={x} onClick={() => go(x === "Accessibility" ? x : "Language")}>{x}<ChevronRight size={16} /></button>)}<p className="hint">Prototype only. No real personal data is collected or transmitted.</p></div>;
+  return <div className="page"><StatusBarTitle title="Privacy & settings" back={() => go("Profile")} /><Label>YOUR DATA, YOUR CALL</Label><Card><div className="split"><b>Precise location</b><button className={`switch ${privacy ? "yes" : ""}`} onClick={() => setPrivacy(!privacy)}><i /></button></div><p className="muted">Only while capturing a report or requesting a route.</p></Card><Card><div className="split"><b>Anonymous public reports</b><span className="green">On</span></div><p className="muted">Hide your name from the community.</p></Card><Card><div className="split"><b>Personalised AI suggestions</b><span className="muted">Off</span></div><p className="muted">Use saved areas and preferences, not private messages.</p></Card>{["Language / English & \u0939\u093F\u0928\u094D\u0926\u0940", "Accessibility", "Preview offline recovery"].map(x => <button className="menu-row" key={x} onClick={() => go(x === "Accessibility" ? x : "Language")}>{x}<ChevronRight size={16} /></button>)}<p className="hint">Prototype only. No real personal data is collected or transmitted.</p></div>;
 }
 function Loading({ go }) {
   return <div className="page"><StatusBarTitle title="Syncing your city" back={() => go("Home")} /><Label>GETTING THE LATEST CITY SNAPSHOT</Label>{[1, 2, 3].map(x => <Card key={x}><div className="skeleton long" /><div className="skeleton short" /><div className="skeleton medium" /></Card>)}<h3 className="green center">Connecting the dots...</h3><p className="muted center">Reports, weather and road conditions.<br />Sample data for this prototype.</p><Button onClick={() => go("Home")}>Continue to Home</Button></div>;
