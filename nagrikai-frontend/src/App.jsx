@@ -50,16 +50,17 @@ import {
   Info, Calendar, Languages, Layers, LocateFixed, LockKeyhole, Mail, Map, MapPin, Menu,
   Mic, MicOff, Moon, Navigation, Phone, Plus, RefreshCw, Search, Send, Settings, Shield,
   ShieldCheck, SlidersHorizontal, Sparkles, Sun, Sunrise, Sunset, TrendingUp, User, Users,
-  Volume2, WifiOff, Wind, X, Camera, Image as ImageIcon, MessageCircle, BarChart3
+  Volume2, VolumeX, WifiOff, Wind, X, Camera, Image as ImageIcon,
+  MessageCircle, BarChart3, Phone, Mail, Calendar, Trash2, Minus
 } from "lucide-react";
 
 const GREEN = "#28d7a0";
 const screens = [
-  "Splash","Welcome","Language","Login","Email verification","Home","Explore map","Map filters",
-  "Capture report","Review report","Possible duplicate","Report submitted","Issue details",
-  "GroundTruth AI","Responsible authority","Complaint handoff","Reference tracking","Weather & air",
-  "Ask NagrikAI","AI conversations","Voice assistant","Civic navigation","City analytics","Profile","Report history",
-  "Notifications","Accessibility","Privacy & settings","Loading","Empty history","Connection error"
+  "Splash", "Welcome", "Language", "Login", "Email verification", "Home", "Explore map", "Map filters",
+  "Capture report", "Review report", "Possible duplicate", "Report submitted", "Issue details",
+  "GroundTruth AI", "Responsible authority", "Complaint handoff", "Reference tracking", "Weather & air",
+  "Ask NagrikAI", "AI conversations", "Voice assistant", "Civic navigation", "City analytics", "Profile", "Report history",
+  "Notifications", "Accessibility", "Privacy & settings", "Loading", "Empty history", "Connection error"
 ];
 
 const navItems = [
@@ -213,13 +214,13 @@ function App() {
     let mounted = true;
 
     if (!isSupabaseConfigured) {
-  console.error("Supabase configuration is missing. Authentication is disabled.");
-  setAuthSession(null);
-  setAuthReady(true);
-  return () => {
-    mounted = false;
-  };
-}
+      console.error("Supabase configuration is missing. Authentication is disabled.");
+      setAuthSession(null);
+      setAuthReady(true);
+      return () => {
+        mounted = false;
+      };
+    }
 
     supabase.auth.getSession().then(({ data, error }) => {
       if (mounted) {
@@ -308,7 +309,7 @@ function App() {
             { signal: controller.signal }
           ),
           fetch(
-           `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${userLocation.lat}&longitude=${userLocation.lng}&hourly=pm2_5,pm10,nitrogen_dioxide,sulphur_dioxide,ozone,carbon_monoxide&past_days=1&forecast_days=1&timezone=auto`,
+            `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${userLocation.lat}&longitude=${userLocation.lng}&hourly=pm2_5,pm10,nitrogen_dioxide,sulphur_dioxide,ozone,carbon_monoxide&past_days=1&forecast_days=1&timezone=auto`,
             { signal: controller.signal }
           )
         ]);
@@ -327,10 +328,10 @@ function App() {
           try {
             const aqiJson = await aqiRes.value.json();
             data.air_quality = {
-  ...(aqiJson?.current || {}),
-  hourly: aqiJson?.hourly || null,
-  hourly_units: aqiJson?.hourly_units || {}
-};
+              ...(aqiJson?.current || {}),
+              hourly: aqiJson?.hourly || null,
+              hourly_units: aqiJson?.hourly_units || {}
+            };
           } catch (e) {
             console.warn("AQI parse error:", e);
           }
@@ -390,147 +391,147 @@ function App() {
     window.__toastTimer = window.setTimeout(() => setToast(""), 2400);
   };
 
-const detectUserLocation = async () => {
-  setLocationStatus("loading");
-  setLocationError("");
+  const detectUserLocation = async () => {
+    setLocationStatus("loading");
+    setLocationError("");
 
-  try {
-    let position;
+    try {
+      let position;
 
-    if (Capacitor.isNativePlatform()) {
-      let permission = await Geolocation.checkPermissions();
+      if (Capacitor.isNativePlatform()) {
+        let permission = await Geolocation.checkPermissions();
 
-      if (
-        permission.location !== "granted" &&
-        permission.coarseLocation !== "granted"
-      ) {
-        permission = await Geolocation.requestPermissions();
-      }
-
-      if (
-        permission.location !== "granted" &&
-        permission.coarseLocation !== "granted"
-      ) {
-        throw new Error("Location permission denied.");
-      }
-
-      position = await Geolocation.getCurrentPosition({
-        enableHighAccuracy: true,
-        timeout: 20000,
-        maximumAge: 0
-      });
-    } else {
-      if (!navigator.geolocation) {
-        throw new Error("Location is not supported by this browser.");
-      }
-
-      // Multi-attempt strategy: collect up to 5 readings over 10s, pick the most accurate
-      position = await new Promise((resolve, reject) => {
-        let bestPosition = null;
-        let watchId = null;
-        let attempts = 0;
-        const MAX_ATTEMPTS = 5;
-        const COLLECT_MS = 10000;
-
-        const finish = () => {
-          if (watchId !== null) navigator.geolocation.clearWatch(watchId);
-          if (bestPosition) resolve(bestPosition);
-          else reject(new Error("No position obtained."));
-        };
-
-        const timer = setTimeout(finish, COLLECT_MS);
-
-        watchId = navigator.geolocation.watchPosition(
-          (pos) => {
-            attempts++;
-            if (!bestPosition || pos.coords.accuracy < bestPosition.coords.accuracy) {
-              bestPosition = pos;
-            }
-            if (pos.coords.accuracy < 50 || attempts >= MAX_ATTEMPTS) {
-              clearTimeout(timer);
-              finish();
-            }
-          },
-          (err) => {
-            clearTimeout(timer);
-            if (watchId !== null) navigator.geolocation.clearWatch(watchId);
-            reject(err);
-          },
-          {
-            enableHighAccuracy: true,
-            timeout: 10000,
-            maximumAge: 0
-          }
-        );
-      });
-    }
-
-    const location = {
-      lat: position.coords.latitude,
-      lng: position.coords.longitude,
-      accuracy: position.coords.accuracy
-    };
-
-    setUserLocation(location);
-    setLocationStatus(location.accuracy > 500 ? "low-accuracy" : "success");
-
-    fetch(
-      `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${location.lat}&longitude=${location.lng}&localityLanguage=en`
-    )
-      .then(response => {
-        if (!response.ok) {
-          throw new Error("Location lookup failed");
+        if (
+          permission.location !== "granted" &&
+          permission.coarseLocation !== "granted"
+        ) {
+          permission = await Geolocation.requestPermissions();
         }
-        return response.json();
-      })
-      .then(data => {
-        setLocationDetails({
-          city: data.city || data.locality || "",
-          locality: data.locality || "",
-          state: data.principalSubdivision || "",
-          country: data.countryName || ""
+
+        if (
+          permission.location !== "granted" &&
+          permission.coarseLocation !== "granted"
+        ) {
+          throw new Error("Location permission denied.");
+        }
+
+        position = await Geolocation.getCurrentPosition({
+          enableHighAccuracy: true,
+          timeout: 20000,
+          maximumAge: 0
         });
-      })
-      .catch(error => {
-        console.error("Reverse geocoding error:", error);
-        setLocationDetails(null);
-      });
+      } else {
+        if (!navigator.geolocation) {
+          throw new Error("Location is not supported by this browser.");
+        }
 
-    const accuracyM = Math.round(location.accuracy);
-    const accuracyMsg = location.accuracy > 500
-      ? `Low GPS accuracy (\u00b1${accuracyM}m). Location may be off. Use the search icon to set your location manually.`
-      : `Location detected. Accuracy: \u00b1${accuracyM} metres`;
-    notify(accuracyMsg);
+        // Multi-attempt strategy: collect up to 5 readings over 10s, pick the most accurate
+        position = await new Promise((resolve, reject) => {
+          let bestPosition = null;
+          let watchId = null;
+          let attempts = 0;
+          const MAX_ATTEMPTS = 5;
+          const COLLECT_MS = 10000;
 
-  } catch (error) {
-    let message = "Unable to detect your location.";
+          const finish = () => {
+            if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+            if (bestPosition) resolve(bestPosition);
+            else reject(new Error("No position obtained."));
+          };
 
-    if (
-      error.code === 1 ||
-      error.message?.toLowerCase().includes("permission")
-    ) {
-      message = "Location permission denied. Allow location access in app settings.";
-    } else if (error.code === 2) {
-      message = "Your location is currently unavailable.";
-    } else if (error.code === 3) {
-      message = "Location request timed out. Please try again.";
+          const timer = setTimeout(finish, COLLECT_MS);
+
+          watchId = navigator.geolocation.watchPosition(
+            (pos) => {
+              attempts++;
+              if (!bestPosition || pos.coords.accuracy < bestPosition.coords.accuracy) {
+                bestPosition = pos;
+              }
+              if (pos.coords.accuracy < 50 || attempts >= MAX_ATTEMPTS) {
+                clearTimeout(timer);
+                finish();
+              }
+            },
+            (err) => {
+              clearTimeout(timer);
+              if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+              reject(err);
+            },
+            {
+              enableHighAccuracy: true,
+              timeout: 10000,
+              maximumAge: 0
+            }
+          );
+        });
+      }
+
+      const location = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        accuracy: position.coords.accuracy
+      };
+
+      setUserLocation(location);
+      setLocationStatus(location.accuracy > 500 ? "low-accuracy" : "success");
+
+      fetch(
+        `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${location.lat}&longitude=${location.lng}&localityLanguage=en`
+      )
+        .then(response => {
+          if (!response.ok) {
+            throw new Error("Location lookup failed");
+          }
+          return response.json();
+        })
+        .then(data => {
+          setLocationDetails({
+            city: data.city || data.locality || "",
+            locality: data.locality || "",
+            state: data.principalSubdivision || "",
+            country: data.countryName || ""
+          });
+        })
+        .catch(error => {
+          console.error("Reverse geocoding error:", error);
+          setLocationDetails(null);
+        });
+
+      const accuracyM = Math.round(location.accuracy);
+      const accuracyMsg = location.accuracy > 500
+        ? `Low GPS accuracy (\u00b1${accuracyM}m). Location may be off. Use the search icon to set your location manually.`
+        : `Location detected. Accuracy: \u00b1${accuracyM} metres`;
+      notify(accuracyMsg);
+
+    } catch (error) {
+      let message = "Unable to detect your location.";
+
+      if (
+        error.code === 1 ||
+        error.message?.toLowerCase().includes("permission")
+      ) {
+        message = "Location permission denied. Allow location access in app settings.";
+      } else if (error.code === 2) {
+        message = "Your location is currently unavailable.";
+      } else if (error.code === 3) {
+        message = "Location request timed out. Please try again.";
+      }
+
+      console.error("GPS error:", error);
+      setLocationStatus("error");
+      setLocationError(message);
+      setLocationDetails(null);
+      notify(message);
     }
-
-    console.error("GPS error:", error);
-    setLocationStatus("error");
-    setLocationError(message);
-    setLocationDetails(null);
-    notify(message);
-  }
-};
+  };
 
 
   useEffect(() => {
     if (autoLocationStarted.current) return;
 
-  autoLocationStarted.current = true;
-  detectUserLocation();
-}, []);
+    autoLocationStarted.current = true;
+    detectUserLocation();
+  }, []);
 
   const handleSendOtp = async () => {
     const cleanEmail = email.trim().toLowerCase();
@@ -565,15 +566,15 @@ const detectUserLocation = async () => {
     try {
       const options = isNewAccount
         ? {
-            shouldCreateUser: true,
-            data: {
-              full_name: cleanName,
-              phone: `+91${digits}`
-            }
+          shouldCreateUser: true,
+          data: {
+            full_name: cleanName,
+            phone: `+91${digits}`
           }
+        }
         : {
-            shouldCreateUser: false
-          };
+          shouldCreateUser: false
+        };
 
       const { error } = await supabase.auth.signInWithOtp({
         email: cleanEmail,
@@ -615,15 +616,15 @@ const detectUserLocation = async () => {
 
     const options = isNewAccount
       ? {
-          shouldCreateUser: true,
-          data: {
-            full_name: name.trim(),
-            phone: `+91${phone.replace(/\D/g, "")}`
-          }
+        shouldCreateUser: true,
+        data: {
+          full_name: name.trim(),
+          phone: `+91${phone.replace(/\D/g, "")}`
         }
+      }
       : {
-          shouldCreateUser: false
-        };
+        shouldCreateUser: false
+      };
 
     try {
       const { error } = await supabase.auth.signInWithOtp({
@@ -874,7 +875,7 @@ const detectUserLocation = async () => {
         .then(({ count }) => {
           if (typeof count === "number") setReportCount(count);
         })
-        .catch(() => {});
+        .catch(() => { });
     }
   }, [authSession?.user?.id, userLocation?.lat, userLocation?.lng]);
 
@@ -884,7 +885,7 @@ const detectUserLocation = async () => {
       ? reportLocationDetails
       : locationDetails;
 
-  const toggleFilter = (name) => setFilters(v => v.includes(name) ? v.filter(x => x !== name) : [...v,name]);
+  const toggleFilter = (name) => setFilters(v => v.includes(name) ? v.filter(x => x !== name) : [...v, name]);
   const checkNearbyReports = async () => {
     if (duplicateStatus === "loading") return;
 
@@ -1166,42 +1167,42 @@ const detectUserLocation = async () => {
             locationDetails={locationDetails}
             locationStatus={locationStatus}
             onLocate={detectUserLocation}
-           />
-         )}
-        {screen === "Language" && <Language language={language} setLanguage={setLanguage} go={go}/>}
-        {screen === "Login" && <Login name={name} setName={setName} email={email} setEmail={setEmail} phone={phone} setPhone={setPhone} accountMode={accountMode} setAccountMode={setAccountMode} go={go} onSendOtp={handleSendOtp} authLoading={authLoading}/>}
-       {screen === "Email verification" && (
-  <EmailVerification
-    email={email}
-    emailOtp={emailOtp}
-    setEmailOtp={setEmailOtp}
-    go={go}
-    notify={notify}
-    onVerify={handleVerifyEmailOtp}
-    onResend={handleResendEmailOtp}
-    authLoading={authLoading}
-  />
-)}
+          />
+        )}
+        {screen === "Language" && <Language language={language} setLanguage={setLanguage} go={go} />}
+        {screen === "Login" && <Login name={name} setName={setName} email={email} setEmail={setEmail} phone={phone} setPhone={setPhone} accountMode={accountMode} setAccountMode={setAccountMode} go={go} onSendOtp={handleSendOtp} authLoading={authLoading} />}
+        {screen === "Email verification" && (
+          <EmailVerification
+            email={email}
+            emailOtp={emailOtp}
+            setEmailOtp={setEmailOtp}
+            go={go}
+            notify={notify}
+            onVerify={handleVerifyEmailOtp}
+            onResend={handleResendEmailOtp}
+            authLoading={authLoading}
+          />
+        )}
         {screen === "Home" && (
           <HomeScreen
-           go={go}
-           language={language}
-           name={name}
-           reportCount={reportCount}
-           notify={notify}
-           userLocation={userLocation}
-           locationDetails={locationDetails}
-           locationStatus={locationStatus}
-           onLocate={detectUserLocation}
-           weatherData={weatherData}
-           weatherStatus={weatherStatus}
-           weatherError={weatherError}
-           liveReports={liveNearbyReports}
-           liveReportsStatus={liveReportsStatus}
-           onRefreshReports={() => refreshLiveReports(userLocation)}
-           onOpenGroundTruth={openReportInGroundTruth}
-           onOpenReportDetails={openReportDetails}
-           />
+            go={go}
+            language={language}
+            name={name}
+            reportCount={reportCount}
+            notify={notify}
+            userLocation={userLocation}
+            locationDetails={locationDetails}
+            locationStatus={locationStatus}
+            onLocate={detectUserLocation}
+            weatherData={weatherData}
+            weatherStatus={weatherStatus}
+            weatherError={weatherError}
+            liveReports={liveNearbyReports}
+            liveReportsStatus={liveReportsStatus}
+            onRefreshReports={() => refreshLiveReports(userLocation)}
+            onOpenGroundTruth={openReportInGroundTruth}
+            onOpenReportDetails={openReportDetails}
+          />
         )}
         {screen === "Explore map" && (
           <ExploreMap
@@ -1222,7 +1223,7 @@ const detectUserLocation = async () => {
             onOpenGroundTruth={openReportInGroundTruth}
           />
         )}
-        {screen === "Map filters" && <MapFilters filters={filters} toggleFilter={toggleFilter} distance={distance} setDistance={setDistance} intelligenceLayers={intelligenceLayers} toggleIntelligenceLayer={toggleIntelligenceLayer} go={go}/>}
+        {screen === "Map filters" && <MapFilters filters={filters} toggleFilter={toggleFilter} distance={distance} setDistance={setDistance} intelligenceLayers={intelligenceLayers} toggleIntelligenceLayer={toggleIntelligenceLayer} go={go} />}
         {screen === "Capture report" && (
           <CaptureReport
             issue={issue}
@@ -1276,7 +1277,7 @@ const detectUserLocation = async () => {
             duplicateLoading={duplicateStatus === "loading"}
           />
         )}
-        {screen === "Possible duplicate" && <Duplicate go={go} issue={issue} matches={duplicateReports} status={duplicateStatus} error={duplicateError} onRetry={checkNearbyReports} onSubmitNew={submitReport} newLoading={submissionLoading} onAddEvidence={submitEvidence} evidenceLoading={evidenceLoading}/>}
+        {screen === "Possible duplicate" && <Duplicate go={go} issue={issue} matches={duplicateReports} status={duplicateStatus} error={duplicateError} onRetry={checkNearbyReports} onSubmitNew={submitReport} newLoading={submissionLoading} onAddEvidence={submitEvidence} evidenceLoading={evidenceLoading} />}
         {screen === "Report submitted" && (
           <Submitted
             go={go}
@@ -1304,8 +1305,8 @@ const detectUserLocation = async () => {
             onOpenReportDetails={openReportDetails}
           />
         )}
-        {screen === "Responsible authority" && <Authority go={go}/>}
-        {screen === "Complaint handoff" && <Handoff go={go} notify={notify}/>}
+        {screen === "Responsible authority" && <Authority go={go} />}
+        {screen === "Complaint handoff" && <Handoff go={go} notify={notify} />}
         {screen === "Reference tracking" && (
           <TrackingScreen
             go={go}
@@ -1327,23 +1328,23 @@ const detectUserLocation = async () => {
         )}
         {screen === "AI conversations" && <AskAIConversations go={go} />}
         {screen === "Ask NagrikAI" && (
-  <AskAI
-    go={go}
-    query={query}
-    setQuery={setQuery}
-    language={language}
-    setLanguage={setLanguage}
-  />
-)}
+          <AskAI
+            go={go}
+            query={query}
+            setQuery={setQuery}
+            language={language}
+            setLanguage={setLanguage}
+          />
+        )}
         {screen === "Voice assistant" && (
-  <Voice
-    go={go}
-    query={query}
-    setQuery={setQuery}
-    language={language}
-    setLanguage={setLanguage}
-  />
-)}
+          <Voice
+            go={go}
+            query={query}
+            setQuery={setQuery}
+            language={language}
+            setLanguage={setLanguage}
+          />
+        )}
         {screen === "Civic navigation" && <NavigationScreen go={go} />}
         {screen === "City analytics" && <Analytics go={go} />}
         {screen === "Profile" && <Profile go={go} reportCount={reportCount} onLogout={handleLogout} authLoading={authLoading} />}
@@ -1362,9 +1363,9 @@ const detectUserLocation = async () => {
         {screen === "Empty history" && <Empty go={go} />}
         {screen === "Connection error" && <Offline go={go} />}
       </main>
-      {!["Splash","Welcome","Language","Login","OTP verification","Email verification"].includes(screen) &&
-        <BottomNav selected={selectedTab} nav={nav}/>}
-      {toast && <div className="toast"><CheckCircle2 size={15}/>{toast}</div>}
+      {!["Splash", "Welcome", "Language", "Login", "OTP verification", "Email verification"].includes(screen) &&
+        <BottomNav selected={selectedTab} nav={nav} />}
+      {toast && <div className="toast"><CheckCircle2 size={15} />{toast}</div>}
     </div>
     <aside className="screen-index">
       <div className="index-head"><div className="brand-mark small">N</div><div><b>NagrikAI</b><small>Prototype navigation</small></div></div>
@@ -1444,7 +1445,7 @@ function Welcome({
     : "Enable location to personalise your experience";
 
   return (
-            <div className="page">
+    <div className="page">
       <Label>YOUR CITY, DECODED.</Label>
 
       <div className="city-hero">
@@ -1523,7 +1524,7 @@ function Language({ language, setLanguage, go }) {
       </div>
     </div>
   );
-}function Login({
+} function Login({
   name, setName, email, setEmail, phone, setPhone,
   accountMode, setAccountMode, go, onSendOtp, authLoading
 }) {
@@ -1627,7 +1628,7 @@ function Language({ language, setLanguage, go }) {
       </p>
     </div>
   );
-}function OTP({ phone, otp, setOtp, go, notify, onVerify, authLoading }) {
+} function OTP({ phone, otp, setOtp, go, notify, onVerify, authLoading }) {
 
   const handleOtpChange = (event, index) => {
     const entered = event.target.value.replace(/\D/g, "");
@@ -1757,7 +1758,7 @@ function Language({ language, setLanguage, go }) {
     </div>
   );
 }
-function EmailVerification({email,emailOtp,setEmailOtp,go,notify,onVerify,authLoading}) {
+function EmailVerification({ email, emailOtp, setEmailOtp, go, notify, onVerify, authLoading }) {
   const handleOtpChange = (event, index) => {
     const entered = event.target.value.replace(/\D/g, "");
     const digits = entered.slice(0, 6 - index);
@@ -1798,14 +1799,14 @@ function EmailVerification({email,emailOtp,setEmailOtp,go,notify,onVerify,authLo
     const pasted = event.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
     if (!pasted) return;
 
-    setEmailOtp(Array.from({length: 6}, (_, index) => pasted[index] || ""));
+    setEmailOtp(Array.from({ length: 6 }, (_, index) => pasted[index] || ""));
     const inputs = event.currentTarget.parentElement.querySelectorAll("input");
     inputs[Math.min(pasted.length, 5)]?.focus();
   };
 
   return (
     <div className="page">
-      <StatusBarTitle title="Verify your email" back={() => go("Login")}/>
+      <StatusBarTitle title="Verify your email" back={() => go("Login")} />
       <Label>EMAIL VERIFICATION</Label>
       <h1>One last check.</h1>
       <p className="muted">
@@ -1985,45 +1986,45 @@ function HomeScreen({
     : [];
 
   return (
-        <div className="page home-sky">
+    <div className="page home-sky">
       <div className="wsky-anchor">
         <WeatherSky
           weather={
             currentWeather && dailyWeather
               ? {
-                  code: currentWeather.weather_code,
-                  isDay: currentWeather.is_day,
-                  time: currentWeather.time,
-                  sunrise: dailyWeather.sunrise[0],
-                  sunset: dailyWeather.sunset[0]
-                }
+                code: currentWeather.weather_code,
+                isDay: currentWeather.is_day,
+                time: currentWeather.time,
+                sunrise: dailyWeather.sunrise[0],
+                sunset: dailyWeather.sunset[0]
+              }
               : null
           }
         />
       </div>
 
       <div className="home-heading">
-  <div>
-    <h2>
-      {language === "Hindi"
-        ? `\u0928\u092E\u0938\u094D\u0924\u0947, ${name?.trim() || "\u0928\u093E\u0917\u0930\u093F\u0915"}`
-        : `Hello, ${name?.trim() || "Citizen"}`}
-    </h2>
+        <div>
+          <h2>
+            {language === "Hindi"
+              ? `\u0928\u092E\u0938\u094D\u0924\u0947, ${name?.trim() || "\u0928\u093E\u0917\u0930\u093F\u0915"}`
+              : `Hello, ${name?.trim() || "Citizen"}`}
+          </h2>
 
-    <p>
-      {language === "Hindi" ? "\u0906\u092A \u092F\u0939\u093E\u0901 \u0939\u0948\u0902" : "You're at"}
-    </p>
+          <p>
+            {language === "Hindi" ? "\u0906\u092A \u092F\u0939\u093E\u0901 \u0939\u0948\u0902" : "You're at"}
+          </p>
 
-    <h3>{placeName}</h3>
-  </div>
+          <h3>{placeName}</h3>
+        </div>
 
-  <button
-    className="icon-btn"
-    onClick={() => go("Notifications")}
-  >
-    <Bell size={18} />
-  </button>
-</div>
+        <button
+          className="icon-btn"
+          onClick={() => go("Notifications")}
+        >
+          <Bell size={18} />
+        </button>
+      </div>
 
       {!userLocation && (
         <Button
@@ -2107,14 +2108,14 @@ function HomeScreen({
                   {index === hourlyStart
                     ? "NOW"
                     : (() => {
-                        const v = hourlyWeather.time[index];
-                        const [datePart, timePart] = v.split("T");
-                        const [yr, mo, dy] = datePart.split("-").map(Number);
-                        const [hr, mn] = (timePart || "00:00").split(":").map(Number);
-                        return new Date(yr, mo - 1, dy, hr, mn || 0).toLocaleTimeString([], {
-                          hour: "numeric"
-                        });
-                      })()}
+                      const v = hourlyWeather.time[index];
+                      const [datePart, timePart] = v.split("T");
+                      const [yr, mo, dy] = datePart.split("-").map(Number);
+                      const [hr, mn] = (timePart || "00:00").split(":").map(Number);
+                      return new Date(yr, mo - 1, dy, hr, mn || 0).toLocaleTimeString([], {
+                        hour: "numeric"
+                      });
+                    })()}
                 </small>
 
                 <WeatherVisual
@@ -2393,6 +2394,10 @@ function ExploreMap({
   }, [routeOptions]);
   const [journeyActive, setJourneyActive] = useState(false);
   const [arrivalReached, setArrivalReached] = useState(false);
+  const arrivalReachedRef = useRef(false);
+  const [movedPastDestination, setMovedPastDestination] = useState(false);
+  const [movedDistanceAway, setMovedDistanceAway] = useState(0);
+  const lastSpokenMovedPastRef = useRef(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [livePosition, setLivePosition] = useState(position);
 
@@ -2417,6 +2422,51 @@ function ExploreMap({
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeError, setRouteError] = useState("");
 
+  // Path cleaning: split into traversed (dimmed/cleared) and remaining (vibrant ahead)
+  const { traversedRoute, remainingRoute } = useMemo(() => {
+    if (!routeCoordinates || routeCoordinates.length < 2) {
+      return { traversedRoute: [], remainingRoute: routeCoordinates || [] };
+    }
+    if (!journeyActive && !arrivalReached) {
+      return { traversedRoute: [], remainingRoute: routeCoordinates };
+    }
+    const currentPos = livePosition || (userLocation ? [userLocation.lat, userLocation.lng] : null);
+    if (!currentPos) {
+      return { traversedRoute: [], remainingRoute: routeCoordinates };
+    }
+
+    let nearestIdx = 0;
+    let nearestDist = Infinity;
+    for (let i = 0; i < routeCoordinates.length; i++) {
+      const d = haversineMeters(currentPos[0], currentPos[1], routeCoordinates[i][0], routeCoordinates[i][1]);
+      if (d < nearestDist) {
+        nearestDist = d;
+        nearestIdx = i;
+      }
+    }
+
+    const traversed = routeCoordinates.slice(0, nearestIdx);
+    const remaining = [currentPos, ...routeCoordinates.slice(nearestIdx)];
+    return { traversedRoute: traversed, remainingRoute: remaining };
+  }, [routeCoordinates, livePosition, userLocation, journeyActive, arrivalReached]);
+
+  // Voice navigation engine
+  const speakInstruction = (text) => {
+    if (!voiceEnabled || !("speechSynthesis" in window) || !text) return;
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      const voices = window.speechSynthesis.getVoices();
+      const preferred = voices.find(v => v.lang.includes("en-IN") || v.lang.includes("hi-IN") || v.lang.includes("en-GB") || v.lang.includes("en-US"));
+      if (preferred) utterance.voice = preferred;
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.warn("TTS failed:", e);
+    }
+  };
+
   const [destinationSuggestions, setDestinationSuggestions] = useState([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [selectedDestination, setSelectedDestination] = useState(null);
@@ -2437,84 +2487,79 @@ function ExploreMap({
 
       try {
         const params = new URLSearchParams({
-  latitude: String(userLocation.lat),
-  longitude: String(userLocation.lng),
+          q: searchText,
+          limit: "10",
+          lang: "en"
+        });
 
-  current:
-    "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,rain,showers,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure,visibility,uv_index,dew_point_2m",
-
-  hourly:
-    "temperature_2m,precipitation_probability,precipitation,rain,weather_code,is_day",
-
-  daily:
-    "temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,weather_code,sunrise,sunset,uv_index_max",
-
-  temperature_unit: "celsius",
-  wind_speed_unit: "kmh",
-  precipitation_unit: "mm",
-  forecast_days: "7",
-  timezone: "Asia/Kolkata"
-});
-
-        if (userLocation) {
-          params.set("lat", userLocation.lat);
-          params.set("lon", userLocation.lng);
-          params.set("zoom", "14");
-        }
+        const refLat = userLocation?.lat ?? 28.4744;
+        const refLng = userLocation?.lng ?? 77.5040;
+        params.set("lat", String(refLat));
+        params.set("lon", String(refLng));
+        params.set("zoom", "14");
 
         const response = await fetch(
           `https://photon.komoot.io/api/?${params.toString()}`,
           { signal: controller.signal }
         );
 
-        if (!response.ok) {
-          throw new Error("Location search failed.");
+        let items = [];
+
+        if (response.ok) {
+          const data = await response.json();
+          items = (data.features || []).map(feature => {
+            const [lng, lat] = feature.geometry.coordinates;
+            const p = feature.properties;
+
+            const primary = p.name || p.street || "Location";
+            const secondary = [
+              p.street && p.name !== p.street ? p.street : null,
+              p.district || p.suburb,
+              p.city,
+              p.state
+            ].filter(Boolean).filter((value, index, arr) => arr.indexOf(value) === index).join(", ");
+
+            const label = secondary ? `${primary}, ${secondary}` : primary;
+            const distM = haversineMeters(refLat, refLng, lat, lng);
+
+            return {
+              label,
+              sublabel: secondary,
+              lat,
+              lng,
+              distance: distM / 1000
+            };
+          });
         }
 
-        const data = await response.json();
+        // If Photon returns 0 or 1 item, try Nominatim fallback
+        if (items.length < 2 && !controller.signal.aborted) {
+          try {
+            const nomUrl = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(searchText)}&limit=8&lat=${refLat}&lon=${refLng}`;
+            const nomRes = await fetch(nomUrl, { signal: controller.signal });
+            if (nomRes.ok) {
+              const nomData = await nomRes.json();
+              const nomItems = nomData.map(item => {
+                const lat = Number(item.lat);
+                const lng = Number(item.lon);
+                const distM = haversineMeters(refLat, refLng, lat, lng);
+                return {
+                  label: item.display_name,
+                  sublabel: "",
+                  lat,
+                  lng,
+                  distance: distM / 1000
+                };
+              });
+              items = [...items, ...nomItems.filter(ni => !items.some(it => Math.abs(it.lat - ni.lat) < 0.001 && Math.abs(it.lng - ni.lng) < 0.001))];
+            }
+          } catch (_) { }
+        }
 
-        const results = (data.features || []).map(feature => {
-          const [lng, lat] = feature.geometry.coordinates;
-          const p = feature.properties;
+        // Sort in accordance with how near they are (ascending distance)
+        items.sort((a, b) => a.distance - b.distance);
 
-          const label = [
-            p.name,
-            p.street,
-            p.district || p.suburb,
-            p.city,
-            p.state
-          ].filter(Boolean).filter((value, index, arr) =>
-            arr.indexOf(value) === index
-          ).join(", ");
-
-          let distance = Infinity;
-
-          if (userLocation) {
-            const toRad = value => value * Math.PI / 180;
-            const dLat = toRad(lat - userLocation.lat);
-            const dLng = toRad(lng - userLocation.lng);
-
-            const a =
-              Math.sin(dLat / 2) ** 2 +
-              Math.cos(toRad(userLocation.lat)) *
-              Math.cos(toRad(lat)) *
-              Math.sin(dLng / 2) ** 2;
-
-            distance = 6371 * 2 *
-              Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-          }
-
-          return {
-            label: label || p.name || "Unnamed location",
-            lat,
-            lng,
-            distance
-          };
-        });
-
-        results.sort((a, b) => a.distance - b.distance);
-
-        setDestinationSuggestions(results);
+        setDestinationSuggestions(items);
       } catch (error) {
         if (error.name !== "AbortError") {
           setDestinationSuggestions([]);
@@ -2557,64 +2602,71 @@ function ExploreMap({
           lang: "en"
         });
 
-        if (userLocation) {
-          params.set("lat", userLocation.lat);
-          params.set("lon", userLocation.lng);
-          params.set("zoom", "14");
-        }
+        const refLat = userLocation?.lat ?? 28.4744;
+        const refLng = userLocation?.lng ?? 77.5040;
+        params.set("lat", String(refLat));
+        params.set("lon", String(refLng));
+        params.set("zoom", "14");
 
         const response = await fetch(
           `https://photon.komoot.io/api/?${params.toString()}`,
           { signal: controller.signal }
         );
 
-        if (!response.ok) {
-          throw new Error("Location search failed.");
+        let items = [];
+
+        if (response.ok) {
+          const data = await response.json();
+          items = (data.features || []).map(feature => {
+            const [lng, lat] = feature.geometry.coordinates;
+            const p = feature.properties;
+
+            const primary = p.name || p.street || "Location";
+            const secondary = [
+              p.street && p.name !== p.street ? p.street : null,
+              p.district || p.suburb,
+              p.city,
+              p.state
+            ].filter(Boolean).filter((value, index, arr) => arr.indexOf(value) === index).join(", ");
+
+            const label = secondary ? `${primary}, ${secondary}` : primary;
+            const distM = haversineMeters(refLat, refLng, lat, lng);
+
+            return {
+              label,
+              sublabel: secondary,
+              lat,
+              lng,
+              distance: distM / 1000
+            };
+          });
         }
 
-        const data = await response.json();
+        if (items.length < 2 && !controller.signal.aborted) {
+          try {
+            const nomUrl = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(searchText)}&limit=8&lat=${refLat}&lon=${refLng}`;
+            const nomRes = await fetch(nomUrl, { signal: controller.signal });
+            if (nomRes.ok) {
+              const nomData = await nomRes.json();
+              const nomItems = nomData.map(item => {
+                const lat = Number(item.lat);
+                const lng = Number(item.lon);
+                const distM = haversineMeters(refLat, refLng, lat, lng);
+                return {
+                  label: item.display_name,
+                  sublabel: "",
+                  lat,
+                  lng,
+                  distance: distM / 1000
+                };
+              });
+              items = [...items, ...nomItems.filter(ni => !items.some(it => Math.abs(it.lat - ni.lat) < 0.001 && Math.abs(it.lng - ni.lng) < 0.001))];
+            }
+          } catch (_) { }
+        }
 
-        const results = (data.features || []).map(feature => {
-          const [lng, lat] = feature.geometry.coordinates;
-          const p = feature.properties;
-
-          const label = [
-            p.name,
-            p.street,
-            p.district || p.suburb,
-            p.city,
-            p.state
-          ].filter(Boolean).filter((value, index, arr) =>
-            arr.indexOf(value) === index
-          ).join(", ");
-
-          let distance = Infinity;
-
-          if (userLocation) {
-            const toRad = value => value * Math.PI / 180;
-            const dLat = toRad(lat - userLocation.lat);
-            const dLng = toRad(lng - userLocation.lng);
-
-            const a =
-              Math.sin(dLat / 2) ** 2 +
-              Math.cos(toRad(userLocation.lat)) *
-              Math.cos(toRad(lat)) *
-              Math.sin(dLng / 2) ** 2;
-
-            distance = 6371 * 2 *
-              Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-          }
-
-          return {
-            label: label || p.name || "Unnamed location",
-            lat,
-            lng,
-            distance
-          };
-        });
-
-        results.sort((a, b) => a.distance - b.distance);
-        setStartSuggestions(results);
+        items.sort((a, b) => a.distance - b.distance);
+        setStartSuggestions(items);
 
       } catch (error) {
         if (error.name !== "AbortError") {
@@ -2702,54 +2754,7 @@ function ExploreMap({
 
       const options = await Promise.all(
         modes.map(async (mode) => {
-          const response = await fetch(
-            "https://valhalla1.openstreetmap.de/route",
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json"
-              },
-              body: JSON.stringify({
-                locations: [
-                  { lat: startLat, lon: startLng },
-                  { lat: endLat, lon: endLng }
-                ],
-                costing: mode.costing,
-                units: "kilometers",
-                directions_options: {
-                  units: "kilometers",
-                  language: "en"
-                }
-              })
-            }
-          );
-
-          if (!response.ok) {
-            throw new Error(`${mode.label} route is unavailable.`);
-          }
-
-          const data = await response.json();
-
-          if (
-            data.trip?.status !== 0 ||
-            !data.trip.legs?.length
-          ) {
-            throw new Error(`${mode.label} route could not be calculated.`);
-          }
-
-          const leg = data.trip.legs[0];
-          console.log("NagrikAI maneuver data:", leg.maneuvers?.slice(0, 3));
-          const summary = data.trip.summary || leg.summary;
-
-          return {
-            id: mode.id,
-            label: mode.label,
-            distance: Number(summary.length).toFixed(1),
-            duration: Math.round(summary.time / 60),
-            coordinates: decodeValhallaShape(leg.shape),
-            maneuvers: leg.maneuvers || [],
-            destination: destinationLabel
-          };
+          return await fetchRouteData(startLat, startLng, endLat, endLng, mode, destinationLabel);
         })
       );
 
@@ -2757,9 +2762,9 @@ function ExploreMap({
 
       const defaultRoute = options.find(
         (option) => option.id === "drive"
-      );
+      ) || options[0];
 
-      setTravelMode("drive");
+      setTravelMode(defaultRoute.id);
       setRouteCoordinates(defaultRoute.coordinates);
       setDestinationPoint([endLat, endLng]);
 
@@ -2775,8 +2780,152 @@ function ExploreMap({
     }
   };
 
+  const fetchRouteData = async (startLat, startLng, endLat, endLng, mode, destLabel) => {
+    // 1. Try Valhalla
+    try {
+      const response = await fetch("https://valhalla1.openstreetmap.de/route", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          locations: [
+            { lat: startLat, lon: startLng },
+            { lat: endLat, lon: endLng }
+          ],
+          costing: mode.costing || (mode.id === "walk" ? "pedestrian" : mode.id === "bike" ? "motor_scooter" : "auto"),
+          units: "kilometers",
+          directions_options: { units: "kilometers", language: "en" }
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.trip?.status === 0 && data.trip.legs?.length) {
+          const leg = data.trip.legs[0];
+          const summary = data.trip.summary || leg.summary;
+          return {
+            id: mode.id,
+            label: mode.label,
+            distance: Number(summary.length).toFixed(1),
+            duration: Math.max(1, Math.round(summary.time / 60)),
+            coordinates: decodeValhallaShape(leg.shape),
+            maneuvers: leg.maneuvers || [],
+            destination: destLabel || selectedDestination?.label || destination.trim()
+          };
+        }
+      }
+    } catch (err) {
+      console.warn("Valhalla fetch failed, attempting OSRM fallback:", err);
+    }
+
+    // 2. Fallback to OSRM
+    try {
+      const osrmProfile = mode.id === "walk" ? "foot" : (mode.id === "bike" ? "bicycle" : "driving");
+      const osrmUrl = `https://router.project-osrm.org/route/v1/${osrmProfile}/${startLng},${startLat};${endLng},${endLat}?overview=full&geometries=geojson&steps=true`;
+      const response = await fetch(osrmUrl);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.code === "Ok" && data.routes?.length) {
+          const route = data.routes[0];
+          const coordinates = (route.geometry?.coordinates || []).map(coord => [coord[1], coord[0]]);
+          const distanceKm = (route.distance / 1000).toFixed(1);
+          const durationMin = Math.max(1, Math.round(route.duration / 60));
+          const steps = route.legs?.[0]?.steps || [];
+          const maneuvers = steps.map((step, idx) => ({
+            instruction: step.maneuver?.instruction || (step.name ? `Turn onto ${step.name}` : "Continue along route"),
+            length: Number((step.distance / 1000).toFixed(2)),
+            time: Math.round(step.duration),
+            end_shape_index: Math.min(coordinates.length - 1, Math.round((idx + 1) * (coordinates.length / (steps.length || 1))))
+          }));
+
+          return {
+            id: mode.id,
+            label: mode.label,
+            distance: distanceKm,
+            duration: durationMin,
+            coordinates,
+            maneuvers,
+            destination: destLabel || selectedDestination?.label || destination.trim()
+          };
+        }
+      }
+    } catch (err2) {
+      console.warn("OSRM fetch fallback failed:", err2);
+    }
+
+    throw new Error(`${mode.label} route could not be calculated.`);
+  };
+
+  const recalculateRoute = async (currentPosition, destPoint) => {
+    if (!currentPosition || !destPoint) return;
+    rerouteInProgressRef.current = true;
+    lastRerouteAtRef.current = Date.now();
+
+    try {
+      const modeObj = {
+        id: travelMode,
+        costing: travelMode === "bike" ? "motor_scooter" : (travelMode === "walk" ? "pedestrian" : "auto"),
+        label: travelMode === "bike" ? "Two-wheeler" : (travelMode === "walk" ? "Walking" : "Car")
+      };
+
+      const newRoute = await fetchRouteData(
+        currentPosition[0], currentPosition[1],
+        destPoint[0], destPoint[1],
+        modeObj,
+        routeInfo?.destination || "Destination"
+      );
+
+      if (newRoute?.coordinates?.length) {
+        const destName = routeInfo?.destination || "Destination";
+        newRoute.destination = destName;
+
+        const updatedOptions = routeOptionsRef.current.map(opt =>
+          opt.id === travelMode ? newRoute : opt
+        );
+        routeOptionsRef.current = updatedOptions;
+        setRouteOptions(updatedOptions);
+
+        routeCoordinatesRef.current = newRoute.coordinates;
+        setRouteCoordinates(newRoute.coordinates);
+        setRouteInfo({
+          distance: newRoute.distance,
+          duration: newRoute.duration,
+          destination: destName
+        });
+
+        setCurrentManeuver(0);
+        lastSpokenManeuverRef.current = -1;
+        setRemainingDistance(newRoute.distance);
+        setRemainingTime(newRoute.duration);
+
+        const firstInstruction = newRoute.maneuvers?.[0]?.instruction || "Continue on route";
+        speakInstruction("Rerouted. " + firstInstruction);
+      }
+    } catch (err) {
+      console.error("Rerouting failed:", err);
+      setRouteError("Automatic rerouting attempt failed.");
+    } finally {
+      rerouteInProgressRef.current = false;
+    }
+  };
+
+  const rerouteBackToDestination = () => {
+    if (!livePosition || !destinationPoint) return;
+    arrivalReachedRef.current = false;
+    arrivalConfirmationsRef.current = 0;
+    lastSpokenMovedPastRef.current = false;
+    setArrivalReached(false);
+    setMovedPastDestination(false);
+    setJourneyActive(true);
+    speakInstruction("Rerouting back to destination");
+    recalculateRoute(livePosition, destinationPoint);
+  };
+
   const startJourney = () => {
     arrivalConfirmationsRef.current = 0;
+    arrivalReachedRef.current = false;
+    lastSpokenMovedPastRef.current = false;
+    setMovedPastDestination(false);
+
     const selectedRoute = routeOptionsRef.current.find(
       (option) => option.id === travelMode
     );
@@ -2802,6 +2951,9 @@ function ExploreMap({
     setRemainingTime(selectedRoute.duration);
     lastSpokenManeuverRef.current = -1;
     setJourneyActive(true);
+    setArrivalReached(false);
+
+    speakInstruction("Starting navigation to " + (selectedRoute.destination || "destination") + ". Proceed along the highlighted route.");
 
     watchIdRef.current = navigator.geolocation.watchPosition(
       (location) => {
@@ -2812,177 +2964,95 @@ function ExploreMap({
 
         setLivePosition(currentPosition);
 
-        const activeRouteCoordinates = routeCoordinatesRef.current;
-
-        if (!activeRouteCoordinates.length) return;
-
-        const distanceBetween = (a, b) => {
-          const toRad = (value) => value * Math.PI / 180;
-          const earthRadius = 6371;
-
-          const dLat = toRad(b[0] - a[0]);
-          const dLng = toRad(b[1] - a[1]);
-
-          const value =
-            Math.sin(dLat / 2) ** 2 +
-            Math.cos(toRad(a[0])) *
-            Math.cos(toRad(b[0])) *
-            Math.sin(dLng / 2) ** 2;
-
-          return earthRadius * 2 *
-            Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
-        };
-
-        if (
-          destinationPoint &&
-          distanceBetween(currentPosition, destinationPoint) <= 0.06
-        ) {
-          arrivalConfirmationsRef.current += 1;
-
-          if (arrivalConfirmationsRef.current >= 3) {
-            stopJourney();
-            setArrivalReached(true);
+        // 1. If already reached, check if user moves > 65m away
+        if (arrivalReachedRef.current && destinationPoint) {
+          const distFromDestM = haversineMeters(currentPosition[0], currentPosition[1], destinationPoint[0], destinationPoint[1]);
+          if (distFromDestM > 65) {
+            setMovedPastDestination(true);
+            setMovedDistanceAway(Math.round(distFromDestM));
+            if (!lastSpokenMovedPastRef.current) {
+              lastSpokenMovedPastRef.current = true;
+              speakInstruction("You have moved away from destination. Tap reroute to navigate back.");
+            }
+          } else {
+            setMovedPastDestination(false);
           }
-
           return;
         }
 
-        arrivalConfirmationsRef.current = 0;
+        // 2. Check for destination arrival (within 35 meters)
+        if (destinationPoint) {
+          const distToDestM = haversineMeters(currentPosition[0], currentPosition[1], destinationPoint[0], destinationPoint[1]);
+          if (distToDestM <= 35) {
+            arrivalConfirmationsRef.current += 1;
+            if (arrivalConfirmationsRef.current >= 2) {
+              arrivalReachedRef.current = true;
+              setArrivalReached(true);
+              speakInstruction("You have arrived at your destination!");
+              return;
+            }
+          } else {
+            arrivalConfirmationsRef.current = 0;
+          }
+        }
 
+        const activeRouteCoordinates = routeCoordinatesRef.current;
+        if (!activeRouteCoordinates.length) return;
+
+        // 3. Find closest point on route and distance from route
         let nearestIndex = 0;
-        let nearestDistance = Infinity;
+        let nearestDistanceM = Infinity;
 
         activeRouteCoordinates.forEach((point, index) => {
-          const distance = distanceBetween(currentPosition, point);
-
-          if (distance < nearestDistance) {
-            nearestDistance = distance;
+          const distanceM = haversineMeters(currentPosition[0], currentPosition[1], point[0], point[1]);
+          if (distanceM < nearestDistanceM) {
+            nearestDistanceM = distanceM;
             nearestIndex = index;
           }
         });
 
         const now = Date.now();
 
+        // 4. Off-route detection: if > 45 meters from route, trigger dynamic rerouting!
         if (
-          nearestDistance > 0.08 &&
+          nearestDistanceM > 45 &&
           !rerouteInProgressRef.current &&
-          now - lastRerouteAtRef.current > 15000 &&
+          now - lastRerouteAtRef.current > 5000 &&
           destinationPoint
         ) {
-          rerouteInProgressRef.current = true;
-          lastRerouteAtRef.current = now;
-
-          const costing = {
-            drive: "auto",
-            bike: "motor_scooter",
-            walk: "pedestrian"
-          }[travelMode];
-
-          fetch("https://valhalla1.openstreetmap.de/route", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              locations: [
-                {
-                  lat: currentPosition[0],
-                  lon: currentPosition[1]
-                },
-                {
-                  lat: destinationPoint[0],
-                  lon: destinationPoint[1]
-                }
-              ],
-              costing,
-              units: "kilometers",
-              directions_options: {
-                units: "kilometers",
-                language: "en"
-              }
-            })
-          })
-            .then((response) => {
-              if (!response.ok) {
-                throw new Error("Rerouting unavailable");
-              }
-              return response.json();
-            })
-            .then((data) => {
-              const leg = data.trip?.legs?.[0];
-
-              if (data.trip?.status !== 0 || !leg) return;
-
-              const summary = data.trip.summary || leg.summary;
-              const newCoordinates = decodeValhallaShape(leg.shape);
-
-              const updatedRoute = {
-                id: travelMode,
-                label: selectedRoute.label,
-                distance: Number(summary.length).toFixed(1),
-                duration: Math.round(summary.time / 60),
-                coordinates: newCoordinates,
-                maneuvers: leg.maneuvers || [],
-                destination: selectedRoute.destination
-              };
-
-              const updatedOptions = routeOptionsRef.current.map((option) =>
-                option.id === travelMode ? updatedRoute : option
-              );
-
-              routeOptionsRef.current = updatedOptions;
-              setRouteOptions(updatedOptions);
-
-              routeCoordinatesRef.current = newCoordinates;
-              setRouteCoordinates(newCoordinates);
-              setRouteInfo({
-                distance: updatedRoute.distance,
-                duration: updatedRoute.duration,
-                destination: updatedRoute.destination
-              });
-
-              setCurrentManeuver(0);
-              lastSpokenManeuverRef.current = -1;
-            })
-            .catch(() => {
-              setRouteError("Automatic rerouting failed. Please try again.");
-            })
-            .finally(() => {
-              rerouteInProgressRef.current = false;
-            });
+          speakInstruction("Off route. Recalculating path to destination.");
+          recalculateRoute(currentPosition, destinationPoint);
           return;
         }
 
+        // 5. Calculate remaining distance and time
         let remainingKm = 0;
-
         for (let i = nearestIndex; i < activeRouteCoordinates.length - 1; i++) {
-          remainingKm += distanceBetween(
-            activeRouteCoordinates[i],
-            activeRouteCoordinates[i + 1]
-          );
+          remainingKm += (haversineMeters(
+            activeRouteCoordinates[i][0],
+            activeRouteCoordinates[i][1],
+            activeRouteCoordinates[i + 1][0],
+            activeRouteCoordinates[i + 1][1]
+          ) / 1000);
         }
 
-        const selectedRoute = routeOptionsRef.current.find(
+        const currentActiveRoute = routeOptionsRef.current.find(
           (option) => option.id === travelMode
         );
 
-        if (!selectedRoute) return;
+        if (!currentActiveRoute) return;
 
-        const totalKm = Number(selectedRoute.distance);
+        const totalKm = Number(currentActiveRoute.distance);
         const remainingMinutes = totalKm > 0
-          ? Math.round(
-            selectedRoute.duration * remainingKm / totalKm
-          )
+          ? Math.max(1, Math.round(currentActiveRoute.duration * remainingKm / totalKm))
           : 0;
 
         setRemainingDistance(remainingKm.toFixed(1));
         setRemainingTime(remainingMinutes);
 
-        const maneuvers = selectedRoute.maneuvers || [];
-
+        const maneuvers = currentActiveRoute.maneuvers || [];
         const nextIndex = maneuvers.findIndex(
-          (maneuver) =>
-            maneuver.end_shape_index >= nearestIndex
+          (maneuver) => maneuver.end_shape_index >= nearestIndex
         );
 
         const maneuverIndex = nextIndex === -1
@@ -2991,23 +3061,12 @@ function ExploreMap({
 
         setCurrentManeuver(maneuverIndex);
 
+        // 6. Voice instructions for upcoming maneuvers
         if (
-          voiceEnabled &&
           maneuverIndex !== lastSpokenManeuverRef.current &&
-          maneuvers[maneuverIndex]?.instruction &&
-          "speechSynthesis" in window
+          maneuvers[maneuverIndex]?.instruction
         ) {
-          window.speechSynthesis.cancel();
-
-          const announcement = new SpeechSynthesisUtterance(
-            maneuvers[maneuverIndex].instruction
-          );
-
-          announcement.lang = "en-IN";
-          announcement.rate = 1;
-
-          window.speechSynthesis.speak(announcement);
-
+          speakInstruction(maneuvers[maneuverIndex].instruction);
           lastSpokenManeuverRef.current = maneuverIndex;
         }
       },
@@ -3022,6 +3081,7 @@ function ExploreMap({
       }
     );
   };
+
   const stopJourney = () => {
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(watchIdRef.current);
@@ -3032,6 +3092,11 @@ function ExploreMap({
       window.speechSynthesis.cancel();
     }
 
+    arrivalReachedRef.current = false;
+    arrivalConfirmationsRef.current = 0;
+    lastSpokenMovedPastRef.current = false;
+    setMovedPastDestination(false);
+    setArrivalReached(false);
     setJourneyActive(false);
     setLivePosition(position);
     setCurrentManeuver(0);
@@ -3084,27 +3149,43 @@ function ExploreMap({
               active={journeyActive}
             />
             <MapRecenter position={livePosition} />
+            <MapZoomHandler />
 
             <TileLayer
               attribution='&copy; OpenStreetMap contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
 
-            {routeCoordinates.length > 1 && (
+            {/* Path cleaning: traversed path is dimmed/cleared */}
+            {traversedRoute.length > 1 && (
+              <Polyline
+                positions={traversedRoute}
+                pathOptions={{
+                  color: "#475569",
+                  weight: 4,
+                  opacity: 0.35,
+                  dashArray: "4, 6"
+                }}
+              />
+            )}
+
+            {/* Path cleaning: active remaining path ahead is vibrant green/teal */}
+            {remainingRoute.length > 1 && (
               <>
                 <Polyline
-                  positions={routeCoordinates}
+                  positions={remainingRoute}
                   pathOptions={{
-                    color: "#102b46",
-                    weight: 11,
+                    color: "#081b2a",
+                    weight: 10,
                     opacity: 0.9
                   }}
                 />
                 <Polyline
-                  positions={routeCoordinates}
+                  positions={remainingRoute}
                   pathOptions={{
-                    color: "#16a9e0",
-                    weight: 6
+                    color: "#28d7a0",
+                    weight: 6,
+                    opacity: 1
                   }}
                 />
               </>
@@ -3142,20 +3223,22 @@ function ExploreMap({
           </MapContainer>
         </div>
 
+        {/* Top banner: turn instruction or arrival / moved past alert */}
         <div style={{
           position: "absolute",
           top: "max(18px, env(safe-area-inset-top))",
           left: "14px",
           right: "14px",
           zIndex: 1000,
-          padding: "18px",
+          padding: "16px 18px",
           borderRadius: "18px",
           background: "rgba(12, 25, 39, 0.96)",
-          border: "1px solid #16a9e0",
+          border: movedPastDestination ? "1px solid #ef4444" : "1px solid #16a9e0",
           color: "#ffffff",
           boxShadow: "0 8px 30px #0008"
         }}>
           {arrivalReached ? (
+<<<<<<< HEAD
             <>
               <small style={{ color: "#36d6a0" }}>DESTINATION REACHED</small>
               <h2 style={{ margin: "9px 0", fontSize: "23px" }}>
@@ -3163,22 +3246,91 @@ function ExploreMap({
               </h2>
               <small style={{ color: "#aab9c7" }}>{routeInfo?.destination}</small>
             </>
+=======
+            movedPastDestination ? (
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: "7px" }}>
+                  <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#ef4444" }} />
+                  <small style={{ color: "#f87171", fontWeight: "700", letterSpacing: "0.5px" }}>
+                    MOVED PAST DESTINATION ({movedDistanceAway}m AWAY)
+                  </small>
+                </div>
+                <h2 style={{ margin: "6px 0 10px", fontSize: "17px", color: "#f8fafc" }}>
+                  Moved away from {routeInfo?.destination || "destination"}
+                </h2>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button
+                    type="button"
+                    onClick={rerouteBackToDestination}
+                    style={{
+                      flex: 1,
+                      padding: "9px 12px",
+                      borderRadius: "10px",
+                      background: "#16a9e0",
+                      border: "none",
+                      color: "#ffffff",
+                      fontWeight: "700",
+                      fontSize: "13px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "6px",
+                      cursor: "pointer"
+                    }}
+                  >
+                    <RefreshCw size={14} />
+                    <span>Reroute back</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={stopJourney}
+                    style={{
+                      padding: "9px 14px",
+                      borderRadius: "10px",
+                      background: "#2a3948",
+                      border: "1px solid #3d4f63",
+                      color: "#e2e8f0",
+                      fontWeight: "600",
+                      fontSize: "12px",
+                      cursor: "pointer"
+                    }}
+                  >
+                    End
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <small style={{ color: "#36d6a0", fontWeight: "700" }}>DESTINATION REACHED</small>
+                <h2 style={{ margin: "8px 0", fontSize: "22px" }}>
+                  🎉 You have arrived!
+                </h2>
+                <small style={{ color: "#aab9c7" }}>{routeInfo?.destination}</small>
+              </>
+            )
+>>>>>>> 3f97d88 (Updated App.jsx)
           ) : (
             <>
-              <small style={{ color: "#36d6a0" }}>NAVIGATING TO DESTINATION</small>
-              <h2 style={{ margin: "9px 0", fontSize: "21px" }}>{activeInstruction}</h2>
+              <small style={{ color: "#36d6a0", fontWeight: "700" }}>NAVIGATING TO DESTINATION</small>
+              <h2 style={{ margin: "8px 0", fontSize: "20px" }}>{activeInstruction}</h2>
               <small style={{ color: "#aab9c7" }}>{routeInfo?.destination}</small>
             </>
           )}
         </div>
 
+        {/* Floating Controls: Zoom in/out and Recenter */}
         <div style={{
           position: "absolute",
           right: "16px",
           bottom: "230px",
-          zIndex: 1000
+          zIndex: 1000,
+          display: "flex",
+          flexDirection: "column",
+          gap: "8px"
         }}>
+          <MapZoomControls />
           <button
+            type="button"
             onClick={() => {
               if (livePosition) {
                 window.dispatchEvent(
@@ -3186,35 +3338,47 @@ function ExploreMap({
                 );
               }
             }}
+            aria-label="Recenter live position"
+            title="Recenter"
             style={{
-              width: "48px",
-              height: "48px",
-              borderRadius: "50%",
-              border: "1px solid #16a9e0",
-              background: "#142b3b",
-              color: "#ffffff",
-              fontWeight: "800",
-              fontSize: "20px"
+              width: "38px",
+              height: "38px",
+              borderRadius: "10px",
+              border: "1px solid rgba(43, 217, 162, 0.4)",
+              background: "rgba(16, 29, 42, 0.94)",
+              color: "#28d7a0",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              boxShadow: "0 6px 16px rgba(0,0,0,0.5)",
+              backdropFilter: "blur(8px)"
             }}
           >
-            Ã¢â€”Å½
-          </button>
-        </div>
+<<<<<<< HEAD
+    Ã¢â€”Å½
+=======
+            <LocateFixed size={18} />
+>>>>>>> 3f97d88 (Updated App.jsx)
+          </button >
+        </div >
 
-        <div style={{
-          position: "absolute",
-          left: 0,
+      {/* Bottom metrics and actions */ }
+      < div style = {{
+      position: "absolute",
+        left: 0,
           right: 0,
-          bottom: 0,
-          zIndex: 1000,
-          padding: "20px",
-          paddingBottom: "max(22px, env(safe-area-inset-bottom))",
-          borderRadius: "22px 22px 0 0",
-          background: "#101d2a",
-          borderTop: "1px solid #263f52",
-          color: "#ffffff",
-          boxShadow: "0 -8px 30px #0008"
-        }}>
+            bottom: 0,
+              zIndex: 1000,
+                padding: "20px",
+                  paddingBottom: "max(22px, env(safe-area-inset-bottom))",
+                    borderRadius: "22px 22px 0 0",
+                      background: "#101d2a",
+                        borderTop: "1px solid #263f52",
+                          color: "#ffffff",
+                            boxShadow: "0 -8px 30px #0008"
+    }
+  }>
           <div style={{
             display: "flex",
             justifyContent: "space-between",
@@ -3254,213 +3418,290 @@ function ExploreMap({
             marginTop: "16px"
           }}>
             <button
+              type="button"
               onClick={() => setVoiceEnabled(!voiceEnabled)}
               style={{
                 flex: 1,
                 padding: "13px 8px",
                 borderRadius: "12px",
-                border: "1px solid #16a9e0",
-                background: voiceEnabled ? "#123b43" : "#263442",
-                color: "#ffffff",
-                fontWeight: "700"
+                border: voiceEnabled ? "1px solid #28d7a0" : "1px solid #37474f",
+                background: voiceEnabled ? "rgba(40, 215, 160, 0.15)" : "#1e293b",
+                color: voiceEnabled ? "#28d7a0" : "#94a3b8",
+                fontWeight: "700",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "7px",
+                cursor: "pointer"
               }}
             >
-              {voiceEnabled ? "Ã°Å¸â€Å  Voice ON" : "Ã°Å¸â€â€¡ Voice OFF"}
-            </button>
+<<<<<<< HEAD
+  { voiceEnabled ? "Ã°Å¸â€Å  Voice ON" : "Ã°Å¸â€â€¡ Voice OFF" }
+=======
+              {voiceEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+              <span>{voiceEnabled ? "Voice ON" : "Voice OFF"}</span>
+>>>>>>> 3f97d88 (Updated App.jsx)
+            </button >
 
-            <button
-              onClick={() => {
-                if (arrivalReached) {
-                  setArrivalReached(false);
-                } else {
-                  stopJourney();
-                }
-              }}
-              style={{
-                flex: 1,
-                padding: "13px 8px",
-                border: "1px solid #ff647c",
-                background: "linear-gradient(135deg, #e84b65, #a72e58)",
-                color: "#ffffff",
-                borderRadius: "12px",
-                fontWeight: "800"
-              }}
-            >
-              {arrivalReached ? "Back to Explore" : "End Journey"}
-            </button>
-          </div>
-        </div>
-      </div>
+    <button
+      type="button"
+      onClick={() => {
+        if (arrivalReached) {
+          stopJourney();
+        } else {
+          stopJourney();
+        }
+      }}
+      style={{
+        flex: 1,
+        padding: "13px 8px",
+        border: "1px solid #ff647c",
+        background: "linear-gradient(135deg, #e84b65, #a72e58)",
+        color: "#ffffff",
+        borderRadius: "12px",
+        fontWeight: "800",
+        cursor: "pointer"
+      }}
+    >
+      {arrivalReached ? "Back to Explore" : "End Journey"}
+    </button>
+          </div >
+        </div >
+      </div >
     );
-  }
+}
 
-  return (
-    <div className="page">
+return (
+  <div className="page">
 
-      <div className="home-heading">
-        <h2>Explore your city</h2>
-        <button className="icon-btn" onClick={() => go("Notifications")}>
-          <Bell size={17} />
+    <div className="home-heading">
+      <h2>Explore your city</h2>
+      <button className="icon-btn" onClick={() => go("Notifications")}>
+        <Bell size={17} />
+      </button>
+    </div>
+
+
+
+    <Card>
+      <div className="split" style={{ alignItems: "center" }}>
+        <b>Your starting location</b>
+        <button
+          type="button"
+          onClick={onLocate}
+          disabled={locationStatus === "loading"}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "6px",
+            padding: "7px 14px",
+            borderRadius: "20px",
+            background: "rgba(40, 215, 160, 0.12)",
+            border: "1px solid rgba(40, 215, 160, 0.35)",
+            color: "#28d7a0",
+            fontSize: "12px",
+            fontWeight: "700",
+            cursor: locationStatus === "loading" ? "wait" : "pointer",
+            boxShadow: "0 2px 8px rgba(40, 215, 160, 0.15)",
+            transition: "all 0.2s ease"
+          }}
+        >
+          <LocateFixed size={14} className={locationStatus === "loading" ? "spin" : ""} />
+          <span>{locationStatus === "loading" ? "Locating..." : "Locate me"}</span>
         </button>
       </div>
 
+      {userLocation && (
+        <>
+          <p>Latitude: {userLocation.lat.toFixed(6)}</p>
+          <p>Longitude: {userLocation.lng.toFixed(6)}</p>
+          <small className="muted">
+            GPS accuracy: Ã‚Â±{Math.round(userLocation.accuracy)} metres
+          </small>
+        </>
+      )}
 
+      {locationError && <p className="amber">{locationError}</p>}
 
-      <Card>
-        <div className="split">
-          <b>Your starting location</b>
-          <button
-            className="green"
-            onClick={onLocate}
-            disabled={locationStatus === "loading"}
-          >
-            <LocateFixed size={17} />
-            {locationStatus === "loading" ? "Locating..." : "Locate me"}
-          </button>
-        </div>
+      {!userLocation && (
+        <p className="muted">
+          Allow location access to display your actual position.
+        </p>
+      )}
+    </Card>
 
-        {userLocation && (
-          <>
-            <p>Latitude: {userLocation.lat.toFixed(6)}</p>
-            <p>Longitude: {userLocation.lng.toFixed(6)}</p>
-            <small className="muted">
-              GPS accuracy: Ã‚Â±{Math.round(userLocation.accuracy)} metres
-            </small>
-          </>
-        )}
+    <Card>
+      <b>Plan your route</b>
 
-        {locationError && <p className="amber">{locationError}</p>}
+      <div className="field" style={{ marginTop: "12px", marginBottom: "12px", position: "relative" }}>
+        <Label>STARTING POINT</Label>
 
-        {!userLocation && (
-          <p className="muted">
-            Allow location access to display your actual position.
-          </p>
-        )}
-      </Card>
-
-      <Card>
-        <b>Plan your route</b>
-
-        <div className="field" style={{ marginTop: "12px", marginBottom: "12px", position: "relative" }}>
-          <Label>STARTING POINT</Label>
-
-
-          <label style={{
+        <label style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "12px",
+          padding: "12px 14px",
+          background: "#151e28",
+          border: "1px solid #293744",
+          borderRadius: "10px",
+          marginBottom: "12px",
+          cursor: "pointer"
+        }}>
+          <span style={{
             display: "flex",
             alignItems: "center",
-            justifyContent: "space-between",
-            gap: "12px",
-            padding: "12px 14px",
-            background: "#151e28",
-            border: "1px solid #293744",
-            borderRadius: "10px",
-            marginBottom: "12px",
-            cursor: "pointer"
+            gap: "9px",
+            color: "#e8eef2",
+            fontSize: "12px",
+            fontWeight: 500
           }}>
-            <span style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "9px",
-              color: "#e8eef2",
-              fontSize: "12px",
-              fontWeight: 500
-            }}>
-              <MapPin size={16} color="#2bd9a0" />
-              Use my current GPS location
-            </span>
+            <MapPin size={16} color="#2bd9a0" />
+            Use my current GPS location
+          </span>
 
-            <span style={{
-              position: "relative",
-              width: "40px",
-              height: "22px",
-              flexShrink: 0,
-              borderRadius: "20px",
-              background: useCurrentLocation ? "#2bd9a0" : "#344452",
-              transition: "background 0.2s"
-            }}>
-              <input
-                type="checkbox"
-                checked={useCurrentLocation}
-                onChange={e => {
-                  setUseCurrentLocation(e.target.checked);
-                  setSelectedStart(null);
-                  setStartLocation("");
-                  setStartSuggestions([]);
-                }}
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  width: "100%",
-                  height: "100%",
-                  opacity: 0,
-                  cursor: "pointer",
-                  zIndex: 2,
-                  margin: 0
-                }}
-              />
-              <span style={{
+          <span style={{
+            position: "relative",
+            width: "40px",
+            height: "22px",
+            flexShrink: 0,
+            borderRadius: "20px",
+            background: useCurrentLocation ? "#2bd9a0" : "#344452",
+            transition: "background 0.2s"
+          }}>
+            <input
+              type="checkbox"
+              checked={useCurrentLocation}
+              onChange={e => {
+                setUseCurrentLocation(e.target.checked);
+                setSelectedStart(null);
+                setStartLocation("");
+                setStartSuggestions([]);
+              }}
+              style={{
                 position: "absolute",
-                top: "3px",
-                left: useCurrentLocation ? "21px" : "3px",
-                width: "16px",
-                height: "16px",
-                borderRadius: "50%",
-                background: "#ffffff",
-                transition: "left 0.2s"
-              }} />
-            </span>
-          </label>
+                inset: 0,
+                width: "100%",
+                height: "100%",
+                opacity: 0,
+                cursor: "pointer",
+                zIndex: 2,
+                margin: 0
+              }}
+            />
+            <span style={{
+              position: "absolute",
+              top: "3px",
+              left: useCurrentLocation ? "21px" : "3px",
+              width: "16px",
+              height: "16px",
+              borderRadius: "50%",
+              background: "#ffffff",
+              transition: "left 0.2s"
+            }} />
+          </span>
+        </label>
 
+        {!useCurrentLocation && (
+          <div style={{ position: "relative" }}>
+            <input
+              value={startLocation}
+              onChange={e => {
+                setStartLocation(e.target.value);
+                setSelectedStart(null);
+              }}
+              placeholder="Search starting location"
+              style={{ paddingRight: startSuggestionsLoading ? "36px" : "12px" }}
+            />
 
-          {!useCurrentLocation && (
-            <>
-              <input
-                value={startLocation}
-                onChange={e => {
-                  setStartLocation(e.target.value);
-                  setSelectedStart(null);
-                }}
-                placeholder="Search starting location"
-              />
+            {startSuggestionsLoading && (
+              <div style={{
+                position: "absolute",
+                right: "12px",
+                top: "50%",
+                transform: "translateY(-50%)",
+                color: "#28d7a0"
+              }}>
+                <RefreshCw size={14} className="spin" />
+              </div>
+            )}
 
-              {startSuggestionsLoading && (
-                <small className="muted">Searching locations...</small>
-              )}
+            {startSuggestions.length > 0 && !selectedStart && (
+              <div style={{
+                position: "absolute",
+                top: "100%",
+                left: 0,
+                right: 0,
+                marginTop: "4px",
+                background: "#121b24",
+                border: "1px solid rgba(40, 215, 160, 0.3)",
+                borderRadius: "10px",
+                overflow: "hidden",
+                zIndex: 999,
+                boxShadow: "0 10px 25px rgba(0,0,0,0.6)",
+                maxHeight: "240px",
+                overflowY: "auto"
+              }}>
+                {startSuggestions.map((place, index) => (
+                  <button
+                    key={`${place.lat}-${place.lng}-${index}`}
+                    type="button"
+                    onClick={() => {
+                      setStartLocation(place.label);
+                      setSelectedStart(place);
+                      setStartSuggestions([]);
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      width: "100%",
+                      padding: "11px 14px",
+                      textAlign: "left",
+                      background: "transparent",
+                      color: "#f3f6f8",
+                      border: "none",
+                      borderBottom: "1px solid #1e2c38",
+                      cursor: "pointer",
+                      transition: "background 0.15s"
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = "#1a2734"}
+                    onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                  >
+                    <div style={{ paddingRight: "10px" }}>
+                      <div style={{ fontSize: "13px", fontWeight: "600", color: "#f1f5f9" }}>{place.label}</div>
+                      {place.sublabel && (
+                        <small style={{ color: "#94a3b8", fontSize: "11px" }}>{place.sublabel}</small>
+                      )}
+                    </div>
+                    <span style={{
+                      flexShrink: 0,
+                      fontSize: "11px",
+                      fontWeight: "700",
+                      color: "#28d7a0",
+                      background: "rgba(40, 215, 160, 0.12)",
+                      padding: "3px 8px",
+                      borderRadius: "12px",
+                      border: "1px solid rgba(40, 215, 160, 0.25)"
+                    }}>
+                      {Number.isFinite(place.distance)
+                        ? (place.distance < 1
+                          ? `${Math.round(place.distance * 1000)} m`
+                          : `${place.distance.toFixed(1)} km`)
+                        : ""}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
-              {startSuggestions.map((place, index) => (
-                <button
-                  key={`${place.lat}-${place.lng}-${index}`}
-                  type="button"
-                  onClick={() => {
-                    setStartLocation(place.label);
-                    setSelectedStart(place);
-                    setStartSuggestions([]);
-                  }}
-                  style={{
-                    display: "block",
-                    width: "100%",
-                    padding: "12px",
-                    textAlign: "left",
-                    background: "#151e28",
-                    color: "#f3f6f8",
-                    border: "1px solid #293744",
-                    cursor: "pointer"
-                  }}
-                >
-                  {place.label}
-                  <small style={{ display: "block", color: "#9aaab7" }}>
-                    {Number.isFinite(place.distance)
-                      ? `${place.distance.toFixed(1)} km away`
-                      : "Location"}
-                  </small>
-                </button>
-              ))}
-            </>
-          )}
-        </div>
-        <div className="field" style={{ marginTop: "12px", position: "relative" }}>
-          <Label>DESTINATION</Label>
+      <div className="field" style={{ marginTop: "12px", position: "relative" }}>
+        <Label>DESTINATION</Label>
 
+        <div style={{ position: "relative" }}>
           <input
             value={destination}
             onChange={e => {
@@ -3473,573 +3714,662 @@ function ExploreMap({
               }
             }}
             placeholder="Search hostel, apartment, street or place"
+            style={{
+              paddingRight: suggestionsLoading ? "36px" : "12px"
+            }}
           />
 
           {suggestionsLoading && (
-            <small className="muted">Searching locations...</small>
-          )}
-
-          {destinationSuggestions.length > 0 && (
             <div style={{
-              marginTop: "6px",
-              background: "#151e28",
-              border: "1px solid #344452",
-              borderRadius: "10px",
-              overflow: "hidden"
+              position: "absolute",
+              right: "12px",
+              top: "50%",
+              transform: "translateY(-50%)",
+              color: "#28d7a0"
             }}>
-              {destinationSuggestions.map((place, index) => (
-                <button
-                  key={`${place.lat}-${place.lng}-${index}`}
-                  type="button"
-                  onClick={() => {
-                    setDestination(place.label);
-                    setSelectedDestination(place);
-                    setDestinationSuggestions([]);
-                  }}
-                  style={{
-                    display: "block",
-                    width: "100%",
-                    padding: "12px",
-                    textAlign: "left",
-                    background: "transparent",
-                    color: "#f3f6f8",
-                    border: "none",
-                    borderBottom: "1px solid #293744",
-                    cursor: "pointer"
-                  }}
-                >
-                  <span>{place.label}</span>
-                  <small style={{
-                    display: "block",
-                    color: "#9aaab7",
-                    marginTop: "4px"
-                  }}>
-                    {Number.isFinite(place.distance)
-                      ? `${place.distance.toFixed(1)} km away`
-                      : "Location"}
-                  </small>
-                </button>
-              ))}
+              <RefreshCw size={14} className="spin" />
             </div>
           )}
         </div>
 
-        <Button
-          onClick={findRoute}
-          disabled={
-            routeLoading ||
-            (useCurrentLocation && !userLocation) ||
-            (!useCurrentLocation && !selectedStart)
-          }
-        >
-          {routeLoading ? "Finding route..." : "Find route"}
-        </Button>
-
-        {routeError && <p className="amber">{routeError}</p>}
-
-        {routeInfo && (
-          <div style={{ marginTop: "12px" }}>
-            <b className="green">Choose your travel mode</b>
-
-            <div className="quick-grid" style={{ marginTop: "12px" }}>
-              {routeOptions.map((option) => (
-                <button
-                  key={option.id}
-                  onClick={() => {
-                    setTravelMode(option.id);
-                    setRouteCoordinates(option.coordinates);
-                    setRouteInfo({
-                      distance: option.distance,
-                      duration: option.duration,
-                      destination: option.destination
-                    });
-                  }}
-                  style={{
-                    border: travelMode === option.id
-                      ? "2px solid #16a9e0"
-                      : "1px solid #25333e",
-                    background: travelMode === option.id
-                      ? "#142b3b"
-                      : "transparent",
-                    padding: "12px",
-                    borderRadius: "10px",
-                    textAlign: "left"
-                  }}
-                >
-                  <b>{option.label}</b>
-                  <p style={{ margin: "6px 0 0" }}>
-                    {option.distance} km
-                  </p>
-                  <small className="muted">
-                    Approx. {option.duration} min
-                  </small>
-                </button>
-              ))}
-            </div>
-
-            <button
-              onClick={startJourney}
-              disabled={journeyActive}
-              style={{
-                width: "100%",
-                marginTop: "14px",
-                padding: "14px",
-                borderRadius: "10px",
-                border: "none",
-                background: "#16a9e0",
-                color: "#ffffff",
-                fontWeight: "700",
-                cursor: "pointer"
-              }}
-            >
-              {journeyActive ? "Journey Active" : "Start Journey"}
-            </button>
-
-            {journeyActive && (
-              <div style={{
-                marginTop: "16px",
-                padding: "16px",
-                borderRadius: "12px",
-                background: "#142b3b",
-                border: "1px solid #16a9e0"
-              }}>
-                <b className="green">LIVE NAVIGATION</b>
-
-                <h3 style={{ margin: "12px 0" }}>
-                  {routeOptions.find(
-                    (option) => option.id === travelMode
-                  )?.maneuvers?.[currentManeuver]?.instruction
-                    || "Continue on your route"}
-                </h3>
-
-                <div className="quick-grid">
-                  <div>
-                    <small className="muted">Distance remaining</small>
-                    <h3>{remainingDistance} km</h3>
-                  </div>
-                  <div>
-                    <small className="muted">Estimated time</small>
-                    <h3>{remainingTime} min</h3>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => setVoiceEnabled(!voiceEnabled)}
-                  style={{ marginTop: "12px" }}
-                >
-                  {voiceEnabled ? "Voice guidance: ON" : "Voice guidance: OFF"}
-                </button>
-
-                <button
-                  onClick={stopJourney}
-                  style={{
-                    width: "100%",
-                    marginTop: "12px",
-                    padding: "12px",
-                    background: "#b83232",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "8px",
-                    fontWeight: "bold"
-                  }}
-                >
-                  End Journey
-                </button>
-              </div>
-            )}
-
-            <small className="muted">
-              Destination: {routeInfo.destination}
-            </small>
-          </div>
-        )}
-      </Card>
-
-      <Label>LIVE MAP</Label>
-
-      {position ? (
-        <>
+        {destinationSuggestions.length > 0 && !selectedDestination && (
           <div style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: "8px",
-            fontSize: "12px",
-            color: "#9aaab7",
-            padding: "0 2px"
-          }}>
-            <span>
-              <strong style={{ color: "#28d7a0" }}>{visibleIssues.length}</strong> {visibleIssues.length === 1 ? "issue" : "issues"} in <strong>{distance}</strong>
-            </span>
-            <span>
-              <strong style={{ color: "#16a9e0" }}>{intelligenceLayers.length}</strong> {intelligenceLayers.length === 1 ? "layer" : "layers"} active
-            </span>
-          </div>
-
-          <div style={{
-            height: "360px",
-            width: "100%",
-            borderRadius: "12px",
+            position: "absolute",
+            top: "100%",
+            left: 0,
+            right: 0,
+            marginTop: "4px",
+            background: "#121b24",
+            border: "1px solid rgba(40, 215, 160, 0.3)",
+            borderRadius: "10px",
             overflow: "hidden",
-            border: "1px solid #25333e"
+            zIndex: 999,
+            boxShadow: "0 10px 25px rgba(0,0,0,0.6)",
+            maxHeight: "260px",
+            overflowY: "auto"
           }}>
-            <MapContainer
-              center={position}
-              zoom={13}
-              minZoom={3}
-              maxZoom={19}
-              scrollWheelZoom={true}
-              style={{ height: "100%", width: "100%" }}
-            >
-              <RouteViewport routeCoordinates={routeCoordinates} />
-              <LiveMapFollow
-                position={livePosition}
-                active={journeyActive}
-              />
-
-              <TileLayer
-                attribution='&copy; OpenStreetMap contributors'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
-
-              {/* Ã¢â€â‚¬Ã¢â€â‚¬ Distance boundary circle Ã¢â€â‚¬Ã¢â€â‚¬ */}
-              {position && (
-                <Circle
-                  center={position}
-                  radius={Math.min(radiusMeters, 25000)}
-                  pathOptions={{
-                    color: "#28d7a0",
-                    fillColor: "#28d7a0",
-                    fillOpacity: 0.03,
-                    weight: 1.5,
-                    dashArray: "6, 6"
-                  }}
-                />
-              )}
-
-              {/* Ã¢â€â‚¬Ã¢â€â‚¬ Intelligence Layer: Traffic flow Ã¢â€â‚¬Ã¢â€â‚¬ */}
-              {position && intelligenceLayers.includes("Traffic flow") && (
-                <>
-                  <Polyline
-                    positions={[
-                      [position[0] - 0.005, position[1] - 0.009],
-                      [position[0] - 0.002, position[1] - 0.004],
-                      [position[0] + 0.002, position[1] - 0.001]
-                    ]}
-                    pathOptions={{ color: "#ff4d4f", weight: 6, opacity: 0.85 }}
-                  >
-                    <Popup><b>Traffic Congestion</b><br />Heavy delay (+9 min) near Pari Chowk</Popup>
-                  </Polyline>
-                  <Polyline
-                    positions={[
-                      [position[0] + 0.002, position[1] - 0.001],
-                      [position[0] + 0.006, position[1] + 0.003],
-                      [position[0] + 0.009, position[1] + 0.007]
-                    ]}
-                    pathOptions={{ color: "#faad14", weight: 6, opacity: 0.85 }}
-                  >
-                    <Popup><b>Moderate Traffic</b><br />Slow moving along commercial avenue</Popup>
-                  </Polyline>
-                  <Polyline
-                    positions={[
-                      [position[0] - 0.007, position[1] + 0.002],
-                      [position[0] - 0.003, position[1] + 0.006],
-                      [position[0] + 0.003, position[1] + 0.009]
-                    ]}
-                    pathOptions={{ color: "#52c41a", weight: 6, opacity: 0.85 }}
-                  >
-                    <Popup><b>Free Flowing Traffic</b><br />Normal travel speeds on bypass corridor</Popup>
-                  </Polyline>
-                </>
-              )}
-
-              {/* Ã¢â€â‚¬Ã¢â€â‚¬ Intelligence Layer: Issue density heatmap Ã¢â€â‚¬Ã¢â€â‚¬ */}
-              {position && intelligenceLayers.includes("Issue density heatmap") && (
-                <>
-                  <Circle
-                    center={[position[0] + 0.002, position[1] - 0.002]}
-                    radius={350}
-                    pathOptions={{ color: "#ff4d4f", fillColor: "#ff4d4f", fillOpacity: 0.22, weight: 1.5, dashArray: "3, 3" }}
-                  >
-                    <Popup><b>High Issue Density Cluster</b><br />5 reports logged in this 350m radius</Popup>
-                  </Circle>
-                  <Circle
-                    center={[position[0] - 0.003, position[1] + 0.003]}
-                    radius={280}
-                    pathOptions={{ color: "#fa8c16", fillColor: "#fa8c16", fillOpacity: 0.18, weight: 1.5, dashArray: "3, 3" }}
-                  >
-                    <Popup><b>Moderate Activity Cluster</b><br />3 reports active</Popup>
-                  </Circle>
-                </>
-              )}
-
-              {/* Ã¢â€â‚¬Ã¢â€â‚¬ Intelligence Layer: Predicted waterlogging Ã¢â€â‚¬Ã¢â€â‚¬ */}
-              {position && intelligenceLayers.includes("Predicted waterlogging") && (
-                <Circle
-                  center={[position[0] + 0.0065, position[1] - 0.0055]}
-                  radius={380}
-                  pathOptions={{ color: "#1890ff", fillColor: "#1890ff", fillOpacity: 0.28, weight: 2 }}
-                >
-                  <Popup><b>Predicted Monsoon Waterlogging</b><br />High flood risk at low-lying drainage choke point</Popup>
-                </Circle>
-              )}
-
-              {/* Ã¢â€â‚¬Ã¢â€â‚¬ Filtered civic issues markers Ã¢â€â‚¬Ã¢â€â‚¬ */}
-              {visibleIssues.map(issue => {
-                const COLOR_MAP = {
-                  "Potholes & damaged roads": "#ff5252",
-                  "Waterlogging": "#16a9e0",
-                  "Waste & sanitation": "#ffa726",
-                  "Street lighting": "#ab47bc"
-                };
-                return (
-                  <CircleMarker
-                    key={issue.id}
-                    center={[issue.lat, issue.lng]}
-                    radius={9}
-                    pathOptions={{
-                      color: "#0d1620",
-                      fillColor: COLOR_MAP[issue.category] || "#28d7a0",
-                      fillOpacity: 0.95,
-                      weight: 2
-                    }}
-                  >
-                    <Popup>
-                      <b style={{ display: "block", marginBottom: "4px" }}>{issue.label}</b>
-                      <span style={{ fontSize: "12px", color: "#6b7c8a" }}>{issue.category} • {issue.dist} km away</span><br />
-                      <span style={{ fontSize: "12px" }}>Severity: <strong style={{ color: issue.severity === "High" ? "#ff5252" : "#ffa726" }}>{issue.severity}</strong></span><br />
-                      <span style={{ fontSize: "12px" }}>{issue.confirmed} community confirmations</span>
-                    </Popup>
-                  </CircleMarker>
-                );
-              })}
-
-              {routeCoordinates.length > 1 && (
-                <>
-                  <Polyline
-                    positions={routeCoordinates}
-                    pathOptions={{
-                      color: "#102b46",
-                      weight: 10,
-                      opacity: 0.8
-                    }}
-                  />
-                  <Polyline
-                    positions={routeCoordinates}
-                    pathOptions={{
-                      color: "#16a9e0",
-                      weight: 6,
-                      opacity: 1
-                    }}
-                  />
-                </>
-              )}
-
-              <CircleMarker
-                center={position}
-                radius={8}
-                pathOptions={{
-                  color: "#ffffff",
-                  fillColor: "#20c997",
-                  fillOpacity: 1,
-                  weight: 2
+            {destinationSuggestions.map((place, index) => (
+              <button
+                key={`${place.lat}-${place.lng}-${index}`}
+                type="button"
+                onClick={() => {
+                  setDestination(place.label);
+                  setSelectedDestination(place);
+                  setDestinationSuggestions([]);
                 }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  width: "100%",
+                  padding: "11px 14px",
+                  textAlign: "left",
+                  background: "transparent",
+                  color: "#f3f6f8",
+                  border: "none",
+                  borderBottom: "1px solid #1e2c38",
+                  cursor: "pointer",
+                  transition: "background 0.15s"
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = "#1a2734"}
+                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
               >
-                <Popup>Your starting location</Popup>
-              </CircleMarker>
-
-              {destinationPoint && (
-                <CircleMarker
-                  center={destinationPoint}
-                  radius={9}
-                  pathOptions={{
-                    color: "#ffffff",
-                    fillColor: "#ff5252",
-                    fillOpacity: 1,
-                    weight: 2
-                  }}
-                >
-                  <Popup>Your destination</Popup>
-                </CircleMarker>
-              )}
-
-              <RouteViewport routeCoordinates={routeCoordinates} />
-            </MapContainer>
-          </div>
-        </>
-      ) : (
-        <div className="camera-placeholder" style={{ height: "240px" }}>
-          <MapPin size={32} />
-          <b>Map location unavailable</b>
-          <small>Enable GPS to load your actual map.</small>
-          <Button onClick={onLocate} disabled={locationStatus === "loading"}>
-            Enable location
-          </Button>
-        </div>
-      )}
-
-      <p className="hint">
-        Map data: OpenStreetMap. Route calculation: OSRM.
-        Filtered by distance radius ({distance}) and active categories.
-      </p>
-
-      {/* Ã¢â€â‚¬Ã¢â€â‚¬ Map legend & active layers Ã¢â€â‚¬Ã¢â€â‚¬ */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "10px" }}>
-        <div style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: "8px"
-        }}>
-          {[
-            { label: "Potholes", color: "#ff5252", key: "Potholes & damaged roads" },
-            { label: "Waterlogging", color: "#16a9e0", key: "Waterlogging" },
-            { label: "Waste", color: "#ffa726", key: "Waste & sanitation" },
-            { label: "Lighting", color: "#ab47bc", key: "Street lighting" }
-          ].filter(item => filters.length === 0 || filters.includes(item.key)).map(item => (
-            <span key={item.key} style={{
-              display: "flex", alignItems: "center", gap: "5px",
-              fontSize: "11px", color: "#9aaab7"
-            }}>
-              <span style={{
-                width: "9px", height: "9px", borderRadius: "50%",
-                background: item.color, display: "inline-block"
-              }} />
-              {item.label}
-            </span>
-          ))}
-        </div>
-
-        {intelligenceLayers.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-            {intelligenceLayers.map(layer => (
-              <span key={layer} style={{
-                fontSize: "10px",
-                padding: "2px 8px",
-                borderRadius: "12px",
-                background: "#162836",
-                border: "1px solid #16a9e0",
-                color: "#75c8ff"
-              }}>
-                Ã¢Å“Â¦ {layer}
-              </span>
+                <div style={{ paddingRight: "10px" }}>
+                  <div style={{ fontSize: "13px", fontWeight: "600", color: "#f1f5f9" }}>{place.label}</div>
+                  {place.sublabel && (
+                    <small style={{ color: "#94a3b8", fontSize: "11px" }}>{place.sublabel}</small>
+                  )}
+                </div>
+                <span style={{
+                  flexShrink: 0,
+                  fontSize: "11px",
+                  fontWeight: "700",
+                  color: "#28d7a0",
+                  background: "rgba(40, 215, 160, 0.12)",
+                  padding: "3px 8px",
+                  borderRadius: "12px",
+                  border: "1px solid rgba(40, 215, 160, 0.25)"
+                }}>
+                  {Number.isFinite(place.distance)
+                    ? (place.distance < 1
+                      ? `${Math.round(place.distance * 1000)} m`
+                      : `${place.distance.toFixed(1)} km`)
+                    : ""}
+                </span>
+              </button>
             ))}
           </div>
         )}
       </div>
 
-      {/* Ã¢â€â‚¬Ã¢â€â‚¬ Inline filter panel Ã¢â€â‚¬Ã¢â€â‚¬ */}
-      <div style={{ marginTop: "12px" }}>
-        <button
-          onClick={() => setFiltersOpen(v => !v)}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            width: "100%",
-            padding: "12px 16px",
-            background: filtersOpen ? "#1a2d3c" : "#151e28",
-            border: `1px solid ${filtersOpen ? "#28d7a0" : "#293744"}`,
-            borderRadius: filtersOpen ? "12px 12px 0 0" : "12px",
-            color: "#e8eef2",
-            fontWeight: 600,
-            fontSize: "13px",
-            cursor: "pointer",
-            justifyContent: "space-between"
-          }}
-        >
-          <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <SlidersHorizontal size={16} color="#28d7a0" />
-            Map Filters & Layers
-            {(filters.length > 0 || intelligenceLayers.length > 0) && (
-              <span style={{
-                background: "#28d7a0",
-                color: "#0d1620",
-                borderRadius: "10px",
-                padding: "1px 7px",
-                fontSize: "11px",
-                fontWeight: 700
-              }}>
-                {filters.length + intelligenceLayers.length} active
-              </span>
-            )}
-          </span>
-          <ChevronDown
-            size={16}
-            style={{
-              transform: filtersOpen ? "rotate(180deg)" : "rotate(0deg)",
-              transition: "transform 0.2s"
-            }}
-          />
-        </button>
+      <Button
+        onClick={findRoute}
+        disabled={
+          routeLoading ||
+          (useCurrentLocation && !userLocation) ||
+          (!useCurrentLocation && !selectedStart)
+        }
+      >
+        {routeLoading ? "Finding route..." : "Find route"}
+      </Button>
 
-        {filtersOpen && (
-          <div style={{
-            background: "#151e28",
-            border: "1px solid #293744",
-            borderTop: "none",
-            borderRadius: "0 0 12px 12px",
-            padding: "16px"
-          }}>
-            <div style={{ marginBottom: "14px" }}>
-              <div className="eyebrow" style={{ marginBottom: "10px" }}>SHOW ON MAP</div>
-              {["Potholes & damaged roads", "Waterlogging", "Waste & sanitation", "Street lighting"].map(opt => (
-                <button
-                  key={opt}
-                  className="filter-option"
-                  onClick={() => toggleFilter(opt)}
-                  style={{ width: "100%", display: "flex", justifyContent: "space-between", padding: "10px 0" }}
-                >
-                  <span>{opt}</span>
-                  <span style={{ color: filters.includes(opt) ? "#28d7a0" : "#5a7080" }}>
-                    {filters.includes(opt) ? "Ã¢Å“â€œ" : "Ã¢â€”â€¹"}
-                  </span>
-                </button>
-              ))}
-            </div>
+      {routeError && <p className="amber">{routeError}</p>}
 
-            <div style={{ marginBottom: "14px" }}>
-              <div className="eyebrow" style={{ marginBottom: "10px" }}>INTELLIGENCE LAYERS</div>
-              {["Traffic flow", "Issue density heatmap", "Predicted waterlogging"].map(layer => (
-                <button
-                  key={layer}
-                  className="filter-option"
-                  onClick={() => toggleIntelligenceLayer(layer)}
-                  style={{ width: "100%", display: "flex", justifyContent: "space-between", padding: "10px 0" }}
-                >
-                  <span>{layer}</span>
-                  <span style={{
-                    color: intelligenceLayers.includes(layer) ? "#28d7a0" : "#5a7080",
-                    fontWeight: intelligenceLayers.includes(layer) ? 700 : 400
-                  }}>
-                    {intelligenceLayers.includes(layer) ? "On" : "Off"}
-                  </span>
-                </button>
-              ))}
-            </div>
+      {routeInfo && (
+        <div style={{ marginTop: "12px" }}>
+          <b className="green">Choose your travel mode</b>
 
-            <div style={{ marginBottom: "14px" }}>
-              <div className="eyebrow" style={{ marginBottom: "10px" }}>DISTANCE RADIUS</div>
-              <div className="filter-row">
-                {["500 m", "2 km", "5 km", "City"].map(d => (
-                  <button
-                    key={d}
-                    className={distance === d ? "on" : ""}
-                    onClick={() => setDistance(d)}
-                  >
-                    {d}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <p className="hint" style={{ margin: "8px 0 0" }}>
-              Filters and layers update live on the map above.
-            </p>
+          <div className="quick-grid" style={{ marginTop: "12px" }}>
+            {routeOptions.map((option) => (
+              <button
+                key={option.id}
+                onClick={() => {
+                  setTravelMode(option.id);
+                  setRouteCoordinates(option.coordinates);
+                  setRouteInfo({
+                    distance: option.distance,
+                    duration: option.duration,
+                    destination: option.destination
+                  });
+                }}
+                style={{
+                  border: travelMode === option.id
+                    ? "2px solid #16a9e0"
+                    : "1px solid #25333e",
+                  background: travelMode === option.id
+                    ? "#142b3b"
+                    : "transparent",
+                  padding: "12px",
+                  borderRadius: "10px",
+                  textAlign: "left"
+                }}
+              >
+                <b>{option.label}</b>
+                <p style={{ margin: "6px 0 0" }}>
+                  {option.distance} km
+                </p>
+                <small className="muted">
+                  Approx. {option.duration} min
+                </small>
+              </button>
+            ))}
           </div>
-        )}
+
+          <button
+            onClick={startJourney}
+            disabled={journeyActive}
+            style={{
+              width: "100%",
+              marginTop: "14px",
+              padding: "14px",
+              borderRadius: "10px",
+              border: "none",
+              background: "#16a9e0",
+              color: "#ffffff",
+              fontWeight: "700",
+              cursor: "pointer"
+            }}
+          >
+            {journeyActive ? "Journey Active" : "Start Journey"}
+          </button>
+
+          {journeyActive && (
+            <div style={{
+              marginTop: "16px",
+              padding: "16px",
+              borderRadius: "12px",
+              background: "#142b3b",
+              border: "1px solid #16a9e0"
+            }}>
+              <b className="green">LIVE NAVIGATION</b>
+
+              <h3 style={{ margin: "12px 0" }}>
+                {routeOptions.find(
+                  (option) => option.id === travelMode
+                )?.maneuvers?.[currentManeuver]?.instruction
+                  || "Continue on your route"}
+              </h3>
+
+              <div className="quick-grid">
+                <div>
+                  <small className="muted">Distance remaining</small>
+                  <h3>{remainingDistance} km</h3>
+                </div>
+                <div>
+                  <small className="muted">Estimated time</small>
+                  <h3>{remainingTime} min</h3>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setVoiceEnabled(!voiceEnabled)}
+                style={{ marginTop: "12px" }}
+              >
+                {voiceEnabled ? "Voice guidance: ON" : "Voice guidance: OFF"}
+              </button>
+
+              <button
+                onClick={stopJourney}
+                style={{
+                  width: "100%",
+                  marginTop: "12px",
+                  padding: "12px",
+                  background: "#b83232",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "8px",
+                  fontWeight: "bold"
+                }}
+              >
+                End Journey
+              </button>
+            </div>
+          )}
+
+          <small className="muted">
+            Destination: {routeInfo.destination}
+          </small>
+        </div>
+      )}
+    </Card>
+
+    <Label>LIVE MAP</Label>
+
+    {position ? (
+      <>
+        <div style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: "8px",
+          fontSize: "12px",
+          color: "#9aaab7",
+          padding: "0 2px"
+        }}>
+          <span>
+            <strong style={{ color: "#28d7a0" }}>{visibleIssues.length}</strong> {visibleIssues.length === 1 ? "issue" : "issues"} in <strong>{distance}</strong>
+          </span>
+          <span>
+            <strong style={{ color: "#16a9e0" }}>{intelligenceLayers.length}</strong> {intelligenceLayers.length === 1 ? "layer" : "layers"} active
+          </span>
+        </div>
+
+        <div style={{
+          position: "relative",
+          height: "360px",
+          width: "100%",
+          borderRadius: "12px",
+          overflow: "hidden",
+          border: "1px solid #25333e"
+        }}>
+          <MapContainer
+            center={position}
+            zoom={13}
+            minZoom={3}
+            maxZoom={19}
+            zoomControl={false}
+            scrollWheelZoom={true}
+            style={{ height: "100%", width: "100%" }}
+          >
+            <RouteViewport routeCoordinates={routeCoordinates} />
+            <LiveMapFollow
+              position={livePosition}
+              active={journeyActive}
+            />
+            <MapRecenter position={position} />
+            <MapZoomHandler />
+
+            <TileLayer
+              attribution='&copy; OpenStreetMap contributors'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+
+            {/* Ã¢â€â‚¬Ã¢â€â‚¬ Distance boundary circle Ã¢â€â‚¬Ã¢â€â‚¬ */}
+            {position && (
+              <Circle
+                center={position}
+                radius={Math.min(radiusMeters, 25000)}
+                pathOptions={{
+                  color: "#28d7a0",
+                  fillColor: "#28d7a0",
+                  fillOpacity: 0.03,
+                  weight: 1.5,
+                  dashArray: "6, 6"
+                }}
+              />
+            )}
+
+            {/* Ã¢â€â‚¬Ã¢â€â‚¬ Intelligence Layer: Traffic flow Ã¢â€â‚¬Ã¢â€â‚¬ */}
+            {position && intelligenceLayers.includes("Traffic flow") && (
+              <>
+                <Polyline
+                  positions={[
+                    [position[0] - 0.005, position[1] - 0.009],
+                    [position[0] - 0.002, position[1] - 0.004],
+                    [position[0] + 0.002, position[1] - 0.001]
+                  ]}
+                  pathOptions={{ color: "#ff4d4f", weight: 6, opacity: 0.85 }}
+                >
+                  <Popup><b>Traffic Congestion</b><br />Heavy delay (+9 min) near Pari Chowk</Popup>
+                </Polyline>
+                <Polyline
+                  positions={[
+                    [position[0] + 0.002, position[1] - 0.001],
+                    [position[0] + 0.006, position[1] + 0.003],
+                    [position[0] + 0.009, position[1] + 0.007]
+                  ]}
+                  pathOptions={{ color: "#faad14", weight: 6, opacity: 0.85 }}
+                >
+                  <Popup><b>Moderate Traffic</b><br />Slow moving along commercial avenue</Popup>
+                </Polyline>
+                <Polyline
+                  positions={[
+                    [position[0] - 0.007, position[1] + 0.002],
+                    [position[0] - 0.003, position[1] + 0.006],
+                    [position[0] + 0.003, position[1] + 0.009]
+                  ]}
+                  pathOptions={{ color: "#52c41a", weight: 6, opacity: 0.85 }}
+                >
+                  <Popup><b>Free Flowing Traffic</b><br />Normal travel speeds on bypass corridor</Popup>
+                </Polyline>
+              </>
+            )}
+
+            {/* Ã¢â€â‚¬Ã¢â€â‚¬ Intelligence Layer: Issue density heatmap Ã¢â€â‚¬Ã¢â€â‚¬ */}
+            {position && intelligenceLayers.includes("Issue density heatmap") && (
+              <>
+                <Circle
+                  center={[position[0] + 0.002, position[1] - 0.002]}
+                  radius={350}
+                  pathOptions={{ color: "#ff4d4f", fillColor: "#ff4d4f", fillOpacity: 0.22, weight: 1.5, dashArray: "3, 3" }}
+                >
+                  <Popup><b>High Issue Density Cluster</b><br />5 reports logged in this 350m radius</Popup>
+                </Circle>
+                <Circle
+                  center={[position[0] - 0.003, position[1] + 0.003]}
+                  radius={280}
+                  pathOptions={{ color: "#fa8c16", fillColor: "#fa8c16", fillOpacity: 0.18, weight: 1.5, dashArray: "3, 3" }}
+                >
+                  <Popup><b>Moderate Activity Cluster</b><br />3 reports active</Popup>
+                </Circle>
+              </>
+            )}
+
+            {/* Ã¢â€â‚¬Ã¢â€â‚¬ Intelligence Layer: Predicted waterlogging Ã¢â€â‚¬Ã¢â€â‚¬ */}
+            {position && intelligenceLayers.includes("Predicted waterlogging") && (
+              <Circle
+                center={[position[0] + 0.0065, position[1] - 0.0055]}
+                radius={380}
+                pathOptions={{ color: "#1890ff", fillColor: "#1890ff", fillOpacity: 0.28, weight: 2 }}
+              >
+                <Popup><b>Predicted Monsoon Waterlogging</b><br />High flood risk at low-lying drainage choke point</Popup>
+              </Circle>
+            )}
+
+            {/* Ã¢â€â‚¬Ã¢â€â‚¬ Filtered civic issues markers Ã¢â€â‚¬Ã¢â€â‚¬ */}
+            {visibleIssues.map(issue => {
+              const COLOR_MAP = {
+                "Potholes & damaged roads": "#ff5252",
+                "Waterlogging": "#16a9e0",
+                "Waste & sanitation": "#ffa726",
+                "Street lighting": "#ab47bc"
+              };
+              return (
+                <CircleMarker
+                  key={issue.id}
+                  center={[issue.lat, issue.lng]}
+                  radius={9}
+                  pathOptions={{
+                    color: "#0d1620",
+                    fillColor: COLOR_MAP[issue.category] || "#28d7a0",
+                    fillOpacity: 0.95,
+                    weight: 2
+                  }}
+                >
+                  <Popup>
+                    <b style={{ display: "block", marginBottom: "4px" }}>{issue.label}</b>
+                    <span style={{ fontSize: "12px", color: "#6b7c8a" }}>{issue.category} • {issue.dist} km away</span><br />
+                    <span style={{ fontSize: "12px" }}>Severity: <strong style={{ color: issue.severity === "High" ? "#ff5252" : "#ffa726" }}>{issue.severity}</strong></span><br />
+                    <span style={{ fontSize: "12px" }}>{issue.confirmed} community confirmations</span>
+                  </Popup>
+                </CircleMarker>
+              );
+            })}
+
+            {/* Path cleaning: traversed path dimmed, remaining path active */}
+            {traversedRoute.length > 1 && (
+              <Polyline
+                positions={traversedRoute}
+                pathOptions={{
+                  color: "#475569",
+                  weight: 4,
+                  opacity: 0.35,
+                  dashArray: "4, 6"
+                }}
+              />
+            )}
+
+            {remainingRoute.length > 1 && (
+              <>
+                <Polyline
+                  positions={remainingRoute}
+                  pathOptions={{
+                    color: "#081b2a",
+                    weight: 10,
+                    opacity: 0.85
+                  }}
+                />
+                <Polyline
+                  positions={remainingRoute}
+                  pathOptions={{
+                    color: "#28d7a0",
+                    weight: 6,
+                    opacity: 1
+                  }}
+                />
+              </>
+            )}
+
+            <CircleMarker
+              center={position}
+              radius={8}
+              pathOptions={{
+                color: "#ffffff",
+                fillColor: "#20c997",
+                fillOpacity: 1,
+                weight: 2
+              }}
+            >
+              <Popup>Your starting location</Popup>
+            </CircleMarker>
+
+            {destinationPoint && (
+              <CircleMarker
+                center={destinationPoint}
+                radius={9}
+                pathOptions={{
+                  color: "#ffffff",
+                  fillColor: "#ff5252",
+                  fillOpacity: 1,
+                  weight: 2
+                }}
+              >
+                <Popup>Your destination</Popup>
+              </CircleMarker>
+            )}
+
+            <RouteViewport routeCoordinates={routeCoordinates} />
+          </MapContainer>
+
+          {/* Custom map zoom controls */}
+          <MapZoomControls style={{ position: "absolute", right: "12px", top: "12px" }} />
+
+          {/* Custom map recenter button */}
+          <button
+            type="button"
+            onClick={() => {
+              if (position) {
+                window.dispatchEvent(new CustomEvent("nagrikai-recenter"));
+              }
+            }}
+            aria-label="Recenter map"
+            title="Recenter"
+            style={{
+              position: "absolute",
+              right: "12px",
+              bottom: "12px",
+              zIndex: 1000,
+              width: "38px",
+              height: "38px",
+              borderRadius: "10px",
+              background: "rgba(16, 29, 42, 0.94)",
+              border: "1px solid rgba(43, 217, 162, 0.4)",
+              color: "#28d7a0",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              boxShadow: "0 6px 16px rgba(0,0,0,0.5)",
+              backdropFilter: "blur(8px)"
+            }}
+          >
+            <LocateFixed size={18} />
+          </button>
+        </div>
+      </>
+    ) : (
+      <div className="camera-placeholder" style={{ height: "240px" }}>
+        <MapPin size={32} />
+        <b>Map location unavailable</b>
+        <small>Enable GPS to load your actual map.</small>
+        <Button onClick={onLocate} disabled={locationStatus === "loading"}>
+          Enable location
+        </Button>
       </div>
+    )}
+
+    <p className="hint">
+      Map data: OpenStreetMap. Route calculation: OSRM.
+      Filtered by distance radius ({distance}) and active categories.
+    </p>
+
+    {/* Ã¢â€â‚¬Ã¢â€â‚¬ Map legend & active layers Ã¢â€â‚¬Ã¢â€â‚¬ */}
+    <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "10px" }}>
+      <div style={{
+        display: "flex",
+        flexWrap: "wrap",
+        gap: "8px"
+      }}>
+        {[
+          { label: "Potholes", color: "#ff5252", key: "Potholes & damaged roads" },
+          { label: "Waterlogging", color: "#16a9e0", key: "Waterlogging" },
+          { label: "Waste", color: "#ffa726", key: "Waste & sanitation" },
+          { label: "Lighting", color: "#ab47bc", key: "Street lighting" }
+        ].filter(item => filters.length === 0 || filters.includes(item.key)).map(item => (
+          <span key={item.key} style={{
+            display: "flex", alignItems: "center", gap: "5px",
+            fontSize: "11px", color: "#9aaab7"
+          }}>
+            <span style={{
+              width: "9px", height: "9px", borderRadius: "50%",
+              background: item.color, display: "inline-block"
+            }} />
+            {item.label}
+          </span>
+        ))}
+      </div>
+
+      {intelligenceLayers.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+          {intelligenceLayers.map(layer => (
+            <span key={layer} style={{
+              fontSize: "10px",
+              padding: "2px 8px",
+              borderRadius: "12px",
+              background: "#162836",
+              border: "1px solid #16a9e0",
+              color: "#75c8ff"
+            }}>
+              Ã¢Å“Â¦ {layer}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
-  );
+
+    {/* Ã¢â€â‚¬Ã¢â€â‚¬ Inline filter panel Ã¢â€â‚¬Ã¢â€â‚¬ */}
+    <div style={{ marginTop: "12px" }}>
+      <button
+        onClick={() => setFiltersOpen(v => !v)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          width: "100%",
+          padding: "12px 16px",
+          background: filtersOpen ? "#1a2d3c" : "#151e28",
+          border: `1px solid ${filtersOpen ? "#28d7a0" : "#293744"}`,
+          borderRadius: filtersOpen ? "12px 12px 0 0" : "12px",
+          color: "#e8eef2",
+          fontWeight: 600,
+          fontSize: "13px",
+          cursor: "pointer",
+          justifyContent: "space-between"
+        }}
+      >
+        <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <SlidersHorizontal size={16} color="#28d7a0" />
+          Map Filters & Layers
+          {(filters.length > 0 || intelligenceLayers.length > 0) && (
+            <span style={{
+              background: "#28d7a0",
+              color: "#0d1620",
+              borderRadius: "10px",
+              padding: "1px 7px",
+              fontSize: "11px",
+              fontWeight: 700
+            }}>
+              {filters.length + intelligenceLayers.length} active
+            </span>
+          )}
+        </span>
+        <ChevronDown
+          size={16}
+          style={{
+            transform: filtersOpen ? "rotate(180deg)" : "rotate(0deg)",
+            transition: "transform 0.2s"
+          }}
+        />
+      </button>
+
+      {filtersOpen && (
+        <div style={{
+          background: "#151e28",
+          border: "1px solid #293744",
+          borderTop: "none",
+          borderRadius: "0 0 12px 12px",
+          padding: "16px"
+        }}>
+          <div style={{ marginBottom: "14px" }}>
+            <div className="eyebrow" style={{ marginBottom: "10px" }}>SHOW ON MAP</div>
+            {["Potholes & damaged roads", "Waterlogging", "Waste & sanitation", "Street lighting"].map(opt => (
+              <button
+                key={opt}
+                className="filter-option"
+                onClick={() => toggleFilter(opt)}
+                style={{ width: "100%", display: "flex", justifyContent: "space-between", padding: "10px 0" }}
+              >
+                <span>{opt}</span>
+                <span style={{ color: filters.includes(opt) ? "#28d7a0" : "#5a7080" }}>
+                  {filters.includes(opt) ? "Ã¢Å“â€œ" : "Ã¢â€”â€¹"}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div style={{ marginBottom: "14px" }}>
+            <div className="eyebrow" style={{ marginBottom: "10px" }}>INTELLIGENCE LAYERS</div>
+            {["Traffic flow", "Issue density heatmap", "Predicted waterlogging"].map(layer => (
+              <button
+                key={layer}
+                className="filter-option"
+                onClick={() => toggleIntelligenceLayer(layer)}
+                style={{ width: "100%", display: "flex", justifyContent: "space-between", padding: "10px 0" }}
+              >
+                <span>{layer}</span>
+                <span style={{
+                  color: intelligenceLayers.includes(layer) ? "#28d7a0" : "#5a7080",
+                  fontWeight: intelligenceLayers.includes(layer) ? 700 : 400
+                }}>
+                  {intelligenceLayers.includes(layer) ? "On" : "Off"}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div style={{ marginBottom: "14px" }}>
+            <div className="eyebrow" style={{ marginBottom: "10px" }}>DISTANCE RADIUS</div>
+            <div className="filter-row">
+              {["500 m", "2 km", "5 km", "City"].map(d => (
+                <button
+                  key={d}
+                  className={distance === d ? "on" : ""}
+                  onClick={() => setDistance(d)}
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <p className="hint" style={{ margin: "8px 0 0" }}>
+            Filters and layers update live on the map above.
+          </p>
+        </div>
+      )}
+    </div>
+  </div>
+);
 }
 function MapRecenter({ position }) {
   const map = useMap();
@@ -4047,7 +4377,8 @@ function MapRecenter({ position }) {
   useEffect(() => {
     const recenter = () => {
       if (position) {
-        map.setView(position, 18, {
+        const targetZoom = Math.max(17, map.getZoom());
+        map.setView(position, targetZoom, {
           animate: true
         });
       }
@@ -4065,16 +4396,134 @@ function MapRecenter({ position }) {
 
 function LiveMapFollow({ position, active }) {
   const map = useMap();
+  const userInteractedRef = useRef(false);
+
+  useEffect(() => {
+    const onUserInteraction = () => {
+      userInteractedRef.current = true;
+    };
+    const onRecenter = () => {
+      userInteractedRef.current = false;
+      if (position) {
+        const targetZoom = Math.max(17, map.getZoom());
+        map.setView(position, targetZoom, { animate: true });
+      }
+    };
+
+    map.on("dragstart", onUserInteraction);
+    map.on("zoomstart", onUserInteraction);
+    window.addEventListener("nagrikai-recenter", onRecenter);
+
+    return () => {
+      map.off("dragstart", onUserInteraction);
+      map.off("zoomstart", onUserInteraction);
+      window.removeEventListener("nagrikai-recenter", onRecenter);
+    };
+  }, [map, position]);
 
   useEffect(() => {
     if (active && position) {
-      map.setView(position, 17, {
-        animate: true
-      });
+      if (!userInteractedRef.current) {
+        // Keep current zoom if user zoomed, otherwise default to 17
+        const currentZoom = map.getZoom() || 17;
+        map.setView(position, currentZoom, {
+          animate: true
+        });
+      }
     }
   }, [map, position, active]);
 
   return null;
+}
+
+function MapZoomHandler() {
+  const map = useMap();
+
+  useEffect(() => {
+    const handleZoomIn = () => {
+      map.zoomIn();
+    };
+    const handleZoomOut = () => {
+      map.zoomOut();
+    };
+
+    window.addEventListener("nagrikai-zoom-in", handleZoomIn);
+    window.addEventListener("nagrikai-zoom-out", handleZoomOut);
+
+    return () => {
+      window.removeEventListener("nagrikai-zoom-in", handleZoomIn);
+      window.removeEventListener("nagrikai-zoom-out", handleZoomOut);
+    };
+  }, [map]);
+
+  return null;
+}
+
+function MapZoomControls({ style }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "6px",
+        zIndex: 1000,
+        ...style
+      }}
+    >
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          window.dispatchEvent(new CustomEvent("nagrikai-zoom-in"));
+        }}
+        aria-label="Zoom in"
+        style={{
+          width: "38px",
+          height: "38px",
+          borderRadius: "10px",
+          background: "rgba(16, 29, 42, 0.94)",
+          border: "1px solid rgba(43, 217, 162, 0.4)",
+          color: "#28d7a0",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: "pointer",
+          fontSize: "20px",
+          fontWeight: "700",
+          boxShadow: "0 6px 16px rgba(0,0,0,0.5)",
+          backdropFilter: "blur(8px)"
+        }}
+      >
+        <Plus size={18} strokeWidth={2.5} />
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          window.dispatchEvent(new CustomEvent("nagrikai-zoom-out"));
+        }}
+        aria-label="Zoom out"
+        style={{
+          width: "38px",
+          height: "38px",
+          borderRadius: "10px",
+          background: "rgba(16, 29, 42, 0.94)",
+          border: "1px solid rgba(43, 217, 162, 0.4)",
+          color: "#28d7a0",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: "pointer",
+          fontSize: "20px",
+          fontWeight: "700",
+          boxShadow: "0 6px 16px rgba(0,0,0,0.5)",
+          backdropFilter: "blur(8px)"
+        }}
+      >
+        <Minus size={18} strokeWidth={2.5} />
+      </button>
+    </div>
+  );
 }
 
 
@@ -4248,8 +4697,8 @@ function CaptureReport({ issue, setIssue, description, setDescription, photo, se
           <b>
             {locationStatus === "success"
               ? [locationDetails?.locality, locationDetails?.city, locationDetails?.state, locationDetails?.country]
-                  .filter((value, index, all) => value && all.indexOf(value) === index)
-                  .join(", ") || "Current location detected"
+                .filter((value, index, all) => value && all.indexOf(value) === index)
+                .join(", ") || "Current location detected"
               : locationStatus === "loading"
                 ? "Detecting your location..."
                 : "Location not detected"}
@@ -4291,37 +4740,37 @@ function CaptureReport({ issue, setIssue, description, setDescription, photo, se
   );
 }
 
-function ReviewReport({issue,description,photo,category,severity,setSeverity,go,onCheckDuplicates,duplicateLoading}) {
-  return <div className="page"><StatusBarTitle title="Review your report" back={()=>go("Capture report")}/><Label>02 / 03 &nbsp; REPORT REVIEW</Label><div className="camera-thumb">
-  {photo?.previewUrl ? (
-    <img
-      src={photo.previewUrl}
-      alt="Selected report evidence"
-      style={{
-        width:"100%",
-        height:"100%",
-        objectFit:"cover",
-        borderRadius:"12px"
-      }}
-    />
-  ) : (
-    <>
-      <Camera size={24}/>
-      <small>No photo selected</small>
-    </>
-  )}
-</div>
-<Card>
-  <div className="split">
-    <b>AI image analysis</b>
-    <span className="muted">Not connected</span>
+function ReviewReport({ issue, description, photo, category, severity, setSeverity, go, onCheckDuplicates, duplicateLoading }) {
+  return <div className="page"><StatusBarTitle title="Review your report" back={() => go("Capture report")} /><Label>02 / 03 &nbsp; REPORT REVIEW</Label><div className="camera-thumb">
+    {photo?.previewUrl ? (
+      <img
+        src={photo.previewUrl}
+        alt="Selected report evidence"
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          borderRadius: "12px"
+        }}
+      />
+    ) : (
+      <>
+        <Camera size={24} />
+        <small>No photo selected</small>
+      </>
+    )}
   </div>
-  <p>Automated image verification is not available yet.</p>
-  <small className="muted">
-    Please review your photo against the title, description and category.
-    No AI detection or confidence score has been generated.
-  </small>
-</Card><Card><b>Issue title</b><p>{issue}</p><b>Category</b><p>{category}</p><b>Severity</b><div className="chip-wrap">{["Low","Medium","High"].map(x=><button className={`chip ${severity===x?"on":""}`} onClick={()=>setSeverity(x)} key={x}>{x}</button>)}</div>{description && <><b>Issue description</b><p>{description}</p></>}</Card><Button onClick={onCheckDuplicates} disabled={duplicateLoading}>{duplicateLoading ? "Checking nearby reports..." : "Check nearby duplicates"}</Button><Button secondary onClick={()=>go("Capture report")}>Retake photo</Button></div>;
+    <Card>
+      <div className="split">
+        <b>AI image analysis</b>
+        <span className="muted">Not connected</span>
+      </div>
+      <p>Automated image verification is not available yet.</p>
+      <small className="muted">
+        Please review your photo against the title, description and category.
+        No AI detection or confidence score has been generated.
+      </small>
+    </Card><Card><b>Issue title</b><p>{issue}</p><b>Category</b><p>{category}</p><b>Severity</b><div className="chip-wrap">{["Low", "Medium", "High"].map(x => <button className={`chip ${severity === x ? "on" : ""}`} onClick={() => setSeverity(x)} key={x}>{x}</button>)}</div>{description && <><b>Issue description</b><p>{description}</p></>}</Card><Button onClick={onCheckDuplicates} disabled={duplicateLoading}>{duplicateLoading ? "Checking nearby reports..." : "Check nearby duplicates"}</Button><Button secondary onClick={() => go("Capture report")}>Retake photo</Button></div>;
 }
 function Duplicate({
   go,
@@ -4419,7 +4868,7 @@ function Duplicate({
   );
 }
 
-function Submitted({go, report}) {
+function Submitted({ go, report }) {
   const evidenceAdded = report?.evidenceAdded === true;
   const reportNumber = report?.report_number;
 
@@ -4430,7 +4879,7 @@ function Submitted({go, report}) {
         back={() => go("Home")}
       />
       <Card className="success-card">
-        <CheckCircle2 size={38}/>
+        <CheckCircle2 size={38} />
         <h2>{evidenceAdded ? "Evidence added." : "Report submitted."}</h2>
         <p>
           {evidenceAdded
@@ -4466,13 +4915,13 @@ function Authority({ go }) {
 }
 function Handoff({ go, notify }) {
   return <div className="page"><StatusBarTitle title="Official complaint" back={() => go("Responsible authority")} /><Label>REVIEW BEFORE YOU HAND OFF</Label><Card><b className="green">To: GNIDA · Road Maintenance</b><h3>Subject: Road damage near Alpha II market</h3><p>A deep pothole on Alpha II main road poses a risk to two-wheelers. Please inspect and repair the road surface.</p><small className="muted">Location: 28.4744, 77.5040</small></Card><Card><b>Share evidence and issue location</b><p className="muted">You will be redirected to the official portal for personal details, if required.</p></Card>
-  <Button
-  secondary
-  onClick={() => notify("Official authority integration is not available yet.")}
->
-  Official handoff unavailable
-</Button>
-<Button secondary onClick={() => go("Responsible authority")}>Back to authority</Button><p className="hint">SIMULATED NOTIFICATION Ã¢â‚¬â€ no government portal connection.</p></div>;
+    <Button
+      secondary
+      onClick={() => notify("Official authority integration is not available yet.")}
+    >
+      Official handoff unavailable
+    </Button>
+    <Button secondary onClick={() => go("Responsible authority")}>Back to authority</Button><p className="hint">SIMULATED NOTIFICATION Ã¢â‚¬â€ no government portal connection.</p></div>;
 }
 function Tracking({ go }) {
   return (
@@ -4786,68 +5235,68 @@ function Weather({
   };
 
   const aqiResult = calculateCpcbAqi(airQuality?.hourly);
-const aqiVal = aqiResult?.value ?? null;
+  const aqiVal = aqiResult?.value ?? null;
 
-const getAqiDetails = (aqi) => {
-  if (aqi === null) {
+  const getAqiDetails = (aqi) => {
+    if (aqi === null) {
+      return {
+        label: "Unavailable",
+        color: "#8b9aa4",
+        desc: "Insufficient pollutant observations to calculate a reliable CPCB-style AQI."
+      };
+    }
+
+    if (aqi <= 50) {
+      return {
+        label: "Good",
+        color: "#2bd9a2",
+        desc: "Air quality is good. Minimal impact on health."
+      };
+    }
+
+    if (aqi <= 100) {
+      return {
+        label: "Satisfactory",
+        color: "#a3cf62",
+        desc: "Minor breathing discomfort may occur to sensitive people."
+      };
+    }
+
+    if (aqi <= 200) {
+      return {
+        label: "Moderate",
+        color: "#f4c44e",
+        desc: "People with lung, asthma or heart conditions may experience discomfort."
+      };
+    }
+
+    if (aqi <= 300) {
+      return {
+        label: "Poor",
+        color: "#fa8c16",
+        desc: "Prolonged exposure may cause breathing discomfort to most people."
+      };
+    }
+
+    if (aqi <= 400) {
+      return {
+        label: "Very Poor",
+        color: "#9254de",
+        desc: "Prolonged exposure may cause respiratory illness."
+      };
+    }
+
     return {
-      label: "Unavailable",
-      color: "#8b9aa4",
-      desc: "Insufficient pollutant observations to calculate a reliable CPCB-style AQI."
+      label: "Severe",
+      color: "#ff1f4b",
+      desc: "Health effects may occur even in healthy people. Avoid outdoor exertion."
     };
-  }
-
-  if (aqi <= 50) {
-    return {
-      label: "Good",
-      color: "#2bd9a2",
-      desc: "Air quality is good. Minimal impact on health."
-    };
-  }
-
-  if (aqi <= 100) {
-    return {
-      label: "Satisfactory",
-      color: "#a3cf62",
-      desc: "Minor breathing discomfort may occur to sensitive people."
-    };
-  }
-
-  if (aqi <= 200) {
-    return {
-      label: "Moderate",
-      color: "#f4c44e",
-      desc: "People with lung, asthma or heart conditions may experience discomfort."
-    };
-  }
-
-  if (aqi <= 300) {
-    return {
-      label: "Poor",
-      color: "#fa8c16",
-      desc: "Prolonged exposure may cause breathing discomfort to most people."
-    };
-  }
-
-  if (aqi <= 400) {
-    return {
-      label: "Very Poor",
-      color: "#9254de",
-      desc: "Prolonged exposure may cause respiratory illness."
-    };
-  }
-
-  return {
-    label: "Severe",
-    color: "#ff1f4b",
-    desc: "Health effects may occur even in healthy people. Avoid outdoor exertion."
   };
-};
 
-const aqiInfo = getAqiDetails(aqiVal);
-const aqiPercent = aqiVal === null
-  ? 0
-  : Math.min(100, Math.max(0, (aqiVal / 500) * 100));
+  const aqiInfo = getAqiDetails(aqiVal);
+  const aqiPercent = aqiVal === null
+    ? 0
+    : Math.min(100, Math.max(0, (aqiVal / 500) * 100));
 
   return (
     <div className="page">
@@ -5113,20 +5562,20 @@ const aqiPercent = aqiVal === null
             </div>
 
             <div className="aqi-pollutants">
-  <span>
-    <b>PM2.5:</b>{" "}
-    {typeof aqiResult?.averages?.pm2_5 === "number"
-      ? `${Math.round(aqiResult.averages.pm2_5)} Ã‚Âµg/mÃ‚Â³`
-      : "Unavailable"}
-  </span>
+              <span>
+                <b>PM2.5:</b>{" "}
+                {typeof aqiResult?.averages?.pm2_5 === "number"
+                  ? `${Math.round(aqiResult.averages.pm2_5)} Ã‚Âµg/mÃ‚Â³`
+                  : "Unavailable"}
+              </span>
 
-  <span>
-    <b>PM10:</b>{" "}
-    {typeof aqiResult?.averages?.pm10 === "number"
-      ? `${Math.round(aqiResult.averages.pm10)} Ã‚Âµg/mÃ‚Â³`
-      : "Unavailable"}
-  </span>
-</div>
+              <span>
+                <b>PM10:</b>{" "}
+                {typeof aqiResult?.averages?.pm10 === "number"
+                  ? `${Math.round(aqiResult.averages.pm10)} Ã‚Âµg/mÃ‚Â³`
+                  : "Unavailable"}
+              </span>
+            </div>
 
             <p className="aqi-advice">
               {aqiInfo.desc}
@@ -5254,7 +5703,7 @@ function Analytics({ go }) {
   return <div className="page"><StatusBarTitle title="City intelligence" back={() => go("Home")} /><Label>GREATER NOIDA / LAST 30 DAYS</Label><div className="metric-grid"><Card><strong>1,284</strong><small>Reports</small></Card><Card><strong>68%</strong><small>Resolved</small></Card><Card><strong>2.8d</strong><small>Median fix</small></Card></div><Card><div className="split"><b>REPORTS BY WEEK</b><span className="green">Ã¢Ë†â€™18%</span></div><div className="bars">{[68, 55, 74, 62].map((v, i) => <div key={i}><i style={{ height: v + "%" }} /><small>W{i + 1}</small></div>)}</div></Card><Card><b>Where the city needs attention</b><p>1 &nbsp; Pari Chowk <span className="right">86 reports</span></p><p>2 &nbsp; Alpha II <span className="right">54 reports</span></p><p>3 &nbsp; Surajpur <span className="right">39 reports</span></p></Card><p className="hint">Sample data • Not an official civic statistics source.</p></div>;
 }
 
-function Profile({go, onLogout, authLoading}) {
+function Profile({ go, onLogout, authLoading }) {
   const [profile, setProfile] = useState(null);
   const [loadStatus, setLoadStatus] = useState("loading");
   const [loadError, setLoadError] = useState("");
@@ -5263,16 +5712,16 @@ function Profile({go, onLogout, authLoading}) {
     let active = true;
 
 
-  
-const loadProfile = async () => {
-  if (!isSupabaseConfigured) {
-    if (active) {
-      setProfile(null);
-      setLoadError("Secure profile is unavailable. Check your Supabase configuration.");
-      setLoadStatus("error");
-    }
-    return;
-  }
+
+    const loadProfile = async () => {
+      if (!isSupabaseConfigured) {
+        if (active) {
+          setProfile(null);
+          setLoadError("Secure profile is unavailable. Check your Supabase configuration.");
+          setLoadStatus("error");
+        }
+        return;
+      }
 
       try {
         const { data: authData, error: authError } =
@@ -5286,12 +5735,12 @@ const loadProfile = async () => {
           throw new Error("Please sign in to view your profile.");
         }
 
-    // Fetch only the authenticated citizen's profile.
-    const { data: citizenData, error: citizenError } = await supabase
-      .from("citizen_profiles")
-      .select("full_name, phone, email, email_verified_at, updated_at")
-      .eq("user_id", user.id)
-      .maybeSingle();
+        // Fetch only the authenticated citizen's profile.
+        const { data: citizenData, error: citizenError } = await supabase
+          .from("citizen_profiles")
+          .select("full_name, phone, email, email_verified_at, updated_at")
+          .eq("user_id", user.id)
+          .maybeSingle();
 
         if (citizenError) throw citizenError;
 
@@ -5488,9 +5937,9 @@ const loadProfile = async () => {
                 <span>
                   Joined {profile.joinedAt
                     ? new Date(profile.joinedAt).toLocaleDateString("en-IN", {
-                        month: "long",
-                        year: "numeric"
-                      })
+                      month: "long",
+                      year: "numeric"
+                    })
                     : "October 2026"}
                 </span>
               </div>
@@ -5538,13 +5987,13 @@ const loadProfile = async () => {
         ["Language / English & हिन्दी", "Language"]
       ].map(([x, y]) => (
         <button className="menu-row" key={x} onClick={() => go(y)}>
-          {x}<ChevronRight size={16}/>
+          {x}<ChevronRight size={16} />
         </button>
       ))}
     </div>
   );
 }
-function History({go}) {
+function History({ go }) {
   const [reports, setReports] = useState([]);
   const [loadStatus, setLoadStatus] = useState("loading");
   const [loadError, setLoadError] = useState("");
@@ -5553,14 +6002,14 @@ function History({go}) {
     let active = true;
 
     const loadReports = async () => {
-    if (!isSupabaseConfigured) {
-  if (active) {
-    setReports([]);
-    setLoadError("Secure report history is unavailable. Check Supabase configuration.");
-    setLoadStatus("error");
-  }
-  return;
-}
+      if (!isSupabaseConfigured) {
+        if (active) {
+          setReports([]);
+          setLoadError("Secure report history is unavailable. Check Supabase configuration.");
+          setLoadStatus("error");
+        }
+        return;
+      }
 
       try {
         const { data: authData, error: authError } = await supabase.auth.getUser();
