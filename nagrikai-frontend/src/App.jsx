@@ -1,5 +1,7 @@
 import WeatherSky from "./WeatherSky";
 import HeadlinesCarousel from "./HeadlinesCarousel";
+import { AskAI, Voice } from "./AskAIScreen";
+import AskAIConversations from "./AskAIConversations";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { Geolocation } from "@capacitor/geolocation";
@@ -29,11 +31,11 @@ import {
 
 const GREEN = "#28d7a0";
 const screens = [
-  "Splash","Welcome","Language","Login","Email verification","Home","Explore map","Map filters",
-  "Capture report","Review report","Possible duplicate","Report submitted","Issue details",
-  "GroundTruth AI","Responsible authority","Complaint handoff","Reference tracking","Weather & air",
-  "Ask NagrikAI","Voice assistant","Civic navigation","City analytics","Profile","Report history",
-  "Notifications","Accessibility","Privacy & settings","Loading","Empty history","Connection error"
+  "Splash", "Welcome", "Language", "Login", "Email verification", "Home", "Explore map", "Map filters",
+  "Capture report", "Review report", "Possible duplicate", "Report submitted", "Issue details",
+  "GroundTruth AI", "Responsible authority", "Complaint handoff", "Reference tracking", "Weather & air",
+  "Ask NagrikAI", "Voice assistant", "Civic navigation", "City analytics", "Profile", "Report history",
+  "Notifications", "Accessibility", "Privacy & settings", "Loading", "Empty history", "Connection error"
 ];
 
 const navItems = [
@@ -193,7 +195,7 @@ function App() {
             { signal: controller.signal }
           ),
           fetch(
-           `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${userLocation.lat}&longitude=${userLocation.lng}&hourly=pm2_5,pm10,nitrogen_dioxide,sulphur_dioxide,ozone,carbon_monoxide&past_days=1&forecast_days=1&timezone=auto`,
+            `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${userLocation.lat}&longitude=${userLocation.lng}&hourly=pm2_5,pm10,nitrogen_dioxide,sulphur_dioxide,ozone,carbon_monoxide&past_days=1&forecast_days=1&timezone=auto`,
             { signal: controller.signal }
           )
         ]);
@@ -212,10 +214,10 @@ function App() {
           try {
             const aqiJson = await aqiRes.value.json();
             data.air_quality = {
-  ...(aqiJson?.current || {}),
-  hourly: aqiJson?.hourly || null,
-  hourly_units: aqiJson?.hourly_units || {}
-};
+              ...(aqiJson?.current || {}),
+              hourly: aqiJson?.hourly || null,
+              hourly_units: aqiJson?.hourly_units || {}
+            };
           } catch (e) {
             console.warn("AQI parse error:", e);
           }
@@ -254,7 +256,7 @@ function App() {
   }, [userLocation]);
 
   const go = (name) => {
-    const publicScreens = ["Splash", "Welcome", "Language", "Login", "OTP verification", "Email verification"];
+    const publicScreens = ["Splash", "Welcome", "Language", "Login", "OTP verification", "Email verification", "Ask NagrikAI", "Voice assistant", "Ask AI conversations"];
 
     if ((!authReady || !authSession) && !publicScreens.includes(name)) {
       if (authReady) {
@@ -275,117 +277,117 @@ function App() {
     window.__toastTimer = window.setTimeout(() => setToast(""), 2400);
   };
 
-const detectUserLocation = async () => {
-  setLocationStatus("loading");
-  setLocationError("");
+  const detectUserLocation = async () => {
+    setLocationStatus("loading");
+    setLocationError("");
 
-  try {
-    let position;
+    try {
+      let position;
 
-    if (Capacitor.isNativePlatform()) {
-      let permission = await Geolocation.checkPermissions();
+      if (Capacitor.isNativePlatform()) {
+        let permission = await Geolocation.checkPermissions();
 
-      if (
-        permission.location !== "granted" &&
-        permission.coarseLocation !== "granted"
-      ) {
-        permission = await Geolocation.requestPermissions();
-      }
-
-      if (
-        permission.location !== "granted" &&
-        permission.coarseLocation !== "granted"
-      ) {
-        throw new Error("Location permission denied.");
-      }
-
-      position = await Geolocation.getCurrentPosition({
-        enableHighAccuracy: true,
-        timeout: 20000,
-        maximumAge: 0
-      });
-    } else {
-      if (!navigator.geolocation) {
-        throw new Error("Location is not supported by this browser.");
-      }
-
-      position = await new Promise((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(
-          resolve,
-          reject,
-          {
-            enableHighAccuracy: true,
-            timeout: 20000,
-            maximumAge: 0
-          }
-        );
-      });
-    }
-
-    const location = {
-      lat: position.coords.latitude,
-      lng: position.coords.longitude,
-      accuracy: position.coords.accuracy
-    };
-
-    setUserLocation(location);
-    setLocationStatus("success");
-
-    fetch(
-      `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${location.lat}&longitude=${location.lng}&localityLanguage=en`
-    )
-      .then(response => {
-        if (!response.ok) {
-          throw new Error("Location lookup failed");
+        if (
+          permission.location !== "granted" &&
+          permission.coarseLocation !== "granted"
+        ) {
+          permission = await Geolocation.requestPermissions();
         }
-        return response.json();
-      })
-      .then(data => {
-        setLocationDetails({
-          city: data.city || data.locality || "",
-          locality: data.locality || "",
-          state: data.principalSubdivision || "",
-          country: data.countryName || ""
+
+        if (
+          permission.location !== "granted" &&
+          permission.coarseLocation !== "granted"
+        ) {
+          throw new Error("Location permission denied.");
+        }
+
+        position = await Geolocation.getCurrentPosition({
+          enableHighAccuracy: true,
+          timeout: 20000,
+          maximumAge: 0
         });
-      })
-      .catch(error => {
-        console.error("Reverse geocoding error:", error);
-        setLocationDetails(null);
-      });
+      } else {
+        if (!navigator.geolocation) {
+          throw new Error("Location is not supported by this browser.");
+        }
 
-    notify(
-      `Location detected. Accuracy: ±${Math.round(location.accuracy)} metres`
-    );
+        position = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(
+            resolve,
+            reject,
+            {
+              enableHighAccuracy: true,
+              timeout: 20000,
+              maximumAge: 0
+            }
+          );
+        });
+      }
 
-  } catch (error) {
-    let message = "Unable to detect your location.";
+      const location = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        accuracy: position.coords.accuracy
+      };
 
-    if (
-      error.code === 1 ||
-      error.message?.toLowerCase().includes("permission")
-    ) {
-      message = "Location permission denied. Allow location access in app settings.";
-    } else if (error.code === 2) {
-      message = "Your location is currently unavailable.";
-    } else if (error.code === 3) {
-      message = "Location request timed out. Please try again.";
+      setUserLocation(location);
+      setLocationStatus("success");
+
+      fetch(
+        `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${location.lat}&longitude=${location.lng}&localityLanguage=en`
+      )
+        .then(response => {
+          if (!response.ok) {
+            throw new Error("Location lookup failed");
+          }
+          return response.json();
+        })
+        .then(data => {
+          setLocationDetails({
+            city: data.city || data.locality || "",
+            locality: data.locality || "",
+            state: data.principalSubdivision || "",
+            country: data.countryName || ""
+          });
+        })
+        .catch(error => {
+          console.error("Reverse geocoding error:", error);
+          setLocationDetails(null);
+        });
+
+      notify(
+        `Location detected. Accuracy: ±${Math.round(location.accuracy)} metres`
+      );
+
+    } catch (error) {
+      let message = "Unable to detect your location.";
+
+      if (
+        error.code === 1 ||
+        error.message?.toLowerCase().includes("permission")
+      ) {
+        message = "Location permission denied. Allow location access in app settings.";
+      } else if (error.code === 2) {
+        message = "Your location is currently unavailable.";
+      } else if (error.code === 3) {
+        message = "Location request timed out. Please try again.";
+      }
+
+      console.error("GPS error:", error);
+      setLocationStatus("error");
+      setLocationError(message);
+      setLocationDetails(null);
+      notify(message);
     }
-
-    console.error("GPS error:", error);
-    setLocationStatus("error");
-    setLocationError(message);
-    setLocationDetails(null);
-    notify(message);
-  }
-};
+  };
 
 
   useEffect(() => {
     if (autoLocationStarted.current) return;
 
-  autoLocationStarted.current = true;
-  detectUserLocation();
-}, []);
+    autoLocationStarted.current = true;
+    detectUserLocation();
+  }, []);
 
   const handleSendOtp = async () => {
     const digits = phone.replace(/\D/g, "");
@@ -492,124 +494,33 @@ const detectUserLocation = async () => {
   };
 
 
-const handleVerifyEmailOtp = async () => {
-  const token = emailOtp.join("");
-  const cleanEmail = email.trim().toLowerCase();
-  const cleanName = name.trim();
-  const digits = phone.replace(/\D/g, "");
+  const handleVerifyEmailOtp = async () => {
+    const token = emailOtp.join("");
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanName = name.trim();
+    const digits = phone.replace(/\D/g, "");
 
-  if (!/^\d{6}$/.test(token)) {
-    notify("Enter all 6 email OTP digits.");
-    return;
-  }
-
-  if (cleanName.length < 2 || cleanName.length > 100) {
-    notify("Enter a valid full name.");
-    return;
-  }
-
-  if (!/^[6-9]\d{9}$/.test(digits)) {
-    notify("Enter a valid 10-digit mobile number.");
-    return;
-  }
-
-  // Demo mode or fallback validation
-  if (!isSupabaseConfigured || token === "123456") {
-    const phoneE164 = `+91${digits}`;
-    const demoSession = {
-      user: {
-        id: "demo-user-" + (digits || "1"),
-        email: cleanEmail,
-        phone: phoneE164,
-        user_metadata: { full_name: cleanName }
-      }
-    };
-    setAuthSession(demoSession);
-    try {
-      localStorage.setItem("nagrikai-demo-session", JSON.stringify(demoSession));
-    } catch {}
-    setName(cleanName);
-    setPhone(digits);
-    setEmail(cleanEmail);
-    setEmailOtp(["", "", "", "", "", ""]);
-    go("Home");
-    notify(`Welcome to NagrikAI, ${cleanName}!`);
-    return;
-  }
-
-  setAuthLoading(true);
-
-  try {
-    const { data, error } = await supabase.auth.verifyOtp({
-      email: cleanEmail,
-      token,
-      type: "email"
-    });
-
-    if (error) throw error;
-
-    if (!data.session || !data.user) {
-      throw new Error("Email authentication session was not created.");
+    if (!/^\d{6}$/.test(token)) {
+      notify("Enter all 6 email OTP digits.");
+      return;
     }
 
-    const phoneE164 = `+91${digits}`;
-
-    // Save registration details in authenticated user metadata.
-    const { data: updatedData, error: updateError } =
-      await supabase.auth.updateUser({
-        data: {
-          full_name: cleanName,
-          phone: phoneE164
-        }
-      });
-
-    if (updateError) throw updateError;
-
-    const currentUser = updatedData.user || data.user;
-
-    // Save the citizen profile using the authenticated user ID.
-    const { error: profileError } = await supabase
-      .from("citizen_profiles")
-      .upsert({
-        user_id: currentUser.id,
-        full_name: cleanName,
-        phone: phoneE164,
-        email: cleanEmail,
-        email_verified_at:
-          currentUser.email_confirmed_at || new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: "user_id"
-      });
-
-    if (profileError) {
-      console.error("Citizen profile save failed:", profileError);
-
-      if (profileError.code === "23505") {
-        throw new Error(
-          "This email is already linked to another citizen account."
-        );
-      }
-
-      throw profileError;
+    if (cleanName.length < 2 || cleanName.length > 100) {
+      notify("Enter a valid full name.");
+      return;
     }
 
-    setName(cleanName);
-    setPhone(digits);
-    setEmail(cleanEmail);
-    setEmailOtp(["", "", "", "", "", ""]);
+    if (!/^[6-9]\d{9}$/.test(digits)) {
+      notify("Enter a valid 10-digit mobile number.");
+      return;
+    }
 
-    go("Home");
-    notify("Email verified successfully. Welcome to NagrikAI.");
-
-  } catch (error) {
-    console.error("Email verification failed:", error);
-    if (error.message === "Failed to fetch") {
-      // Graceful offline fallback
+    // Demo mode or fallback validation
+    if (!isSupabaseConfigured || token === "123456") {
       const phoneE164 = `+91${digits}`;
       const demoSession = {
         user: {
-          id: "demo-user-" + digits,
+          id: "demo-user-" + (digits || "1"),
           email: cleanEmail,
           phone: phoneE164,
           user_metadata: { full_name: cleanName }
@@ -618,22 +529,113 @@ const handleVerifyEmailOtp = async () => {
       setAuthSession(demoSession);
       try {
         localStorage.setItem("nagrikai-demo-session", JSON.stringify(demoSession));
-      } catch {}
+      } catch { }
       setName(cleanName);
       setPhone(digits);
       setEmail(cleanEmail);
       setEmailOtp(["", "", "", "", "", ""]);
       go("Home");
-      notify(`Welcome to NagrikAI, ${cleanName}! (Offline mode)`);
-    } else {
-      notify(error.message || "Incorrect or expired email OTP.");
+      notify(`Welcome to NagrikAI, ${cleanName}!`);
+      return;
     }
-  } finally {
-    setAuthLoading(false);
-  }
-};
 
-  const toggleFilter = (name) => setFilters(v => v.includes(name) ? v.filter(x => x !== name) : [...v,name]);
+    setAuthLoading(true);
+
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: cleanEmail,
+        token,
+        type: "email"
+      });
+
+      if (error) throw error;
+
+      if (!data.session || !data.user) {
+        throw new Error("Email authentication session was not created.");
+      }
+
+      const phoneE164 = `+91${digits}`;
+
+      // Save registration details in authenticated user metadata.
+      const { data: updatedData, error: updateError } =
+        await supabase.auth.updateUser({
+          data: {
+            full_name: cleanName,
+            phone: phoneE164
+          }
+        });
+
+      if (updateError) throw updateError;
+
+      const currentUser = updatedData.user || data.user;
+
+      // Save the citizen profile using the authenticated user ID.
+      const { error: profileError } = await supabase
+        .from("citizen_profiles")
+        .upsert({
+          user_id: currentUser.id,
+          full_name: cleanName,
+          phone: phoneE164,
+          email: cleanEmail,
+          email_verified_at:
+            currentUser.email_confirmed_at || new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }, {
+          onConflict: "user_id"
+        });
+
+      if (profileError) {
+        console.error("Citizen profile save failed:", profileError);
+
+        if (profileError.code === "23505") {
+          throw new Error(
+            "This email is already linked to another citizen account."
+          );
+        }
+
+        throw profileError;
+      }
+
+      setName(cleanName);
+      setPhone(digits);
+      setEmail(cleanEmail);
+      setEmailOtp(["", "", "", "", "", ""]);
+
+      go("Home");
+      notify("Email verified successfully. Welcome to NagrikAI.");
+
+    } catch (error) {
+      console.error("Email verification failed:", error);
+      if (error.message === "Failed to fetch") {
+        // Graceful offline fallback
+        const phoneE164 = `+91${digits}`;
+        const demoSession = {
+          user: {
+            id: "demo-user-" + digits,
+            email: cleanEmail,
+            phone: phoneE164,
+            user_metadata: { full_name: cleanName }
+          }
+        };
+        setAuthSession(demoSession);
+        try {
+          localStorage.setItem("nagrikai-demo-session", JSON.stringify(demoSession));
+        } catch { }
+        setName(cleanName);
+        setPhone(digits);
+        setEmail(cleanEmail);
+        setEmailOtp(["", "", "", "", "", ""]);
+        go("Home");
+        notify(`Welcome to NagrikAI, ${cleanName}! (Offline mode)`);
+      } else {
+        notify(error.message || "Incorrect or expired email OTP.");
+      }
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const toggleFilter = (name) => setFilters(v => v.includes(name) ? v.filter(x => x !== name) : [...v, name]);
   const checkNearbyReports = async () => {
     if (duplicateStatus === "loading") return;
 
@@ -890,37 +892,37 @@ const handleVerifyEmailOtp = async () => {
             locationDetails={locationDetails}
             locationStatus={locationStatus}
             onLocate={detectUserLocation}
-           />
-         )}
-        {screen === "Language" && <Language language={language} setLanguage={setLanguage} go={go}/>}
-        {screen === "Login" && <Login name={name} setName={setName} email={email} setEmail={setEmail} phone={phone} setPhone={setPhone} go={go} notify={notify} onSendOtp={handleSendOtp} authLoading={authLoading}/>}
-       {screen === "Email verification" && (
-  <EmailVerification
-    email={email}
-    emailOtp={emailOtp}
-    setEmailOtp={setEmailOtp}
-    go={go}
-    notify={notify}
-    onVerify={handleVerifyEmailOtp}
-    onResend={handleResendEmailOtp}
-    authLoading={authLoading}
-  />
-)}
+          />
+        )}
+        {screen === "Language" && <Language language={language} setLanguage={setLanguage} go={go} />}
+        {screen === "Login" && <Login name={name} setName={setName} email={email} setEmail={setEmail} phone={phone} setPhone={setPhone} go={go} notify={notify} onSendOtp={handleSendOtp} authLoading={authLoading} />}
+        {screen === "Email verification" && (
+          <EmailVerification
+            email={email}
+            emailOtp={emailOtp}
+            setEmailOtp={setEmailOtp}
+            go={go}
+            notify={notify}
+            onVerify={handleVerifyEmailOtp}
+            onResend={handleResendEmailOtp}
+            authLoading={authLoading}
+          />
+        )}
         {screen === "Home" && (
           <HomeScreen
-           go={go}
-           language={language}
-           name={name}
-           reportCount={reportCount}
-           notify={notify}
-           userLocation={userLocation}
-           locationDetails={locationDetails}
-           locationStatus={locationStatus}
-           onLocate={detectUserLocation}
-           weatherData={weatherData}
-           weatherStatus={weatherStatus}
-           weatherError={weatherError}
-           />
+            go={go}
+            language={language}
+            name={name}
+            reportCount={reportCount}
+            notify={notify}
+            userLocation={userLocation}
+            locationDetails={locationDetails}
+            locationStatus={locationStatus}
+            onLocate={detectUserLocation}
+            weatherData={weatherData}
+            weatherStatus={weatherStatus}
+            weatherError={weatherError}
+          />
         )}
         {screen === "Explore map" && (
           <ExploreMap
@@ -939,16 +941,16 @@ const handleVerifyEmailOtp = async () => {
             toggleIntelligenceLayer={toggleIntelligenceLayer}
           />
         )}
-        {screen === "Map filters" && <MapFilters filters={filters} toggleFilter={toggleFilter} distance={distance} setDistance={setDistance} intelligenceLayers={intelligenceLayers} toggleIntelligenceLayer={toggleIntelligenceLayer} go={go}/>}
-        {screen === "Capture report" && <CaptureReport issue={issue} setIssue={setIssue} description={description} setDescription={setDescription} photo={photo} setPhoto={setPhoto} category={category} setCategory={setCategory} userLocation={userLocation} locationStatus={locationStatus} locationDetails={locationDetails} onLocate={detectUserLocation} go={go} notify={notify}/>}
-        {screen === "Review report" && <ReviewReport issue={issue} description={description} photo={photo} category={category} severity={severity} setSeverity={setSeverity} go={go} onCheckDuplicates={checkNearbyReports} duplicateLoading={duplicateStatus === "loading"}/>}
-        {screen === "Possible duplicate" && <Duplicate go={go} issue={issue} matches={duplicateReports} status={duplicateStatus} error={duplicateError} onRetry={checkNearbyReports} onSubmitNew={submitReport} newLoading={submissionLoading} onAddEvidence={submitEvidence} evidenceLoading={evidenceLoading}/>}
-        {screen === "Report submitted" && <Submitted go={go} report={submittedReport}/>}
-        {screen === "Issue details" && <IssueDetails go={go} issue={issue}/>}
-        {screen === "GroundTruth AI" && <GroundTruth go={go}/>}
-        {screen === "Responsible authority" && <Authority go={go}/>}
-        {screen === "Complaint handoff" && <Handoff go={go} notify={notify}/>}
-        {screen === "Reference tracking" && <Tracking go={go}/>}
+        {screen === "Map filters" && <MapFilters filters={filters} toggleFilter={toggleFilter} distance={distance} setDistance={setDistance} intelligenceLayers={intelligenceLayers} toggleIntelligenceLayer={toggleIntelligenceLayer} go={go} />}
+        {screen === "Capture report" && <CaptureReport issue={issue} setIssue={setIssue} description={description} setDescription={setDescription} photo={photo} setPhoto={setPhoto} category={category} setCategory={setCategory} userLocation={userLocation} locationStatus={locationStatus} locationDetails={locationDetails} onLocate={detectUserLocation} go={go} notify={notify} />}
+        {screen === "Review report" && <ReviewReport issue={issue} description={description} photo={photo} category={category} severity={severity} setSeverity={setSeverity} go={go} onCheckDuplicates={checkNearbyReports} duplicateLoading={duplicateStatus === "loading"} />}
+        {screen === "Possible duplicate" && <Duplicate go={go} issue={issue} matches={duplicateReports} status={duplicateStatus} error={duplicateError} onRetry={checkNearbyReports} onSubmitNew={submitReport} newLoading={submissionLoading} onAddEvidence={submitEvidence} evidenceLoading={evidenceLoading} />}
+        {screen === "Report submitted" && <Submitted go={go} report={submittedReport} />}
+        {screen === "Issue details" && <IssueDetails go={go} issue={issue} />}
+        {screen === "GroundTruth AI" && <GroundTruth go={go} />}
+        {screen === "Responsible authority" && <Authority go={go} />}
+        {screen === "Complaint handoff" && <Handoff go={go} notify={notify} />}
+        {screen === "Reference tracking" && <Tracking go={go} />}
         {screen === "Weather & air" && (
           <Weather
             go={go}
@@ -961,11 +963,30 @@ const handleVerifyEmailOtp = async () => {
             locationStatus={locationStatus}
           />
         )}
-        {screen === "Ask NagrikAI" && <AskAI go={go} query={query} setQuery={setQuery} />}
-        {screen === "Voice assistant" && <Voice recording={recording} setRecording={setRecording} go={go} />}
+        {screen === "Ask NagrikAI" && (
+          <AskAI
+            go={go}
+            query={query}
+            setQuery={setQuery}
+            language={language}
+            setLanguage={setLanguage}
+          />
+        )}
+        {screen === "Voice assistant" && (
+          <Voice
+            recording={recording}
+            setRecording={setRecording}
+            go={go}
+            query={query}
+            setQuery={setQuery}
+            language={language}
+            setLanguage={setLanguage}
+          />
+        )}
         {screen === "Civic navigation" && <NavigationScreen go={go} />}
         {screen === "City analytics" && <Analytics go={go} />}
         {screen === "Profile" && <Profile go={go} reportCount={reportCount} />}
+        {screen === "Ask AI conversations" && <AskAIConversations go={go} />}
         {screen === "Report history" && <History go={go} />}
         {screen === "Notifications" && <Notifications go={go} enabled={notifications} setEnabled={setNotifications} />}
         {screen === "Accessibility" && <Accessibility go={go} values={accessibility} setValues={setAccessibility} />}
@@ -974,9 +995,9 @@ const handleVerifyEmailOtp = async () => {
         {screen === "Empty history" && <Empty go={go} />}
         {screen === "Connection error" && <Offline go={go} />}
       </main>
-      {!["Splash","Welcome","Language","Login","OTP verification"].includes(screen) &&
-        <BottomNav selected={selectedTab} nav={nav}/>}
-      {toast && <div className="toast"><CheckCircle2 size={15}/>{toast}</div>}
+      {!["Splash", "Welcome", "Language", "Login", "OTP verification"].includes(screen) &&
+        <BottomNav selected={selectedTab} nav={nav} />}
+      {toast && <div className="toast"><CheckCircle2 size={15} />{toast}</div>}
     </div>
     <aside className="screen-index">
       <div className="index-head"><div className="brand-mark small">N</div><div><b>NagrikAI</b><small>Prototype navigation</small></div></div>
@@ -1056,7 +1077,7 @@ function Welcome({
     : "Enable location to personalise your experience";
 
   return (
-            <div className="page">
+    <div className="page">
       <Label>YOUR CITY, DECODED.</Label>
 
       <div className="city-hero">
@@ -1107,9 +1128,9 @@ function Language({ language, setLanguage, go }) {
 }
 function Login({ name, setName, email, setEmail, phone, setPhone, go, notify, onSendOtp, authLoading }) {
   return <div className="page">
-    <StatusBarTitle title="Welcome to NagrikAI" back={()=>go("Language")}/>
+    <StatusBarTitle title="Welcome to NagrikAI" back={() => go("Language")} />
     <Label>02 / 03 &nbsp; SECURE SIGN-IN</Label>
-    <h1>Your voice.<br/>Your identity.</h1>
+    <h1>Your voice.<br />Your identity.</h1>
     <p className="muted">Create your secure citizen profile to report issues and track updates.</p>
 
     <Field
@@ -1283,7 +1304,7 @@ function OTP({ phone, otp, setOtp, go, notify, onVerify, authLoading }) {
     </div>
   );
 }
-function EmailVerification({email,emailOtp,setEmailOtp,go,notify,onVerify,authLoading}) {
+function EmailVerification({ email, emailOtp, setEmailOtp, go, notify, onVerify, authLoading }) {
   const handleOtpChange = (event, index) => {
     const entered = event.target.value.replace(/\D/g, "");
     const digits = entered.slice(0, 6 - index);
@@ -1324,14 +1345,14 @@ function EmailVerification({email,emailOtp,setEmailOtp,go,notify,onVerify,authLo
     const pasted = event.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
     if (!pasted) return;
 
-    setEmailOtp(Array.from({length: 6}, (_, index) => pasted[index] || ""));
+    setEmailOtp(Array.from({ length: 6 }, (_, index) => pasted[index] || ""));
     const inputs = event.currentTarget.parentElement.querySelectorAll("input");
     inputs[Math.min(pasted.length, 5)]?.focus();
   };
 
   return (
     <div className="page">
-      <StatusBarTitle title="Verify your email" back={() => go("OTP verification")}/>
+      <StatusBarTitle title="Verify your email" back={() => go("OTP verification")} />
       <Label>EMAIL VERIFICATION</Label>
       <h1>One last check.</h1>
       <p className="muted">
@@ -1444,7 +1465,377 @@ function HomeScreen({
   const now = useCurrentTime();
 
 
+  const [newsArticles, setNewsArticles] = useState([]);
+  const [newsStatus, setNewsStatus] = useState("idle");
+  const [newsError, setNewsError] = useState("");
   // Headlines are rendered via HeadlinesCarousel
+
+  const [expandedNewsUrl, setExpandedNewsUrl] = useState("");
+  const [newsDetails, setNewsDetails] = useState({});
+  const [newsDetailStatus, setNewsDetailStatus] = useState({});
+
+  const newsTerms = [
+    locationDetails?.locality,
+    locationDetails?.city,
+    locationDetails?.state
+  ]
+    .filter(value => typeof value === "string" && value.trim())
+    .map(value => value.trim());
+
+  const isGautamBudhNagar = newsTerms.some(
+    value => value.toLowerCase().includes("gautam budh nagar")
+  );
+
+  if (isGautamBudhNagar) {
+    newsTerms.push("Noida", "Greater Noida");
+  }
+
+  const uniqueNewsTerms = [...new Set(newsTerms)];
+
+  const newsLocation = uniqueNewsTerms.join(", ");
+
+  useEffect(() => {
+
+    const controller = new AbortController();
+    let active = true;
+    let hasLoaded = false;
+
+    const translateHeadline = async (title) => {
+      const cacheKey = `nagrikai-news-hi:${title}`;
+
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) return cached;
+
+      const params = new URLSearchParams({
+        q: title,
+        langpair: "en|hi"
+      });
+
+      const response = await fetch(
+        `https://api.mymemory.translated.net/get?${params}`,
+        { signal: controller.signal }
+      );
+
+      if (!response.ok) {
+        throw new Error("Hindi translation service unavailable.");
+      }
+
+      const result = await response.json();
+
+      if (
+        Number(result.responseStatus) !== 200 ||
+        !result.responseData?.translatedText
+      ) {
+        throw new Error(
+          result.responseDetails || "Hindi translation unavailable."
+        );
+      }
+
+      const translated = result.responseData.translatedText;
+
+      localStorage.setItem(cacheKey, translated);
+
+      return translated;
+    };
+
+    const loadNews = async () => {
+      try {
+        setNewsStatus(hasLoaded ? "refreshing" : "loading");
+        setNewsError("");
+
+        const query = "sourcecountry:IN sourcelang:English"; `(${uniqueNewsTerms
+          .map(term => `"${term.replace(/"/g, "")}"`)
+          .join(" OR ")}) sourcelang:english`;
+
+        const params = new URLSearchParams({
+          query,
+          mode: "ArtList",
+          format: "json",
+          maxrecords: "6",
+          timespan: "3d",
+          sort: "DateDesc"
+        });
+
+        const response = await fetch(
+          `https://api.gdeltproject.org/api/v2/doc/doc?${params}`,
+          { signal: controller.signal }
+        );
+
+        if (!response.ok) {
+          throw new Error(`News service returned ${response.status}.`);
+        }
+
+        const data = await response.json();
+
+        if (!Array.isArray(data.articles)) {
+          throw new Error("Unexpected news service response.");
+        }
+
+        const articles = data.articles
+          .filter(item => item.title && item.url)
+          .slice(0, 6)
+          .map(item => {
+            let source = item.domain || "News publisher";
+
+            try {
+              source = item.domain ||
+                new URL(item.url).hostname.replace(/^www\./, "");
+            } catch {
+              // Retain the available publisher name.
+            }
+
+            return {
+              title: item.title,
+              displayTitle: item.title,
+              url: item.url,
+              source,
+              seenDate: item.seendate || null,
+              translationFailed: false
+            };
+          });
+
+        let translatedArticles = articles;
+
+        if (language === "Hindi") {
+          translatedArticles = await Promise.all(
+            articles.map(async article => {
+              try {
+                return {
+                  ...article,
+                  displayTitle: await translateHeadline(article.title)
+                };
+              } catch (error) {
+                if (error.name === "AbortError") throw error;
+
+                return {
+                  ...article,
+                  displayTitle: "इस समाचार का हिंदी अनुवाद उपलब्ध नहीं है।",
+                  translationFailed: true
+                };
+              }
+            })
+          );
+        }
+
+        if (!active) return;
+
+        setNewsArticles(translatedArticles);
+        setNewsStatus("success");
+        setNewsError("");
+        hasLoaded = true;
+
+      } catch (error) {
+        if (error.name === "AbortError") return;
+        if (!active) return;
+
+        console.error("NagrikAI news error:", error);
+
+        setNewsStatus("error");
+        setNewsError(error.message || "Unable to load news.");
+      }
+    };
+
+    loadNews();
+
+    const refresh = window.setInterval(
+      loadNews,
+      15 * 60 * 1000
+    );
+
+    return () => {
+      active = false;
+      controller.abort();
+      window.clearInterval(refresh);
+    };
+
+  }, [language]);
+
+  const formatNewsDate = value => {
+    if (!value) return "समय उपलब्ध नहीं है";
+
+    const match = String(value).match(
+      /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/
+    );
+
+    const handleNewsClick = async (article) => {
+      if (expandedNewsUrl === article.url) {
+        setExpandedNewsUrl("");
+        return;
+      }
+
+      setExpandedNewsUrl(article.url);
+
+      if (
+        newsDetails[article.url] ||
+        newsDetailStatus[article.url] === "loading"
+      ) {
+        return;
+      }
+
+      setNewsDetailStatus(prev => ({
+        ...prev,
+        [article.url]: "loading"
+      }));
+
+      try {
+        const hostname = new URL(article.url).hostname.replace(/^www\./, "");
+
+        const stopWords = new Set([
+          "the", "and", "for", "with", "from", "that",
+          "this", "have", "has", "was", "were", "will",
+          "after", "before", "over", "into", "about",
+          "says", "said", "their", "they", "there",
+          "been", "being", "what", "when", "where"
+        ]);
+
+        const keywords = article.title
+          .toLowerCase()
+          .replace(/[^a-z0-9\s]/g, " ")
+          .split(/\s+/)
+          .filter(word => word.length > 3 && !stopWords.has(word))
+          .slice(0, 3);
+
+        if (!keywords.length) {
+          throw new Error("Could not identify article search terms.");
+        }
+
+        const params = new URLSearchParams({
+          query: `domain:${hostname} ${keywords.join(" ")}`,
+          mode: "artlist",
+          format: "json",
+          maxrecords: "10",
+          timespan: "24h",
+          sort: "DateDesc"
+        });
+
+        const response = await fetch(
+          `https://api.gdeltproject.org/api/v2/context/context?${params}`
+        );
+
+        if (!response.ok) {
+          throw new Error("Unable to retrieve article context.");
+        }
+
+        const data = await response.json();
+
+        const articles = Array.isArray(data.articles)
+          ? data.articles
+          : [];
+
+        const normalizeUrl = value => {
+          try {
+            const parsed = new URL(value);
+            return (
+              parsed.hostname.toLowerCase().replace(/^www\./, "") +
+              parsed.pathname.replace(/\/+$/, "")
+            );
+          } catch {
+            return "";
+          }
+        };
+
+        const matchedArticle = articles.find(
+          item => normalizeUrl(item.url) === normalizeUrl(article.url)
+        );
+
+        const rawContext = (
+          matchedArticle?.context ||
+          matchedArticle?.sentence ||
+          ""
+        ).trim().slice(0, 450);
+
+        let summary = rawContext;
+
+        if (!rawContext) {
+          summary = language === "Hindi"
+            ? "इस समाचार का विस्तृत संदर्भ अभी उपलब्ध नहीं है।"
+            : "No matching article context is available from the news index.";
+        }
+
+        if (rawContext && language === "Hindi") {
+          const cacheKey = `nagrikai-news-context-hi:${rawContext}`;
+
+          try {
+            const cached = localStorage.getItem(cacheKey);
+
+            if (cached) {
+              summary = cached;
+            } else {
+              const translationParams = new URLSearchParams({
+                q: rawContext,
+                langpair: "en|hi"
+              });
+
+              const translationResponse = await fetch(
+                `https://api.mymemory.translated.net/get?${translationParams}`
+              );
+
+              const translationData = await translationResponse.json();
+
+              if (
+                !translationResponse.ok ||
+                Number(translationData.responseStatus) !== 200 ||
+                !translationData.responseData?.translatedText
+              ) {
+                throw new Error("Hindi translation unavailable.");
+              }
+
+              summary = translationData.responseData.translatedText;
+              localStorage.setItem(cacheKey, summary);
+            }
+          } catch (translationError) {
+            console.error("Article translation error:", translationError);
+            summary = "इस समाचार का हिंदी संदर्भ अभी उपलब्ध नहीं है। मूल लेख के लिए स्रोत लिंक खोलें।";
+          }
+        }
+
+        setNewsDetails(prev => ({
+          ...prev,
+          [article.url]: {
+            summary,
+            hasContext: Boolean(rawContext),
+            source: article.source,
+            date: article.seenDate
+          }
+        }));
+
+        setNewsDetailStatus(prev => ({
+          ...prev,
+          [article.url]: "success"
+        }));
+
+      } catch (error) {
+        console.error("Article details error:", error);
+
+        setNewsDetailStatus(prev => ({
+          ...prev,
+          [article.url]: "error"
+        }));
+      }
+    };
+
+
+    const date = match
+      ? new Date(
+        `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}Z`
+      )
+      : new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      return "Time unavailable";
+    }
+
+    return date.toLocaleString(
+      language === "Hindi" ? "hi-IN" : "en-IN",
+      {
+        day: "numeric",
+        month: "short",
+        hour: "numeric",
+        minute: "2-digit"
+      }
+    );
+  };
+
 
   const dateText = new Intl.DateTimeFormat(undefined, {
     weekday: "long",
@@ -1517,45 +1908,45 @@ function HomeScreen({
     : [];
 
   return (
-        <div className="page home-sky">
+    <div className="page home-sky">
       <div className="wsky-anchor">
         <WeatherSky
           weather={
             currentWeather && dailyWeather
               ? {
-                  code: currentWeather.weather_code,
-                  isDay: currentWeather.is_day,
-                  time: currentWeather.time,
-                  sunrise: dailyWeather?.sunrise?.[0] || null,
-                  sunset: dailyWeather?.sunset?.[0] || null
-                }
+                code: currentWeather.weather_code,
+                isDay: currentWeather.is_day,
+                time: currentWeather.time,
+                sunrise: dailyWeather?.sunrise?.[0] || null,
+                sunset: dailyWeather?.sunset?.[0] || null
+              }
               : null
           }
         />
       </div>
 
       <div className="home-heading">
-  <div>
-    <h2>
-      {language === "Hindi"
-        ? `नमस्ते, ${name?.trim() ? "प्रतीक" : "नागरिक"}`
-        : `Hello, ${name?.trim() || "Citizen"}`}
-    </h2>
+        <div>
+          <h2>
+            {language === "Hindi"
+              ? `नमस्ते, ${name?.trim() ? "प्रतीक" : "नागरिक"}`
+              : `Hello, ${name?.trim() || "Citizen"}`}
+          </h2>
 
-    <p>
-      {language === "Hindi" ? "आप यहाँ हैं" : "You're at"}
-    </p>
+          <p>
+            {language === "Hindi" ? "आप यहाँ हैं" : "You're at"}
+          </p>
 
-    <h3>{placeName}</h3>
-  </div>
+          <h3>{placeName}</h3>
+        </div>
 
-  <button
-    className="icon-btn"
-    onClick={() => go("Notifications")}
-  >
-    <Bell size={18} />
-  </button>
-</div>
+        <button
+          className="icon-btn"
+          onClick={() => go("Notifications")}
+        >
+          <Bell size={18} />
+        </button>
+      </div>
 
       {!userLocation && (
         <Button
@@ -1637,14 +2028,14 @@ function HomeScreen({
                   {index === hourlyStart
                     ? "NOW"
                     : (() => {
-                        const v = hourlyWeather.time[index];
-                        const [datePart, timePart] = v.split("T");
-                        const [yr, mo, dy] = datePart.split("-").map(Number);
-                        const [hr, mn] = (timePart || "00:00").split(":").map(Number);
-                        return new Date(yr, mo - 1, dy, hr, mn || 0).toLocaleTimeString([], {
-                          hour: "numeric"
-                        });
-                      })()}
+                      const v = hourlyWeather.time[index];
+                      const [datePart, timePart] = v.split("T");
+                      const [yr, mo, dy] = datePart.split("-").map(Number);
+                      const [hr, mn] = (timePart || "00:00").split(":").map(Number);
+                      return new Date(yr, mo - 1, dy, hr, mn || 0).toLocaleTimeString([], {
+                        hour: "numeric"
+                      });
+                    })()}
                 </small>
 
                 <WeatherVisual
@@ -1669,11 +2060,170 @@ function HomeScreen({
       )}
 
 
+      <Label>{language === "Hindi"
+        ? "भारत • GDELT News • हर 15 मिनट में अपडेट"
+        : "India-wide • GDELT News • Updates every 15 minutes"}</Label>
       <HeadlinesCarousel
         language={language}
         locationDetails={locationDetails}
         notify={notify}
       />
+
+      <Card className="insight news-panel">
+        <div className="split">
+          <b className="green">
+            {language === "Hindi" ? "ताज़ा सुर्खियाँ" : "LATEST HEADLINES"}
+          </b>
+
+          <small className="muted">
+            {newsStatus === "loading"
+              ? language === "Hindi" ? "खबरें खोज रहे हैं..." : "Fetching..."
+              : newsStatus === "refreshing"
+                ? language === "Hindi" ? "अपडेट हो रहा है..." : "Updating..."
+                : newsStatus === "success"
+                  ? language === "Hindi" ? "लाइव फ़ीड" : "Live feed"
+                  : language === "Hindi" ? "उपलब्ध नहीं" : "Unavailable"}
+          </small>
+        </div>
+
+        {newsStatus === "loading" && newsArticles.length === 0 && (
+          <p className="muted">
+            {language === "Hindi"
+              ? `${newsLocation} की खबरें खोजी जा रही हैं...`
+              : `Finding recent news for ${newsLocation}...`}
+          </p>
+        )}
+
+        {newsError && <p className="amber">{newsError}</p>}
+
+        {newsArticles.map((article, index) => {
+          const isExpanded = expandedNewsUrl === article.url;
+          const detailStatus = newsDetailStatus[article.url];
+          const details = newsDetails[article.url];
+
+          return (
+            <div className="news-item" key={article.url}>
+              <button
+                className="news-headline-button"
+                onClick={() => handleNewsClick(article)}
+              >
+                <span className="news-number">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+
+                <span className="news-headline-text">
+                  {article.displayTitle}
+                </span>
+
+                <ChevronDown
+                  size={17}
+                  className={isExpanded ? "news-chevron expanded" : "news-chevron"}
+                />
+              </button>
+
+              {article.translationFailed && (
+                <small className="amber">
+                  {language === "Hindi"
+                    ? "हिंदी अनुवाद उपलब्ध नहीं है"
+                    : "Translation unavailable"}
+                </small>
+              )}
+
+              <div className="news-meta">
+                <span>{article.source}</span>
+                <span>•</span>
+                <span>
+                  {language === "Hindi" ? "इंडेक्स समय: " : "Indexed: "}
+                  {formatNewsDate(article.seenDate)}
+                </span>
+              </div>
+
+              {isExpanded && (
+                <div className="news-details">
+                  {detailStatus === "loading" && (
+                    <p className="muted">
+                      {language === "Hindi"
+                        ? "लेख का संदर्भ प्राप्त किया जा रहा है..."
+                        : "Retrieving article context..."}
+                    </p>
+                  )}
+
+                  {detailStatus === "error" && (
+                    <p className="amber">
+                      {language === "Hindi"
+                        ? "लेख का सारांश अभी उपलब्ध नहीं है। मूल समाचार स्रोत देखें।"
+                        : "Article context is unavailable. Please open the original source."}
+                    </p>
+                  )}
+
+                  {details && (
+                    <>
+                      <b className="green">
+                        {language === "Hindi"
+                          ? "लेख का संदर्भ"
+                          : "ARTICLE CONTEXT"}
+                      </b>
+
+                      <p>{details.summary}</p>
+
+                      {!details.hasContext && (
+                        <small className="muted">
+                          {language === "Hindi"
+                            ? "स्रोत से मिलान किया गया संदर्भ उपलब्ध नहीं था।"
+                            : "No matching article context was returned by the source."}
+                        </small>
+                      )}
+                    </>
+                  )}
+
+                  <a
+                    className="news-source-link"
+                    href={article.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {language === "Hindi"
+                      ? `पूरा समाचार पढ़ें · ${article.source}`
+                      : `Read full article · ${article.source}`}
+                    <ArrowRight size={13} />
+                  </a>
+                </div>
+              )}
+
+              <a
+                className="news-small-source"
+                href={article.url}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {language === "Hindi" ? "स्रोत देखें" : "View source"}
+              </a>
+            </div>
+          );
+        })}
+
+        {newsStatus === "success" && newsArticles.length === 0 && (
+          <p className="muted">
+            {language === "Hindi"
+              ? "इस स्थान के लिए हाल की खबरें नहीं मिलीं।"
+              : "No recent headlines matched this location."}
+          </p>
+        )}
+
+        {newsStatus === "error" && newsArticles.length === 0 && (
+          <p className="muted">
+            {language === "Hindi"
+              ? "अभी स्थानीय खबरें लोड नहीं हो सकीं।"
+              : "Local headlines could not be loaded right now."}
+          </p>
+        )}
+
+        <p className="hint">
+          {language === "Hindi"
+            ? `स्थान: ${newsLocation} • GDELT News • हर 15 मिनट में अपडेट`
+            : `Location: ${newsLocation} • GDELT News • Updates every 15 minutes`}
+        </p>
+      </Card>
 
       <Card>
         <div className="split">
@@ -1880,24 +2430,24 @@ function ExploreMap({
 
       try {
         const params = new URLSearchParams({
-  latitude: String(userLocation.lat),
-  longitude: String(userLocation.lng),
+          latitude: String(userLocation.lat),
+          longitude: String(userLocation.lng),
 
-  current:
-    "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,rain,showers,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure,visibility,uv_index,dew_point_2m",
+          current:
+            "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,rain,showers,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure,visibility,uv_index,dew_point_2m",
 
-  hourly:
-    "temperature_2m,precipitation_probability,precipitation,rain,weather_code,is_day",
+          hourly:
+            "temperature_2m,precipitation_probability,precipitation,rain,weather_code,is_day",
 
-  daily:
-    "temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,weather_code,sunrise,sunset,uv_index_max",
+          daily:
+            "temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,weather_code,sunrise,sunset,uv_index_max",
 
-  temperature_unit: "celsius",
-  wind_speed_unit: "kmh",
-  precipitation_unit: "mm",
-  forecast_days: "7",
-  timezone: "Asia/Kolkata"
-});
+          temperature_unit: "celsius",
+          wind_speed_unit: "kmh",
+          precipitation_unit: "mm",
+          forecast_days: "7",
+          timezone: "Asia/Kolkata"
+        });
 
         if (userLocation) {
           params.set("lat", userLocation.lat);
@@ -3691,8 +4241,8 @@ function CaptureReport({ issue, setIssue, description, setDescription, photo, se
           <b>
             {locationStatus === "success"
               ? [locationDetails?.locality, locationDetails?.city, locationDetails?.state, locationDetails?.country]
-                  .filter((value, index, all) => value && all.indexOf(value) === index)
-                  .join(", ") || "Current location detected"
+                .filter((value, index, all) => value && all.indexOf(value) === index)
+                .join(", ") || "Current location detected"
               : locationStatus === "loading"
                 ? "Detecting your location..."
                 : "Location not detected"}
@@ -3734,37 +4284,37 @@ function CaptureReport({ issue, setIssue, description, setDescription, photo, se
   );
 }
 
-function ReviewReport({issue,description,photo,category,severity,setSeverity,go,onCheckDuplicates,duplicateLoading}) {
-  return <div className="page"><StatusBarTitle title="Review your report" back={()=>go("Capture report")}/><Label>02 / 03 &nbsp; REPORT REVIEW</Label><div className="camera-thumb">
-  {photo?.previewUrl ? (
-    <img
-      src={photo.previewUrl}
-      alt="Selected report evidence"
-      style={{
-        width:"100%",
-        height:"100%",
-        objectFit:"cover",
-        borderRadius:"12px"
-      }}
-    />
-  ) : (
-    <>
-      <Camera size={24}/>
-      <small>No photo selected</small>
-    </>
-  )}
-</div>
-<Card>
-  <div className="split">
-    <b>AI image analysis</b>
-    <span className="muted">Not connected</span>
+function ReviewReport({ issue, description, photo, category, severity, setSeverity, go, onCheckDuplicates, duplicateLoading }) {
+  return <div className="page"><StatusBarTitle title="Review your report" back={() => go("Capture report")} /><Label>02 / 03 &nbsp; REPORT REVIEW</Label><div className="camera-thumb">
+    {photo?.previewUrl ? (
+      <img
+        src={photo.previewUrl}
+        alt="Selected report evidence"
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          borderRadius: "12px"
+        }}
+      />
+    ) : (
+      <>
+        <Camera size={24} />
+        <small>No photo selected</small>
+      </>
+    )}
   </div>
-  <p>Automated image verification is not available yet.</p>
-  <small className="muted">
-    Please review your photo against the title, description and category.
-    No AI detection or confidence score has been generated.
-  </small>
-</Card><Card><b>Issue title</b><p>{issue}</p><b>Category</b><p>{category}</p><b>Severity</b><div className="chip-wrap">{["Low","Medium","High"].map(x=><button className={`chip ${severity===x?"on":""}`} onClick={()=>setSeverity(x)} key={x}>{x}</button>)}</div>{description && <><b>Issue description</b><p>{description}</p></>}</Card><Button onClick={onCheckDuplicates} disabled={duplicateLoading}>{duplicateLoading ? "Checking nearby reports..." : "Check nearby duplicates"}</Button><Button secondary onClick={()=>go("Capture report")}>Retake photo</Button></div>;
+    <Card>
+      <div className="split">
+        <b>AI image analysis</b>
+        <span className="muted">Not connected</span>
+      </div>
+      <p>Automated image verification is not available yet.</p>
+      <small className="muted">
+        Please review your photo against the title, description and category.
+        No AI detection or confidence score has been generated.
+      </small>
+    </Card><Card><b>Issue title</b><p>{issue}</p><b>Category</b><p>{category}</p><b>Severity</b><div className="chip-wrap">{["Low", "Medium", "High"].map(x => <button className={`chip ${severity === x ? "on" : ""}`} onClick={() => setSeverity(x)} key={x}>{x}</button>)}</div>{description && <><b>Issue description</b><p>{description}</p></>}</Card><Button onClick={onCheckDuplicates} disabled={duplicateLoading}>{duplicateLoading ? "Checking nearby reports..." : "Check nearby duplicates"}</Button><Button secondary onClick={() => go("Capture report")}>Retake photo</Button></div>;
 }
 function Duplicate({
   go,
@@ -3862,7 +4412,7 @@ function Duplicate({
   );
 }
 
-function Submitted({go, report}) {
+function Submitted({ go, report }) {
   const evidenceAdded = report?.evidenceAdded === true;
   const reportNumber = report?.report_number;
 
@@ -3873,7 +4423,7 @@ function Submitted({go, report}) {
         back={() => go("Home")}
       />
       <Card className="success-card">
-        <CheckCircle2 size={38}/>
+        <CheckCircle2 size={38} />
         <h2>{evidenceAdded ? "Evidence added." : "Report submitted."}</h2>
         <p>
           {evidenceAdded
@@ -4168,68 +4718,68 @@ function Weather({
   };
 
   const aqiResult = calculateCpcbAqi(airQuality?.hourly);
-const aqiVal = aqiResult?.value ?? null;
+  const aqiVal = aqiResult?.value ?? null;
 
-const getAqiDetails = (aqi) => {
-  if (aqi === null) {
+  const getAqiDetails = (aqi) => {
+    if (aqi === null) {
+      return {
+        label: "Unavailable",
+        color: "#8b9aa4",
+        desc: "Insufficient pollutant observations to calculate a reliable CPCB-style AQI."
+      };
+    }
+
+    if (aqi <= 50) {
+      return {
+        label: "Good",
+        color: "#2bd9a2",
+        desc: "Air quality is good. Minimal impact on health."
+      };
+    }
+
+    if (aqi <= 100) {
+      return {
+        label: "Satisfactory",
+        color: "#a3cf62",
+        desc: "Minor breathing discomfort may occur to sensitive people."
+      };
+    }
+
+    if (aqi <= 200) {
+      return {
+        label: "Moderate",
+        color: "#f4c44e",
+        desc: "People with lung, asthma or heart conditions may experience discomfort."
+      };
+    }
+
+    if (aqi <= 300) {
+      return {
+        label: "Poor",
+        color: "#fa8c16",
+        desc: "Prolonged exposure may cause breathing discomfort to most people."
+      };
+    }
+
+    if (aqi <= 400) {
+      return {
+        label: "Very Poor",
+        color: "#9254de",
+        desc: "Prolonged exposure may cause respiratory illness."
+      };
+    }
+
     return {
-      label: "Unavailable",
-      color: "#8b9aa4",
-      desc: "Insufficient pollutant observations to calculate a reliable CPCB-style AQI."
+      label: "Severe",
+      color: "#ff1f4b",
+      desc: "Health effects may occur even in healthy people. Avoid outdoor exertion."
     };
-  }
-
-  if (aqi <= 50) {
-    return {
-      label: "Good",
-      color: "#2bd9a2",
-      desc: "Air quality is good. Minimal impact on health."
-    };
-  }
-
-  if (aqi <= 100) {
-    return {
-      label: "Satisfactory",
-      color: "#a3cf62",
-      desc: "Minor breathing discomfort may occur to sensitive people."
-    };
-  }
-
-  if (aqi <= 200) {
-    return {
-      label: "Moderate",
-      color: "#f4c44e",
-      desc: "People with lung, asthma or heart conditions may experience discomfort."
-    };
-  }
-
-  if (aqi <= 300) {
-    return {
-      label: "Poor",
-      color: "#fa8c16",
-      desc: "Prolonged exposure may cause breathing discomfort to most people."
-    };
-  }
-
-  if (aqi <= 400) {
-    return {
-      label: "Very Poor",
-      color: "#9254de",
-      desc: "Prolonged exposure may cause respiratory illness."
-    };
-  }
-
-  return {
-    label: "Severe",
-    color: "#ff1f4b",
-    desc: "Health effects may occur even in healthy people. Avoid outdoor exertion."
   };
-};
 
-const aqiInfo = getAqiDetails(aqiVal);
-const aqiPercent = aqiVal === null
-  ? 0
-  : Math.min(100, Math.max(0, (aqiVal / 500) * 100));
+  const aqiInfo = getAqiDetails(aqiVal);
+  const aqiPercent = aqiVal === null
+    ? 0
+    : Math.min(100, Math.max(0, (aqiVal / 500) * 100));
 
   return (
     <div className="page">
@@ -4446,20 +4996,20 @@ const aqiPercent = aqiVal === null
             </div>
 
             <div className="aqi-pollutants">
-  <span>
-    <b>PM2.5:</b>{" "}
-    {typeof aqiResult?.averages?.pm2_5 === "number"
-      ? `${Math.round(aqiResult.averages.pm2_5)} µg/m³`
-      : "Unavailable"}
-  </span>
+              <span>
+                <b>PM2.5:</b>{" "}
+                {typeof aqiResult?.averages?.pm2_5 === "number"
+                  ? `${Math.round(aqiResult.averages.pm2_5)} µg/m³`
+                  : "Unavailable"}
+              </span>
 
-  <span>
-    <b>PM10:</b>{" "}
-    {typeof aqiResult?.averages?.pm10 === "number"
-      ? `${Math.round(aqiResult.averages.pm10)} µg/m³`
-      : "Unavailable"}
-  </span>
-</div>
+              <span>
+                <b>PM10:</b>{" "}
+                {typeof aqiResult?.averages?.pm10 === "number"
+                  ? `${Math.round(aqiResult.averages.pm10)} µg/m³`
+                  : "Unavailable"}
+              </span>
+            </div>
 
             <p className="aqi-advice">
               {aqiInfo.desc}
@@ -4574,12 +5124,7 @@ const aqiPercent = aqiVal === null
   );
 }
 
-function AskAI({ go, query, setQuery }) {
-  return <div className="page"><StatusBarTitle title="Ask NagrikAI" back={() => go("Home")} /><Label>✦ CITY-AWARE AI</Label><div className="chat-bubble user">How should I get to Pari Chowk today?</div><Card><b className="green">Skip the jam. Keep the morning.</b><p>From Alpha II, take the Knowledge Park route, add 8 min but avoids the reported pothole and slow traffic near Pari Chowk.</p><p>Pari Chowk is auctioning for a parking lot. Let's skip the role.</p><small className="muted">Based on 2 reports • Sample traffic data</small></Card><Button onClick={() => go("Civic navigation")}>Show safer route</Button><Button secondary onClick={() => go("Weather & air")}>What is the air quality like?</Button><div className="chat-input"><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Ask about your city..." /><button onClick={() => { setQuery(""); }}><Send size={17} /></button></div><p className="hint">AI responses are simulated in this frontend prototype.</p></div>;
-}
-function Voice({ recording, setRecording, go }) {
-  return <div className="page"><StatusBarTitle title="Speak your city" back={() => go("Ask NagrikAI")} /><Label>VOICE MODE • ENGLISH / हिन्दी</Label><h1>Go ahead.<br />I'm listening.</h1><button className={`voice-orb ${recording ? "recording" : ""}`} onClick={() => setRecording(!recording)}><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /></button><p className="green center">{recording ? "● Recording — tap to stop" : "● Ready to review · 00:04"}</p><Card><b>TRANSCRIPT</b><p>“Alpha II se Pari Chowk jaane ka safer route batao.”</p></Card><Button onClick={() => go("Civic navigation")}>Use this question</Button><Button secondary onClick={() => setRecording(false)}>{recording ? "Stop recording" : "Cancel recording"}</Button><p className="hint">Microphone permission is not requested in this demo. Connect Web Speech API for live voice.</p></div>;
-}
+// AskAI and Voice are imported from ./AskAIScreen
 function NavigationScreen({ go }) {
   return <div className="page"><StatusBarTitle title="Safer ways forward" back={() => go("Explore map")} /><Card><small className="muted">FROM &nbsp; Alpha II market</small><b>TO &nbsp; Pari Chowk metro station</b></Card><MiniMap onClick={() => go("Explore map")} /><Card><div className="split"><b>Via Knowledge Park • 4.6 km</b><b className="green">12 min</b></div><p className="muted">Avoids 1 pothole & a slow-traffic segment</p></Card><Card><div className="split"><b>Shortest · Alpha II road</b><span className="amber">18 min</span></div><p className="muted">3.0 km • 1 reported road hazard</p></Card><Button onClick={() => go("Explore map")}>View hazards on route</Button><p className="hint">Routes and travel times are illustrative. Not for live navigation.</p></div>;
 }
@@ -4587,7 +5132,7 @@ function Analytics({ go }) {
   return <div className="page"><StatusBarTitle title="City intelligence" back={() => go("Home")} /><Label>GREATER NOIDA / LAST 30 DAYS</Label><div className="metric-grid"><Card><strong>1,284</strong><small>Reports</small></Card><Card><strong>68%</strong><small>Resolved</small></Card><Card><strong>2.8d</strong><small>Median fix</small></Card></div><Card><div className="split"><b>REPORTS BY WEEK</b><span className="green">−18%</span></div><div className="bars">{[68, 55, 74, 62].map((v, i) => <div key={i}><i style={{ height: v + "%" }} /><small>W{i + 1}</small></div>)}</div></Card><Card><b>Where the city needs attention</b><p>1 &nbsp; Pari Chowk <span className="right">86 reports</span></p><p>2 &nbsp; Alpha II <span className="right">54 reports</span></p><p>3 &nbsp; Surajpur <span className="right">39 reports</span></p></Card><p className="hint">Sample data • Not an official civic statistics source.</p></div>;
 }
 
-function Profile({go}) {
+function Profile({ go }) {
   const [profile, setProfile] = useState(null);
   const [loadStatus, setLoadStatus] = useState("loading");
   const [loadError, setLoadError] = useState("");
@@ -4596,102 +5141,102 @@ function Profile({go}) {
     let active = true;
 
 
-const loadProfile = async () => {
-  if (!isSupabaseConfigured) {
-    let userName = "NagrikAI Citizen";
-    let userPhone = "+919876543210";
-    let userEmail = "citizen@nagrikai.org";
-    try {
-      const saved = localStorage.getItem("nagrikai-demo-session");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.user) {
-          userName = parsed.user.user_metadata?.full_name || userName;
-          userPhone = parsed.user.phone || userPhone;
-          userEmail = parsed.user.email || userEmail;
+    const loadProfile = async () => {
+      if (!isSupabaseConfigured) {
+        let userName = "NagrikAI Citizen";
+        let userPhone = "+919876543210";
+        let userEmail = "citizen@nagrikai.org";
+        try {
+          const saved = localStorage.getItem("nagrikai-demo-session");
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (parsed.user) {
+              userName = parsed.user.user_metadata?.full_name || userName;
+              userPhone = parsed.user.phone || userPhone;
+              userEmail = parsed.user.email || userEmail;
+            }
+          }
+        } catch { }
+
+        if (active) {
+          setProfile({
+            fullName: userName,
+            phone: userPhone,
+            email: userEmail,
+            joinedAt: new Date().toISOString(),
+            reportCount: 8,
+            resolvedCount: 6,
+            openCount: 2
+          });
+          setLoadStatus("success");
+        }
+        return;
+      }
+
+      try {
+        const { data: authData, error: authError } = await supabase.auth.getUser();
+
+        if (authError) throw authError;
+        if (!authData?.user) {
+          throw new Error("Please sign in to view your profile.");
+        }
+
+        const user = authData.user;
+
+        // Fetch saved citizen details
+        const { data: citizenData, error: citizenError } = await supabase
+          .from("citizen_profiles")
+          .select("full_name, phone, email, email_verified_at, updated_at")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (citizenError) throw citizenError;
+
+        // Fetch citizen's report statistics
+        const { data: reportsData, error: reportsError } = await supabase
+          .from("reports")
+          .select("status")
+          .eq("user_id", user.id);
+
+        if (reportsError) throw reportsError;
+
+        const userReports = Array.isArray(reportsData) ? reportsData : [];
+
+        const resolvedCount = userReports.filter(
+          report => report.status === "Resolved"
+        ).length;
+
+        if (active) {
+          setProfile({
+            fullName:
+              citizenData?.full_name ||
+              user.user_metadata?.full_name ||
+              "NagrikAI Citizen",
+            phone:
+              citizenData?.phone ||
+              user.phone ||
+              "Phone number unavailable",
+            email:
+              citizenData?.email ||
+              user.email ||
+              "Email unavailable",
+            joinedAt: user.created_at,
+            reportCount: userReports.length,
+            resolvedCount,
+            openCount: userReports.length - resolvedCount
+          });
+
+          setLoadStatus("success");
+        }
+      } catch (error) {
+        console.error("Profile loading failed:", error);
+
+        if (active) {
+          setLoadError(error.message || "Could not load your profile.");
+          setLoadStatus("error");
         }
       }
-    } catch {}
-
-    if (active) {
-      setProfile({
-        fullName: userName,
-        phone: userPhone,
-        email: userEmail,
-        joinedAt: new Date().toISOString(),
-        reportCount: 8,
-        resolvedCount: 6,
-        openCount: 2
-      });
-      setLoadStatus("success");
-    }
-    return;
-  }
-
-  try {
-    const { data: authData, error: authError } = await supabase.auth.getUser();
-
-    if (authError) throw authError;
-    if (!authData?.user) {
-      throw new Error("Please sign in to view your profile.");
-    }
-
-    const user = authData.user;
-
-    // Fetch saved citizen details
-    const { data: citizenData, error: citizenError } = await supabase
-      .from("citizen_profiles")
-      .select("full_name, phone, email, email_verified_at, updated_at")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (citizenError) throw citizenError;
-
-    // Fetch citizen's report statistics
-    const { data: reportsData, error: reportsError } = await supabase
-      .from("reports")
-      .select("status")
-      .eq("user_id", user.id);
-
-    if (reportsError) throw reportsError;
-
-    const userReports = Array.isArray(reportsData) ? reportsData : [];
-
-    const resolvedCount = userReports.filter(
-      report => report.status === "Resolved"
-    ).length;
-
-    if (active) {
-      setProfile({
-        fullName:
-          citizenData?.full_name ||
-          user.user_metadata?.full_name ||
-          "NagrikAI Citizen",
-        phone:
-          citizenData?.phone ||
-          user.phone ||
-          "Phone number unavailable",
-        email:
-          citizenData?.email ||
-          user.email ||
-          "Email unavailable",
-        joinedAt: user.created_at,
-        reportCount: userReports.length,
-        resolvedCount,
-        openCount: userReports.length - resolvedCount
-      });
-
-      setLoadStatus("success");
-    }
-  } catch (error) {
-    console.error("Profile loading failed:", error);
-
-    if (active) {
-      setLoadError(error.message || "Could not load your profile.");
-      setLoadStatus("error");
-    }
-  }
-};
+    };
 
 
     loadProfile();
@@ -4703,10 +5248,10 @@ const loadProfile = async () => {
       <StatusBarTitle title="Your civic footprint" back={() => go("Home")} />
 
       <Card className="profile-card">
-       <div className="avatar">
-        {(profile?.fullName || "N").charAt(0).toUpperCase()}
-       </div>
-       <h2>{profile?.fullName || "NagrikAI Citizen"}</h2>
+        <div className="avatar">
+          {(profile?.fullName || "N").charAt(0).toUpperCase()}
+        </div>
+        <h2>{profile?.fullName || "NagrikAI Citizen"}</h2>
 
         {loadStatus === "success" && (
           <>
@@ -4715,9 +5260,9 @@ const loadProfile = async () => {
             <small className="muted">
               Joined {profile.joinedAt
                 ? new Date(profile.joinedAt).toLocaleDateString("en-IN", {
-                    month: "long",
-                    year: "numeric"
-                  })
+                  month: "long",
+                  year: "numeric"
+                })
                 : "date unavailable"}
             </small>
           </>
@@ -4744,6 +5289,7 @@ const loadProfile = async () => {
       )}
 
       {[
+        ["Ask AI conversations", "Ask AI conversations"],
         ["Your reports", "Report history"],
         ["Notifications", "Notifications"],
         ["Accessibility", "Accessibility"],
@@ -4751,13 +5297,13 @@ const loadProfile = async () => {
         ["Language / English & हिन्दी", "Language"]
       ].map(([x, y]) => (
         <button className="menu-row" key={x} onClick={() => go(y)}>
-          {x}<ChevronRight size={16}/>
+          {x}<ChevronRight size={16} />
         </button>
       ))}
     </div>
   );
 }
-function History({go}) {
+function History({ go }) {
   const [reports, setReports] = useState([]);
   const [loadStatus, setLoadStatus] = useState("loading");
   const [loadError, setLoadError] = useState("");
