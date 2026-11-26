@@ -51,7 +51,7 @@ import {
   Mic, MicOff, Moon, Navigation, Phone, Plus, RefreshCw, Search, Send, Settings, Shield,
   ShieldCheck, SlidersHorizontal, Sparkles, Sun, Sunrise, Sunset, TrendingUp, User, Users,
   Volume2, VolumeX, WifiOff, Wind, X, Camera, Image as ImageIcon,
-  MessageCircle, BarChart3, Phone, Mail, Calendar, Trash2, Minus
+  MessageCircle, BarChart3, Trash2, Minus
 } from "lucide-react";
 
 const GREEN = "#28d7a0";
@@ -3238,15 +3238,6 @@ function ExploreMap({
           boxShadow: "0 8px 30px #0008"
         }}>
           {arrivalReached ? (
-<<<<<<< HEAD
-            <>
-              <small style={{ color: "#36d6a0" }}>DESTINATION REACHED</small>
-              <h2 style={{ margin: "9px 0", fontSize: "23px" }}>
-                Ã°Å¸Å½â€° You have arrived!
-              </h2>
-              <small style={{ color: "#aab9c7" }}>{routeInfo?.destination}</small>
-            </>
-=======
             movedPastDestination ? (
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: "7px" }}>
@@ -3308,7 +3299,6 @@ function ExploreMap({
                 <small style={{ color: "#aab9c7" }}>{routeInfo?.destination}</small>
               </>
             )
->>>>>>> 3f97d88 (Updated App.jsx)
           ) : (
             <>
               <small style={{ color: "#36d6a0", fontWeight: "700" }}>NAVIGATING TO DESTINATION</small>
@@ -3355,13 +3345,9 @@ function ExploreMap({
               backdropFilter: "blur(8px)"
             }}
           >
-<<<<<<< HEAD
-    Ã¢â€”Å½
-=======
             <LocateFixed size={18} />
->>>>>>> 3f97d88 (Updated App.jsx)
-          </button >
-        </div >
+          </button>
+        </div>
 
       {/* Bottom metrics and actions */ }
       < div style = {{
@@ -3435,12 +3421,9 @@ function ExploreMap({
                 cursor: "pointer"
               }}
             >
-<<<<<<< HEAD
-  { voiceEnabled ? "Ã°Å¸â€Å  Voice ON" : "Ã°Å¸â€â€¡ Voice OFF" }
-=======
               {voiceEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
               <span>{voiceEnabled ? "Voice ON" : "Voice OFF"}</span>
->>>>>>> 3f97d88 (Updated App.jsx)
+
             </button >
 
     <button
