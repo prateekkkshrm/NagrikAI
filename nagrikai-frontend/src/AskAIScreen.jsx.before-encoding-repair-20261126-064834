@@ -1,0 +1,1458 @@
+﻿import React, { useState, useEffect, useRef } from "react";
+import {
+  Sparkles,
+  Send,
+  Mic,
+  Volume2,
+  ChevronLeft,
+  Square,
+  Navigation,
+  Languages,
+  Check,
+  MessageSquare,
+  Play,
+  Pause,
+  Trash2,
+  Tag,
+  HelpCircle
+} from "lucide-react";
+import { supabase, isSupabaseConfigured } from "./supabaseClient";
+import "./askAI.css";
+
+// Verified Municipal & Service Knowledge Base for Greater Noida
+const SERVICE_KNOWLEDGE = {
+  serviceName: "NagrikAI",
+  region: "Greater Noida & Gautam Budh Nagar (NCR)",
+  pillars: [
+    {
+      title: "Real-Time Hazard & Road Intelligence",
+      description: "Live crowdsourced & sensor-verified tracking of potholes, broken pavement, flooded underpasses, and road hazards across Alpha, Beta, Pari Chowk, and Knowledge Park."
+    },
+    {
+      title: "Automated Municipal Complaint Handoff",
+      description: "Geotagged reports automatically formatted and routed to responsible GNIDA divisions or NPCL with enforceable Service Level Agreements (SLAs)."
+    },
+    {
+      title: "GroundTruth AI Verification",
+      description: "Computer-vision verification comparing before-and-after photographic evidence to confirm repairs were genuinely completed before tickets are closed."
+    },
+    {
+      title: "Civic Navigation Engine",
+      description: "Dynamic route planning powered by Valhalla routing that steers drivers and commuters around active road craters, waterlogged choke points, and Pari Chowk delays."
+    },
+    {
+      title: "Bilingual Civic Voice Assistant",
+      description: "Two-way voice and text assistance in English and à¤¹à¤¿à¤¨à¥à¤¦à¥€, empowering every citizen to speak or type in their preferred language."
+    }
+  ],
+  authorities: [
+    { dept: "GNIDA Civil Maintenance", scope: "Roads, Potholes, Footpaths", sla: "48-72 hours", phone: "0120-2326301" },
+    { dept: "NPCL & GNIDA Electrical Wing", scope: "Streetlights, Power outages, Dangling wires", sla: "24 hours", phone: "0120-6229400" },
+    { dept: "GNIDA Water & Sewerage", scope: "Drain overflow, Waterlogging, Pipeline leaks", sla: "24-48 hours", phone: "0120-2326308" },
+    { dept: "GNIDA Public Health & Sanitation", scope: "Garbage dumps, Waste clearance, Sweeping", sla: "12-24 hours", phone: "0120-2326305" },
+    { dept: "Traffic Police Control Room", scope: "Pari Chowk congestion, Illegal parking, Signals", sla: "Patrol Dispatch", phone: "9971009001" }
+  ]
+};
+
+// Conversational AI Model Response Engine (Modeled after ChatGPT conversational reasoning)
+function generateAIModelResponse(query, liveReports = [], isVoiceNote = false, duration = 0) {
+  const rawQ = (query || "").trim();
+  const q = rawQ.toLowerCase();
+
+  // Helper to persist conversation into localStorage for the Profile screen
+  const saveToHistory = (userText, aiReplyEn, aiReplyHi, category) => {
+    try {
+      const stored = localStorage.getItem("nagrikai_ai_conversations");
+      const list = stored ? JSON.parse(stored) : [];
+      const isHi = /[\u0900-\u097F]/.test(userText) || q.includes("hindi") || q.includes("namaste") || q.includes("kaun");
+      const newEntry = {
+        id: "conv-" + Date.now(),
+        timestamp: new Date().toLocaleString("en-IN", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit"
+        }),
+        date: new Date().toISOString(),
+        userQuery: userText || (isVoiceNote ? `ðŸŽ¤ Voice Note (${duration || 2}s)` : "Civic question"),
+        aiResponse: isHi ? aiReplyHi : aiReplyEn,
+        isVoiceNote: !!isVoiceNote,
+        duration: duration || 0,
+        language: isHi ? "Hindi" : "English",
+        category: category || "Civic Assistance"
+      };
+      const updated = [newEntry, ...list.slice(0, 49)];
+      localStorage.setItem("nagrikai_ai_conversations", JSON.stringify(updated));
+    } catch (e) {
+      console.warn("Could not save conversation:", e);
+    }
+  };
+
+  // 1. Silent or Brief Voice Note Handling
+  if (isVoiceNote && (!q || q === "voice note" || q === "voice note civic query" || q === "à¤µà¥‰à¤¯à¤¸à¤¨à¥‹à¤Ÿ à¤¦à¥à¤µà¤¾à¤°à¤¾ à¤ªà¥à¤°à¤¶à¥à¤¨")) {
+    const en = `I listened to your voice note (${duration || 2}s)! ðŸŽ™ï¸ While the audio came through softly, I am fully at your service. \n\nI can help you with anything related to Greater Noida municipal services â€” including:\nâ€¢ **Reporting road hazards or potholes** in your sector\nâ€¢ **Checking real-time traffic** around Pari Chowk\nâ€¢ **Tracking the status of your GNIDA complaints**\nâ€¢ **Finding emergency authority helplines** (Civil, Water, NPCL, Traffic Police)\n\nCould you tell me a little more about what you need assistance with?`;
+    const hi = `à¤®à¥ˆà¤‚à¤¨à¥‡ à¤†à¤ªà¤•à¤¾ à¤µà¥‰à¤¯à¤¸à¤¨à¥‹à¤Ÿ (${duration || 2} à¤¸à¥‡à¤•à¤‚à¤¡) à¤¸à¥à¤¨à¤¾! ðŸŽ™ï¸ à¤¹à¤¾à¤²à¤¾à¤‚à¤•à¤¿ à¤†à¤µà¤¾à¤œ à¤¹à¤²à¥à¤•à¥€ à¤¥à¥€, à¤®à¥ˆà¤‚ à¤†à¤ªà¤•à¥€ à¤¸à¤¹à¤¾à¤¯à¤¤à¤¾ à¤•à¥‡ à¤²à¤¿à¤ à¤¤à¥ˆà¤¯à¤¾à¤° à¤¹à¥‚à¤à¥¤\n\nà¤—à¥à¤°à¥‡à¤Ÿà¤° à¤¨à¥‹à¤à¤¡à¤¾ à¤•à¥€ à¤•à¤¿à¤¸à¥€ à¤­à¥€ à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤¸à¥‡à¤µà¤¾ à¤®à¥‡à¤‚ à¤®à¥ˆà¤‚ à¤†à¤ªà¤•à¥€ à¤¤à¥à¤°à¤‚à¤¤ à¤®à¤¦à¤¦ à¤•à¤° à¤¸à¤•à¤¤à¤¾ à¤¹à¥‚à¤:\nâ€¢ **à¤¸à¤¡à¤¼à¤• à¤•à¥‡ à¤—à¤¡à¥à¤¢à¥‹à¤‚ à¤¯à¤¾ à¤–à¤¤à¤°à¥‹à¤‚ à¤•à¥€ à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ à¤¦à¤°à¥à¤œ à¤•à¤°à¤¨à¤¾**\nâ€¢ **à¤ªà¤°à¥€ à¤šà¥Œà¤• à¤µ à¤®à¥à¤–à¥à¤¯ à¤®à¤¾à¤°à¥à¤—à¥‹à¤‚ à¤•à¤¾ à¤²à¤¾à¤‡à¤µ à¤Ÿà¥à¤°à¥ˆà¤«à¤¿à¤• à¤œà¤¾à¤‚à¤šà¤¨à¤¾**\nâ€¢ **à¤œà¥€à¤à¤¨à¤†à¤ˆà¤¡à¥€à¤ à¤®à¥‡à¤‚ à¤¦à¤°à¥à¤œ à¤…à¤ªà¤¨à¥€ à¤¶à¤¿à¤•à¤¾à¤¯à¤¤à¥‹à¤‚ à¤•à¥€ à¤¸à¥à¤¥à¤¿à¤¤à¤¿ à¤Ÿà¥à¤°à¥ˆà¤• à¤•à¤°à¤¨à¤¾**\nâ€¢ **à¤†à¤ªà¤¾à¤¤à¤•à¤¾à¤²à¥€à¤¨ à¤ªà¥à¤°à¤¾à¤§à¤¿à¤•à¤°à¤£ à¤¹à¥‡à¤²à¥à¤ªà¤²à¤¾à¤‡à¤¨ à¤¨à¤‚à¤¬à¤° à¤ªà¥à¤°à¤¾à¤ªà¥à¤¤ à¤•à¤°à¤¨à¤¾**\n\nà¤•à¥ƒà¤ªà¤¯à¤¾ à¤¬à¤¤à¤¾à¤à¤‚ à¤•à¤¿ à¤†à¤ª à¤•à¤¿à¤¸ à¤µà¤¿à¤·à¤¯ à¤ªà¤° à¤œà¤¾à¤¨à¤•à¤¾à¤°à¥€ à¤šà¤¾à¤¹à¤¤à¥‡ à¤¹à¥ˆà¤‚?`;
+    saveToHistory(rawQ || "Voice note input", en, hi, "Voice Note Triage");
+    return { en, hi, actions: [
+      { labelEn: "Report an Issue", labelHi: "à¤¸à¤®à¤¸à¥à¤¯à¤¾ à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ à¤•à¤°à¥‡à¤‚", screen: "Capture report" },
+      { labelEn: "Explore City Map", labelHi: "à¤¶à¤¹à¤° à¤•à¤¾ à¤¨à¤•à¥à¤¶à¤¾ à¤¦à¥‡à¤–à¥‡à¤‚", screen: "Explore map" },
+      { labelEn: "Check Headlines", labelHi: "à¤¤à¤¾à¤œà¤¼à¤¾ à¤¸à¥à¤°à¥à¤–à¤¿à¤¯à¤¾à¤", screen: "Home" }
+    ]};
+  }
+
+  // 2. What Does NagrikAI Provide / Service Overview / Capabilities
+  const serviceQuestions = [
+    "what do you provide", "what does nagrikai do", "what is your service", "services offered",
+    "what services", "how does this app help", "what can this app do", "features", "capabilities",
+    "tell me about your services", "how do you work", "what is this platform", "why use nagrikai",
+    "kya service hai", "kya suvidha hai", "kya kaam karta hai", "ye app kya hai", "kya suvidhayein hain",
+    "à¤¸à¥à¤µà¤¿à¤§à¤¾", "à¤¸à¥‡à¤µà¤¾à¤à¤‚", "à¤•à¥à¤¯à¤¾ à¤ªà¥à¤°à¤¦à¤¾à¤¨ à¤•à¤°à¤¤à¥‡ à¤¹à¥ˆà¤‚", "à¤•à¥à¤¯à¤¾ à¤•à¤¾à¤® à¤•à¤°à¤¤à¤¾ à¤¹à¥ˆ", "à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤à¤†à¤ˆ à¤•à¥à¤¯à¤¾ à¤¹à¥ˆ"
+  ];
+  if (serviceQuestions.some(kw => q.includes(kw))) {
+    const en = `Here is what **NagrikAI** provides for citizens of Greater Noida:\n\n1. **Real-time Road & Hazard Intelligence:** We continuously monitor road craters, potholes, waterlogging, and missing manhole covers across sectors like Alpha, Beta, Pari Chowk, and Knowledge Park using verified database records.\n2. **Official Municipal Complaint Handoff:** When you report an issue, we format it with GPS coordinates and route it directly to the responsible authority (GNIDA Civil, Water, Sanitation, NPCL, or Traffic Police) under guaranteed resolution SLAs.\n3. **GroundTruth AI Verification:** We verify municipal repairs using computer-vision photo evidence so tickets aren't closed without real on-ground completion.\n4. **Hazard-Free Navigation:** Our routing engine steers you away from flooded underpasses, bad road stretches, and Pari Chowk traffic choke points.\n5. **Bilingual Voice & Text AI:** You can speak or type in English or à¤¹à¤¿à¤¨à¥à¤¦à¥€ anytime to get instant civic answers, track complaints, or check local news.\n\nIs there a specific service you'd like to try right now?`;
+    const hi = `**à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤à¤†à¤ˆ (NagrikAI)** à¤—à¥à¤°à¥‡à¤Ÿà¤° à¤¨à¥‹à¤à¤¡à¤¾ à¤•à¥‡ à¤¨à¤¾à¤—à¤°à¤¿à¤•à¥‹à¤‚ à¤•à¥‹ à¤¨à¤¿à¤®à¥à¤¨à¤²à¤¿à¤–à¤¿à¤¤ à¤ªà¥à¤°à¤®à¥à¤– à¤¸à¥‡à¤µà¤¾à¤à¤‚ à¤ªà¥à¤°à¤¦à¤¾à¤¨ à¤•à¤°à¤¤à¤¾ à¤¹à¥ˆ:\n\n1. **à¤²à¤¾à¤‡à¤µ à¤¸à¤¡à¤¼à¤• à¤à¤µà¤‚ à¤œà¥‹à¤–à¤¿à¤® à¤¬à¥à¤¦à¥à¤§à¤¿à¤®à¤¤à¥à¤¤à¤¾:** à¤…à¤²à¥à¤«à¤¾, à¤¬à¥€à¤Ÿà¤¾, à¤ªà¤°à¥€ à¤šà¥Œà¤• à¤”à¤° à¤¨à¥‰à¤²à¥‡à¤œ à¤ªà¤¾à¤°à¥à¤• à¤®à¥‡à¤‚ à¤—à¤¡à¥à¤¢à¥‹à¤‚, à¤Ÿà¥‚à¤Ÿà¥€ à¤¸à¤¡à¤¼à¤•à¥‹à¤‚ à¤”à¤° à¤œà¤²à¤­à¤°à¤¾à¤µ à¤•à¥€ à¤²à¤¾à¤‡à¤µ à¤Ÿà¥à¤°à¥ˆà¤•à¤¿à¤‚à¤— à¤¡à¥‡à¤Ÿà¤¾à¤¬à¥‡à¤¸ à¤°à¤¿à¤•à¥‰à¤°à¥à¤¡ à¤•à¥‡ à¤¸à¤¾à¤¥à¥¤\n2. **à¤¸à¥€à¤§à¤¾ à¤¨à¤—à¤° à¤ªà¤¾à¤²à¤¿à¤•à¤¾ à¤¶à¤¿à¤•à¤¾à¤¯à¤¤ à¤¸à¤®à¤¾à¤§à¤¾à¤¨:** à¤†à¤ªà¤•à¥€ à¤¶à¤¿à¤•à¤¾à¤¯à¤¤à¥‡à¤‚ à¤œà¥€à¤ªà¥€à¤à¤¸ à¤²à¥‹à¤•à¥‡à¤¶à¤¨ à¤•à¥‡ à¤¸à¤¾à¤¥ à¤¸à¥€à¤§à¥‡ à¤œà¤¿à¤®à¥à¤®à¥‡à¤¦à¤¾à¤° à¤µà¤¿à¤­à¤¾à¤— (à¤œà¥€à¤à¤¨à¤†à¤ˆà¤¡à¥€à¤ à¤¸à¤¿à¤µà¤¿à¤², à¤œà¤², à¤¸à¥à¤µà¤šà¥à¤›à¤¤à¤¾, à¤à¤¨à¤ªà¥€à¤¸à¥€à¤à¤² à¤¯à¤¾ à¤Ÿà¥à¤°à¥ˆà¤«à¤¿à¤• à¤ªà¥à¤²à¤¿à¤¸) à¤•à¥‹ à¤¸à¤®à¤¯-à¤¸à¥€à¤®à¤¾ (SLA) à¤•à¥‡ à¤¸à¤¾à¤¥ à¤­à¥‡à¤œà¥€ à¤œà¤¾à¤¤à¥€ à¤¹à¥ˆà¤‚à¥¤\n3. **à¤—à¥à¤°à¤¾à¤‰à¤‚à¤¡à¤Ÿà¥à¤°à¥‚à¤¥ à¤à¤†à¤ˆ à¤¸à¤¤à¥à¤¯à¤¾à¤ªà¤¨:** à¤¨à¤—à¤° à¤¨à¤¿à¤—à¤® à¤•à¥‡ à¤®à¤°à¤®à¥à¤®à¤¤ à¤•à¤¾à¤°à¥à¤¯à¥‹à¤‚ à¤•à¥€ à¤«à¥‹à¤Ÿà¥‹ à¤¸à¤¾à¤•à¥à¤·à¥à¤¯ à¤¸à¥‡ à¤•à¤‚à¤ªà¥à¤¯à¥‚à¤Ÿà¤° à¤µà¤¿à¤œà¤¨ à¤¦à¥à¤µà¤¾à¤°à¤¾ à¤ªà¥à¤·à¥à¤Ÿà¤¿ à¤•à¥€ à¤œà¤¾à¤¤à¥€ à¤¹à¥ˆ à¤¤à¤¾à¤•à¤¿ à¤¬à¤¿à¤¨à¤¾ à¤•à¤¾à¤® à¤•à¤¿à¤ à¤¶à¤¿à¤•à¤¾à¤¯à¤¤ à¤¬à¤‚à¤¦ à¤¨ à¤¹à¥‹à¥¤\n4. **à¤¸à¥à¤°à¤•à¥à¤·à¤¿à¤¤ à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤¨à¥‡à¤µà¤¿à¤—à¥‡à¤¶à¤¨:** à¤¯à¤¹ à¤†à¤ªà¤•à¥‹ à¤œà¤²à¤­à¤°à¤¾à¤µ à¤µà¤¾à¤²à¥‡ à¤°à¤¾à¤¸à¥à¤¤à¥‹à¤‚, à¤Ÿà¥‚à¤Ÿà¥€ à¤¸à¤¡à¤¼à¤•à¥‹à¤‚ à¤”à¤° à¤ªà¤°à¥€ à¤šà¥Œà¤• à¤•à¥‡ à¤œà¤¾à¤® à¤¸à¥‡ à¤¬à¤šà¤¾à¤•à¤° à¤¸à¥à¤°à¤•à¥à¤·à¤¿à¤¤ à¤°à¤¾à¤¸à¥à¤¤à¤¾ à¤¦à¤¿à¤–à¤¾à¤¤à¤¾ à¤¹à¥ˆà¥¤\n5. **à¤¦à¥‹à¤¤à¤°à¤«à¤¾ à¤†à¤µà¤¾à¤œ à¤à¤µà¤‚ à¤Ÿà¥‡à¤•à¥à¤¸à¥à¤Ÿ à¤à¤†à¤ˆ:** à¤†à¤ª à¤¹à¤¿à¤¨à¥à¤¦à¥€ à¤¯à¤¾ à¤…à¤‚à¤—à¥à¤°à¥‡à¤œà¥€ à¤®à¥‡à¤‚ à¤•à¤­à¥€ à¤­à¥€ à¤¬à¥‹à¤²à¤•à¤° à¤¯à¤¾ à¤²à¤¿à¤–à¤•à¤° à¤¬à¤¾à¤¤ à¤•à¤° à¤¸à¤•à¤¤à¥‡ à¤¹à¥ˆà¤‚à¥¤\n\nà¤•à¥à¤¯à¤¾ à¤†à¤ª à¤‡à¤¨à¤®à¥‡à¤‚ à¤¸à¥‡ à¤•à¤¿à¤¸à¥€ à¤¸à¥‡à¤µà¤¾ à¤•à¥‡ à¤¬à¤¾à¤°à¥‡ à¤®à¥‡à¤‚ à¤µà¤¿à¤¸à¥à¤¤à¤¾à¤° à¤¸à¥‡ à¤œà¤¾à¤¨à¤¨à¤¾ à¤šà¤¾à¤¹à¤¤à¥‡ à¤¹à¥ˆà¤‚?`;
+    saveToHistory(rawQ, en, hi, "Services Overview");
+    return { en, hi, actions: [
+      { labelEn: "Explore City Map", labelHi: "à¤¶à¤¹à¤° à¤•à¤¾ à¤¨à¤•à¥à¤¶à¤¾ à¤¦à¥‡à¤–à¥‡à¤‚", screen: "Explore map" },
+      { labelEn: "File a Civic Report", labelHi: "à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ à¤¦à¤°à¥à¤œ à¤•à¤°à¥‡à¤‚", screen: "Capture report" },
+      { labelEn: "Civic Navigation", labelHi: "à¤¸à¥à¤°à¤•à¥à¤·à¤¿à¤¤ à¤®à¤¾à¤°à¥à¤— à¤¨à¥‡à¤µà¤¿à¤—à¥‡à¤¶à¤¨", screen: "Civic navigation" }
+    ]};
+  }
+
+  // 3. How to File a Report / Complaint Process
+  const reportHowTo = [
+    "how to file", "how to report", "file a complaint", "lodge a complaint", "report an issue",
+    "register complaint", "submit report", "report kaise kare", "shikayat kaise kare", "shikayat darj",
+    "complaint kaise kare", "à¤¶à¤¿à¤•à¤¾à¤¯à¤¤ à¤•à¥ˆà¤¸à¥‡ à¤¦à¤°à¥à¤œ à¤•à¤°à¥‡à¤‚", "à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ à¤•à¥ˆà¤¸à¥‡ à¤•à¤°à¥‡à¤‚"
+  ];
+  if (reportHowTo.some(kw => q.includes(kw))) {
+    const en = `Filing a civic report on NagrikAI takes less than 30 seconds:\n\n1. **Capture Photo & Location:** Tap the camera icon or 'Capture report' from the bottom bar. Take a photo of the road hazard, broken streetlight, or garbage dump.\n2. **Automatic Geotagging:** NagrikAI automatically detects your precise GPS coordinates and matches the sector (e.g. Alpha II or Surajpur).\n3. **Duplicate Prevention:** Our AI checks nearby reports so multiple citizens don't create duplicate tickets, while letting you upvote existing ones.\n4. **Authority Dispatch:** Your report is tagged with an official reference number and dispatched to GNIDA or NPCL under enforceable SLAs (24h to 72h).\n\nWould you like to open the report capture screen now?`;
+    const hi = `à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤à¤†à¤ˆ à¤ªà¤° à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ à¤¦à¤°à¥à¤œ à¤•à¤°à¤¨à¤¾ à¤¬à¥‡à¤¹à¤¦ à¤†à¤¸à¤¾à¤¨ à¤¹à¥ˆ (30 à¤¸à¥‡à¤•à¤‚à¤¡ à¤¸à¥‡ à¤•à¤®):\n\n1. **à¤«à¥‹à¤Ÿà¥‹ à¤µ à¤²à¥‹à¤•à¥‡à¤¶à¤¨:** à¤¨à¥€à¤šà¥‡ à¤¦à¤¿à¤ à¤—à¤ 'Capture report' à¤¬à¤Ÿà¤¨ à¤ªà¤° à¤Ÿà¥ˆà¤ª à¤•à¤°à¥‡à¤‚ à¤”à¤° à¤—à¤¡à¥à¤¢à¥‡, à¤Ÿà¥‚à¤Ÿà¥€ à¤²à¤¾à¤‡à¤Ÿ à¤¯à¤¾ à¤•à¤šà¤°à¥‡ à¤•à¥€ à¤«à¥‹à¤Ÿà¥‹ à¤²à¥‡à¤‚à¥¤\n2. **à¤‘à¤Ÿà¥‹ à¤œà¥€à¤ªà¥€à¤à¤¸ à¤Ÿà¥ˆà¤—à¤¿à¤‚à¤—:** à¤à¤ª à¤†à¤ªà¤•à¥‡ à¤¸à¥‡à¤•à¥à¤Ÿà¤° (à¤œà¥ˆà¤¸à¥‡ à¤…à¤²à¥à¤«à¤¾ II à¤¯à¤¾ à¤¸à¥‚à¤°à¤œà¤ªà¥à¤°) à¤•à¥€ à¤¸à¤Ÿà¥€à¤• à¤œà¥€à¤ªà¥€à¤à¤¸ à¤²à¥‹à¤•à¥‡à¤¶à¤¨ à¤…à¤ªà¤¨à¥‡ à¤†à¤ª à¤œà¥‹à¤¡à¤¼ à¤²à¥‡à¤¤à¤¾ à¤¹à¥ˆà¥¤\n3. **à¤¡à¥à¤ªà¥à¤²à¥€à¤•à¥‡à¤Ÿ à¤œà¤¾à¤‚à¤š:** à¤à¤†à¤ˆ à¤¸à¤¿à¤¸à¥à¤Ÿà¤® à¤ªà¤¾à¤¸ à¤•à¥‡ à¤…à¤¨à¥à¤¯ à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿà¥à¤¸ à¤•à¥€ à¤œà¤¾à¤‚à¤š à¤•à¤°à¤¤à¤¾ à¤¹à¥ˆ à¤¤à¤¾à¤•à¤¿ à¤à¤• à¤¹à¥€ à¤®à¥à¤¦à¥à¤¦à¥‡ à¤ªà¤° à¤¦à¥‹à¤¹à¤°à¤¾à¤µ à¤¨ à¤¹à¥‹à¥¤\n4. **à¤ªà¥à¤°à¤¾à¤§à¤¿à¤•à¤°à¤£ à¤•à¥‹ à¤ªà¥à¤°à¥‡à¤·à¤£:** à¤†à¤ªà¤•à¥€ à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ à¤•à¥‹ à¤à¤• à¤°à¥‡à¤«à¤°à¥‡à¤‚à¤¸ à¤¨à¤‚à¤¬à¤° à¤¦à¥‡à¤•à¤° à¤¸à¥€à¤§à¥‡ à¤œà¥€à¤à¤¨à¤†à¤ˆà¤¡à¥€à¤ à¤¯à¤¾ à¤à¤¨à¤ªà¥€à¤¸à¥€à¤à¤² à¤•à¥‹ 24 à¤¸à¥‡ 72 à¤˜à¤‚à¤Ÿà¥‡ à¤•à¥‡ à¤à¤¸à¤à¤²à¤ à¤•à¥‡ à¤¤à¤¹à¤¤ à¤­à¥‡à¤œ à¤¦à¤¿à¤¯à¤¾ à¤œà¤¾à¤¤à¤¾ à¤¹à¥ˆà¥¤\n\nà¤•à¥à¤¯à¤¾ à¤†à¤ª à¤…à¤­à¥€ à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ à¤¦à¤°à¥à¤œ à¤•à¤°à¤¨à¤¾ à¤šà¤¾à¤¹à¤¤à¥‡ à¤¹à¥ˆà¤‚?`;
+    saveToHistory(rawQ, en, hi, "Reporting Process");
+    return { en, hi, actions: [
+      { labelEn: "Open Report Camera", labelHi: "à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ à¤•à¥ˆà¤®à¤°à¤¾ à¤–à¥‹à¤²à¥‡à¤‚", screen: "Capture report" },
+      { labelEn: "Track Existing Complaints", labelHi: "à¤®à¥Œà¤œà¥‚à¤¦à¤¾ à¤¶à¤¿à¤•à¤¾à¤¯à¤¤à¥‡à¤‚ à¤¦à¥‡à¤–à¥‡à¤‚", screen: "Report history" }
+    ]};
+  }
+
+  // 4. GroundTruth AI Verification Questions
+  const groundTruthQuestions = [
+    "groundtruth", "ground truth", "verification", "verify repair", "how is repair verified",
+    "photo proof", "evidence", "satyaapan", "ground truth kya hai", "à¤—à¥à¤°à¤¾à¤‰à¤‚à¤¡à¤Ÿà¥à¤°à¥‚à¤¥", "à¤¸à¤¤à¥à¤¯à¤¾à¤ªà¤¨"
+  ];
+  if (groundTruthQuestions.some(kw => q.includes(kw))) {
+    const en = `**GroundTruth AI** is our proprietary accountability engine! ðŸ”\n\nIn traditional municipal systems, contractors often mark complaints as 'Resolved' without completing the work. GroundTruth AI solves this:\nâ€¢ When a municipal team claims a repair is done, they must submit photographic evidence.\nâ€¢ GroundTruth AI uses computer vision to cross-analyze the original citizen complaint image against the newly submitted repair image.\nâ€¢ It verifies texture, depth, and spatial markers to validate asphalt resurfacing or streetlight restoration.\nâ€¢ Nearby citizens are also invited to cast a 1-tap GroundTruth verification on their daily commute.\n\nOnly verified repairs earn an official 'Resolved' certification!`;
+    const hi = `**à¤—à¥à¤°à¤¾à¤‰à¤‚à¤¡à¤Ÿà¥à¤°à¥‚à¤¥ à¤à¤†à¤ˆ (GroundTruth AI)** à¤¹à¤®à¤¾à¤°à¥€ à¤ªà¤¾à¤°à¤¦à¤°à¥à¤¶à¤¿à¤¤à¤¾ à¤”à¤° à¤œà¤µà¤¾à¤¬à¤¦à¥‡à¤¹à¥€ à¤ªà¥à¤°à¤£à¤¾à¤²à¥€ à¤¹à¥ˆ! ðŸ”\n\nà¤ªà¤¾à¤°à¤‚à¤ªà¤°à¤¿à¤• à¤µà¥à¤¯à¤µà¤¸à¥à¤¥à¤¾ à¤®à¥‡à¤‚ à¤•à¤ˆ à¤¬à¤¾à¤° à¤¬à¤¿à¤¨à¤¾ à¤ªà¥‚à¤°à¤¾ à¤•à¤¾à¤® à¤•à¤¿à¤ à¤¶à¤¿à¤•à¤¾à¤¯à¤¤ à¤•à¥‹ 'à¤¸à¤®à¤¾à¤§à¤¾à¤¨' à¤¦à¤¿à¤–à¤¾ à¤¦à¤¿à¤¯à¤¾ à¤œà¤¾à¤¤à¤¾ à¤¹à¥ˆà¥¤ à¤—à¥à¤°à¤¾à¤‰à¤‚à¤¡à¤Ÿà¥à¤°à¥‚à¤¥ à¤à¤†à¤ˆ à¤‡à¤¸à¥‡ à¤°à¥‹à¤•à¤¤à¤¾ à¤¹à¥ˆ:\nâ€¢ à¤œà¤¬ à¤•à¥‹à¤ˆ à¤®à¤°à¤®à¥à¤®à¤¤ à¤¦à¤² à¤•à¤¾à¤® à¤ªà¥‚à¤°à¤¾ à¤¹à¥‹à¤¨à¥‡ à¤•à¤¾ à¤¦à¤¾à¤µà¤¾ à¤•à¤°à¤¤à¤¾ à¤¹à¥ˆ, à¤¤à¥‹ à¤‰à¤¸à¥‡ à¤«à¥‹à¤Ÿà¥‹ à¤¸à¤¾à¤•à¥à¤·à¥à¤¯ à¤…à¤ªà¤²à¥‹à¤¡ à¤•à¤°à¤¨à¤¾ à¤¹à¥‹à¤¤à¤¾ à¤¹à¥ˆà¥¤\nâ€¢ à¤—à¥à¤°à¤¾à¤‰à¤‚à¤¡à¤Ÿà¥à¤°à¥‚à¤¥ à¤à¤†à¤ˆ à¤•à¤‚à¤ªà¥à¤¯à¥‚à¤Ÿà¤° à¤µà¤¿à¤œà¤¨ à¤¦à¥à¤µà¤¾à¤°à¤¾ à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤•à¥€ à¤®à¥‚à¤² à¤«à¥‹à¤Ÿà¥‹ à¤”à¤° à¤®à¤°à¤®à¥à¤®à¤¤ à¤•à¥‡ à¤¬à¤¾à¤¦ à¤•à¥€ à¤«à¥‹à¤Ÿà¥‹ à¤•à¥€ à¤¤à¥à¤²à¤¨à¤¾ à¤•à¤°à¤¤à¤¾ à¤¹à¥ˆà¥¤\nâ€¢ à¤¯à¤¹ à¤¡à¤¾à¤®à¤° à¤•à¥€ à¤¸à¤¤à¤¹, à¤—à¤¹à¤°à¤¾à¤ˆ à¤”à¤° à¤¸à¥à¤¥à¤¾à¤¨ à¤•à¥€ à¤ªà¥à¤·à¥à¤Ÿà¤¿ à¤•à¤°à¤•à¥‡ à¤¸à¤¤à¥à¤¯à¤¾à¤ªà¤¨ à¤•à¤°à¤¤à¤¾ à¤¹à¥ˆà¥¤\nâ€¢ à¤‰à¤¸ à¤®à¤¾à¤°à¥à¤— à¤¸à¥‡ à¤—à¥à¤œà¤°à¤¨à¥‡ à¤µà¤¾à¤²à¥‡ à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤­à¥€ à¤•à¥‡à¤µà¤² 1 à¤Ÿà¥ˆà¤ª à¤¸à¥‡ à¤•à¤¾à¤°à¥à¤¯ à¤•à¥€ à¤ªà¥à¤·à¥à¤Ÿà¤¿ à¤•à¤° à¤¸à¤•à¤¤à¥‡ à¤¹à¥ˆà¤‚à¥¤\n\nà¤ªà¥‚à¤°à¥à¤£ à¤¸à¤¤à¥à¤¯à¤¾à¤ªà¤¨ à¤•à¥‡ à¤¬à¤¾à¤¦ à¤¹à¥€ à¤Ÿà¤¿à¤•à¤Ÿ à¤•à¥‹ à¤†à¤§à¤¿à¤•à¤¾à¤°à¤¿à¤• à¤°à¥‚à¤ª à¤¸à¥‡ 'Resolved' à¤®à¤¾à¤¨à¤¾ à¤œà¤¾à¤¤à¤¾ à¤¹à¥ˆ!`;
+    saveToHistory(rawQ, en, hi, "GroundTruth AI");
+    return { en, hi, actions: [
+      { labelEn: "View GroundTruth AI", labelHi: "à¤—à¥à¤°à¤¾à¤‰à¤‚à¤¡à¤Ÿà¥à¤°à¥‚à¤¥ à¤à¤†à¤ˆ à¤¦à¥‡à¤–à¥‡à¤‚", screen: "GroundTruth AI" },
+      { labelEn: "Inspect City Map", labelHi: "à¤¶à¤¹à¤° à¤•à¤¾ à¤¨à¤•à¥à¤¶à¤¾ à¤¦à¥‡à¤–à¥‡à¤‚", screen: "Explore map" }
+    ]};
+  }
+
+  // 5. Self Identity / Conversational Persona / "Who are you"
+  const selfKeywords = [
+    "about yourself", "who are you", "what are you", "what is nagrikai", "who created you",
+    "who made you", "introduce yourself", "tell me about you", "tum kaun ho", "aap kaun ho",
+    "aap kaun hain", "apne baare me", "apna parichay", "tum kya ho",
+    "à¤…à¤ªà¤¨à¥‡ à¤¬à¤¾à¤°à¥‡ à¤®à¥‡à¤‚", "à¤¤à¥à¤® à¤•à¥Œà¤¨ à¤¹à¥‹", "à¤†à¤ª à¤•à¥Œà¤¨ à¤¹à¥ˆà¤‚", "à¤…à¤ªà¤¨à¤¾ à¤ªà¤°à¤¿à¤šà¤¯", "à¤ªà¤°à¤¿à¤šà¤¯"
+  ];
+  if (selfKeywords.some(kw => q.includes(kw))) {
+    const en = `I am **NagrikAI** â€” your intelligent civic companion for Greater Noida! ðŸ™ï¸\n\nI was created specifically to empower Greater Noida citizens with real-time municipal transparency. I am trained on local infrastructure data, GNIDA authority workflows, NPCL electricity divisions, and Gautam Budh Nagar traffic corridors.\n\nWhether you need to check road hazards in Alpha II, ask about Pari Chowk traffic delays, lodge a complaint with an SLA timeline, or find emergency municipal contacts, I am here 24/7 to assist you in English or à¤¹à¤¿à¤¨à¥à¤¦à¥€!`;
+    const hi = `à¤®à¥ˆà¤‚ **à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤à¤†à¤ˆ (NagrikAI)** à¤¹à¥‚à¤ â€” à¤—à¥à¤°à¥‡à¤Ÿà¤° à¤¨à¥‹à¤à¤¡à¤¾ à¤•à¥‡ à¤¨à¤¾à¤—à¤°à¤¿à¤•à¥‹à¤‚ à¤•à¥‡ à¤²à¤¿à¤ à¤à¤• à¤¸à¤®à¤°à¥à¤ªà¤¿à¤¤ à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤¬à¥à¤¦à¥à¤§à¤¿à¤®à¤¤à¥à¤¤à¤¾ à¤¸à¤¹à¤¾à¤¯à¤•! ðŸ™ï¸\n\nà¤®à¥‡à¤°à¤¾ à¤¨à¤¿à¤°à¥à¤®à¤¾à¤£ à¤—à¥à¤°à¥‡à¤Ÿà¤° à¤¨à¥‹à¤à¤¡à¤¾ à¤®à¥‡à¤‚ à¤¨à¤—à¤° à¤¨à¤¿à¤—à¤® à¤¸à¥‡à¤µà¤¾à¤“à¤‚ à¤”à¤° à¤¬à¥à¤¨à¤¿à¤¯à¤¾à¤¦à¥€ à¤¢à¤¾à¤‚à¤šà¥‡ à¤®à¥‡à¤‚ à¤µà¤¾à¤¸à¥à¤¤à¤µà¤¿à¤• à¤¸à¤®à¤¯ à¤•à¥€ à¤ªà¤¾à¤°à¤¦à¤°à¥à¤¶à¤¿à¤¤à¤¾ à¤²à¤¾à¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤ à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾ à¤¹à¥ˆà¥¤ à¤®à¥à¤à¥‡ à¤œà¥€à¤à¤¨à¤†à¤ˆà¤¡à¥€à¤ à¤ªà¥à¤°à¤¾à¤§à¤¿à¤•à¤°à¤£, à¤à¤¨à¤ªà¥€à¤¸à¥€à¤à¤² à¤¬à¤¿à¤œà¤²à¥€ à¤µà¤¿à¤­à¤¾à¤— à¤”à¤° à¤—à¥Œà¤¤à¤®à¤¬à¥à¤¦à¥à¤§ à¤¨à¤—à¤° à¤Ÿà¥à¤°à¥ˆà¤«à¤¿à¤• à¤ªà¥à¤²à¤¿à¤¸ à¤•à¥‡ à¤•à¤¾à¤°à¥à¤¯à¤ªà¥à¤°à¤µà¤¾à¤¹ à¤”à¤° à¤¸à¥à¤¥à¤¾à¤¨à¥€à¤¯ à¤¡à¥‡à¤Ÿà¤¾ à¤ªà¤° à¤ªà¥à¤°à¤¶à¤¿à¤•à¥à¤·à¤¿à¤¤ à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾ à¤¹à¥ˆà¥¤\n\nà¤šà¤¾à¤¹à¥‡ à¤†à¤ªà¤•à¥‹ à¤…à¤²à¥à¤«à¤¾ II à¤®à¥‡à¤‚ à¤¸à¤¡à¤¼à¤•à¥‹à¤‚ à¤•à¥€ à¤¸à¥à¤¥à¤¿à¤¤à¤¿ à¤œà¤¾à¤¨à¤¨à¥€ à¤¹à¥‹, à¤ªà¤°à¥€ à¤šà¥Œà¤• à¤Ÿà¥à¤°à¥ˆà¤«à¤¿à¤• à¤ªà¥‚à¤›à¤¨à¤¾ à¤¹à¥‹, à¤«à¥‹à¤Ÿà¥‹ à¤•à¥‡ à¤¸à¤¾à¤¥ à¤¶à¤¿à¤•à¤¾à¤¯à¤¤ à¤¦à¤°à¥à¤œ à¤•à¤°à¤¨à¥€ à¤¹à¥‹ à¤¯à¤¾ à¤¹à¥‡à¤²à¥à¤ªà¤²à¤¾à¤‡à¤¨ à¤¨à¤‚à¤¬à¤° à¤šà¤¾à¤¹à¤¿à¤ à¤¹à¥‹à¤‚ â€” à¤®à¥ˆà¤‚ 24/7 à¤¹à¤¿à¤¨à¥à¤¦à¥€ à¤”à¤° à¤…à¤‚à¤—à¥à¤°à¥‡à¤œà¥€ à¤®à¥‡à¤‚ à¤†à¤ªà¤•à¥€ à¤¸à¥‡à¤µà¤¾ à¤•à¥‡ à¤²à¤¿à¤ à¤‰à¤ªà¤²à¤¬à¥à¤§ à¤¹à¥‚à¤!`;
+    saveToHistory(rawQ, en, hi, "Identity & Persona");
+    return { en, hi, actions: [
+      { labelEn: "Explore City Map", labelHi: "à¤¶à¤¹à¤° à¤•à¤¾ à¤¨à¤•à¥à¤¶à¤¾ à¤¦à¥‡à¤–à¥‡à¤‚", screen: "Explore map" },
+      { labelEn: "File a Civic Report", labelHi: "à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ à¤¦à¤°à¥à¤œ à¤•à¤°à¥‡à¤‚", screen: "Capture report" }
+    ]};
+  }
+
+  // 6. Recent Headlines & City News
+  const headlineKeywords = [
+    "headline", "headlines", "news", "surkhiyan", "khabar", "samachar", "update", "updates",
+    "what's happening", "kya ho raha hai", "kya chal raha hai", "taza khabar", "latest news", "city news",
+    "à¤¸à¥à¤°à¥à¤–à¤¿à¤¯à¤¾à¤", "à¤–à¤¬à¤°", "à¤¸à¤®à¤¾à¤šà¤¾à¤°", "à¤¤à¤¾à¤œà¤¾ à¤–à¤¬à¤°", "à¤…à¤ªà¤¡à¥‡à¤Ÿ"
+  ];
+  if (headlineKeywords.some(kw => q.includes(kw))) {
+    const en = `Here are the top Greater Noida municipal headlines right now:\n\n1. **GNIDA Road Resurfacing Drive:** Civil Maintenance Division has initiated asphalt leveling on the Pari Chowk-Surajpur corridor to eliminate monsoon potholes.\n2. **Anti-Smog Sprinklers Deployed:** UPPCB water tankers are active across Sector 16 and the Expressway green belts for dust suppression.\n3. **Knowledge Park Drainage De-silting:** High-capacity suction machines are clearing storm-water channels to prevent seasonal waterlogging.\n4. **Citizen Redressal Camp:** Weekly administrative grievance camp scheduled at GNIDA Chitvan Estate.\n\nYou can also swipe through our Instagram-style headline carousel on the Home screen!`;
+    const hi = `à¤—à¥à¤°à¥‡à¤Ÿà¤° à¤¨à¥‹à¤à¤¡à¤¾ à¤•à¥€ à¤†à¤œ à¤•à¥€ à¤¤à¤¾à¤œà¤¼à¤¾ à¤ªà¥à¤°à¤®à¥à¤– à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤¸à¥à¤°à¥à¤–à¤¿à¤¯à¤¾à¤:\n\n1. **à¤œà¥€à¤à¤¨à¤†à¤ˆà¤¡à¥€à¤ à¤¸à¤¡à¤¼à¤• à¤¡à¤¾à¤®à¤°à¥€à¤•à¤°à¤£ à¤…à¤­à¤¿à¤¯à¤¾à¤¨:** à¤¸à¤¿à¤µà¤¿à¤² à¤µà¤¿à¤­à¤¾à¤— à¤¨à¥‡ à¤ªà¤°à¥€ à¤šà¥Œà¤•-à¤¸à¥‚à¤°à¤œà¤ªà¥à¤° à¤®à¥à¤–à¥à¤¯ à¤¸à¤¡à¤¼à¤• à¤ªà¤° à¤—à¤¡à¥à¤¢à¥‹à¤‚ à¤•à¥‹ à¤­à¤°à¤¨à¥‡ à¤”à¤° à¤¨à¤ˆ à¤ªà¤°à¤¤ à¤¬à¤¿à¤›à¤¾à¤¨à¥‡ à¤•à¤¾ à¤•à¤¾à¤® à¤¤à¥‡à¤œ à¤•à¤° à¤¦à¤¿à¤¯à¤¾ à¤¹à¥ˆà¥¤\n2. **à¤à¤‚à¤Ÿà¥€-à¤¸à¥à¤®à¥‰à¤— à¤¸à¥à¤ªà¥à¤°à¤¿à¤‚à¤•à¤²à¤° à¤¸à¤•à¥à¤°à¤¿à¤¯:** à¤¯à¥‚à¤ªà¥€à¤ªà¥€à¤¸à¥€à¤¬à¥€ à¤¨à¥‡ à¤µà¤¾à¤¯à¥ à¤—à¥à¤£à¤µà¤¤à¥à¤¤à¤¾ à¤¸à¥à¤§à¤¾à¤°à¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤ à¤¸à¥‡à¤•à¥à¤Ÿà¤° 16 à¤”à¤° à¤à¤•à¥à¤¸à¤ªà¥à¤°à¥‡à¤¸à¤µà¥‡ à¤ªà¤° à¤ªà¤¾à¤¨à¥€ à¤›à¤¿à¤¡à¤¼à¤•à¤¾à¤µ à¤Ÿà¥ˆà¤‚à¤•à¤° à¤¤à¥ˆà¤¨à¤¾à¤¤ à¤•à¤¿à¤ à¤¹à¥ˆà¤‚à¥¤\n3. **à¤¨à¥‰à¤²à¥‡à¤œ à¤ªà¤¾à¤°à¥à¤• à¤¨à¤¾à¤²à¤¾ à¤¸à¤«à¤¾à¤ˆ:** à¤œà¤²à¤­à¤°à¤¾à¤µ à¤•à¥€ à¤°à¥‹à¤•à¤¥à¤¾à¤® à¤•à¥‡ à¤²à¤¿à¤ à¤¨à¥‰à¤²à¥‡à¤œ à¤ªà¤¾à¤°à¥à¤• II à¤®à¥‡à¤‚ à¤®à¥à¤–à¥à¤¯ à¤¨à¤¾à¤²à¥‹à¤‚ à¤¸à¥‡ à¤—à¤¾à¤¦ à¤¨à¤¿à¤•à¤¾à¤²à¤¨à¥‡ à¤•à¤¾ à¤•à¤¾à¤°à¥à¤¯ à¤œà¤¾à¤°à¥€ à¤¹à¥ˆà¥¤\n4. **à¤¸à¤¾à¤ªà¥à¤¤à¤¾à¤¹à¤¿à¤• à¤œà¤¨à¤¸à¥à¤¨à¤µà¤¾à¤ˆ:** à¤œà¥€à¤à¤¨à¤†à¤ˆà¤¡à¥€à¤ à¤ªà¥à¤°à¤¶à¤¾à¤¸à¤¨à¤¿à¤• à¤­à¤µà¤¨ (à¤šà¤¿à¤¤à¤µà¤¨ à¤à¤¸à¥à¤Ÿà¥‡à¤Ÿ) à¤®à¥‡à¤‚ à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤¶à¤¿à¤•à¤¾à¤¯à¤¤ à¤¸à¤®à¤¾à¤§à¤¾à¤¨ à¤¶à¤¿à¤µà¤¿à¤° à¤†à¤¯à¥‹à¤œà¤¿à¤¤ à¤¹à¥ˆà¥¤\n\nà¤†à¤ª à¤¹à¥‹à¤® à¤¸à¥à¤•à¥à¤°à¥€à¤¨ à¤ªà¤° à¤‡à¤‚à¤¸à¥à¤Ÿà¤¾à¤—à¥à¤°à¤¾à¤®-à¤¸à¥à¤Ÿà¤¾à¤‡à¤² à¤¸à¥à¤²à¤¾à¤‡à¤¡à¤° à¤®à¥‡à¤‚ à¤­à¥€ à¤ªà¥‚à¤°à¥€ à¤–à¤¬à¤°à¥‡à¤‚ à¤ªà¤¢à¤¼ à¤¸à¤•à¤¤à¥‡ à¤¹à¥ˆà¤‚!`;
+    saveToHistory(rawQ, en, hi, "City Headlines");
+    return { en, hi, actions: [
+      { labelEn: "View Headlines Carousel", labelHi: "à¤¸à¥à¤°à¥à¤–à¤¿à¤¯à¤¾à¤ à¤¹à¤¿à¤‚à¤¡à¥‹à¤²à¤¾ à¤¦à¥‡à¤–à¥‡à¤‚", screen: "Home" },
+      { labelEn: "Check Air Quality", labelHi: "à¤µà¤¾à¤¯à¥ à¤—à¥à¤£à¤µà¤¤à¥à¤¤à¤¾ à¤¦à¥‡à¤–à¥‡à¤‚", screen: "Weather & air" }
+    ]};
+  }
+
+  // 7. Roads, Potholes & Alpha II
+  const roadKeywords = [
+    "pothole", "potholes", "pothol", "pot hole", "road", "roads", "sadak", "gaddha", "gaddhe",
+    "khadda", "khadde", "alpha", "alpha 2", "alpha ii", "beta", "asphalt", "crater", "damaged road",
+    "broken road", "footpath", "resurfacing", "patchwork", "à¤—à¤¡à¥à¤¢à¤¾", "à¤—à¤¡à¥à¤¢à¥‡", "à¤¸à¤¡à¤¼à¤•", "à¤…à¤²à¥à¤«à¤¾"
+  ];
+  if (roadKeywords.some(kw => q.includes(kw))) {
+    const en = `Regarding road conditions:\n\nâ€¢ **Alpha II Main Road:** Our database records 1 high-severity pothole (Report #102, confirmed by 14 citizens near the commercial complex). GNIDA Civil Maintenance Division has scheduled field repair with a 48-hour SLA.\nâ€¢ **Beta & Delta Sectors:** Internal lane patchwork is currently 70% complete under the municipal maintenance contract.\nâ€¢ **Filing New Road Hazards:** If you encounter a new pothole, submit a geotagged photo via 'Capture report' and our AI will verify and escalate it immediately.`;
+    const hi = `à¤¸à¤¡à¤¼à¤•à¥‹à¤‚ à¤”à¤° à¤—à¤¡à¥à¤¢à¥‹à¤‚ à¤•à¥€ à¤¸à¥à¤¥à¤¿à¤¤à¤¿:\n\nâ€¢ **à¤…à¤²à¥à¤«à¤¾ II à¤®à¥à¤–à¥à¤¯ à¤¸à¤¡à¤¼à¤•:** à¤¡à¥‡à¤Ÿà¤¾à¤¬à¥‡à¤¸ à¤®à¥‡à¤‚ 1 à¤—à¤‚à¤­à¥€à¤° à¤—à¤¡à¥à¤¢à¤¾ à¤¦à¤°à¥à¤œ à¤¹à¥ˆ (à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ #102, 14 à¤¨à¤¾à¤—à¤°à¤¿à¤•à¥‹à¤‚ à¤¦à¥à¤µà¤¾à¤°à¤¾ à¤ªà¥à¤·à¥à¤Ÿ)à¥¤ à¤œà¥€à¤à¤¨à¤†à¤ˆà¤¡à¥€à¤ à¤¸à¤¿à¤µà¤¿à¤² à¤µà¤¿à¤‚à¤— à¤¨à¥‡ 48 à¤˜à¤‚à¤Ÿà¥‡ à¤•à¥‡ à¤à¤¸à¤à¤²à¤ à¤•à¥‡ à¤¤à¤¹à¤¤ à¤®à¤°à¤®à¥à¤®à¤¤ à¤¨à¤¿à¤°à¥à¤§à¤¾à¤°à¤¿à¤¤ à¤•à¥€ à¤¹à¥ˆà¥¤\nâ€¢ **à¤¬à¥€à¤Ÿà¤¾ à¤à¤µà¤‚ à¤¡à¥‡à¤²à¥à¤Ÿà¤¾ à¤¸à¥‡à¤•à¥à¤Ÿà¤°:** à¤†à¤‚à¤¤à¤°à¤¿à¤• à¤—à¤²à¤¿à¤¯à¥‹à¤‚ à¤®à¥‡à¤‚ à¤ªà¥ˆà¤šà¤µà¤°à¥à¤• à¤•à¤¾ à¤•à¤¾à¤°à¥à¤¯ 70% à¤ªà¥‚à¤°à¤¾ à¤¹à¥‹ à¤šà¥à¤•à¤¾ à¤¹à¥ˆà¥¤\nâ€¢ **à¤¨à¤¯à¤¾ à¤—à¤¡à¥à¤¢à¤¾ à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ à¤•à¤°à¤¨à¤¾:** à¤¯à¤¦à¤¿ à¤†à¤ªà¤•à¥‹ à¤•à¤¹à¥€à¤‚ à¤­à¥€ à¤¸à¤¡à¤¼à¤• à¤Ÿà¥‚à¤Ÿà¥€ à¤®à¤¿à¤²à¥‡, à¤¤à¥‹ à¤«à¥‹à¤Ÿà¥‹ à¤–à¥€à¤‚à¤šà¤•à¤° à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ à¤¦à¤°à¥à¤œ à¤•à¤°à¥‡à¤‚, à¤¹à¤®à¤¾à¤°à¥€ à¤ªà¥à¤°à¤£à¤¾à¤²à¥€ à¤¤à¥à¤°à¤‚à¤¤ à¤‡à¤¸à¥‡ à¤¸à¤‚à¤¬à¤‚à¤§à¤¿à¤¤ à¤…à¤§à¤¿à¤•à¤¾à¤°à¥€ à¤¤à¤• à¤ªà¤¹à¥à¤à¤šà¤¾à¤à¤—à¥€à¥¤`;
+    saveToHistory(rawQ, en, hi, "Roads & Potholes");
+    return { en, hi, actions: [
+      { labelEn: "View on City Map", labelHi: "à¤¨à¤•à¥à¤¶à¥‡ à¤ªà¤° à¤¦à¥‡à¤–à¥‡à¤‚", screen: "Explore map" },
+      { labelEn: "Report Pothole", labelHi: "à¤—à¤¡à¥à¤¢à¤¾ à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ à¤•à¤°à¥‡à¤‚", screen: "Capture report" }
+    ]};
+  }
+
+  // 8. Pari Chowk & Traffic Navigation
+  const trafficKeywords = [
+    "pari chowk", "parichowk", "traffic", "jam", "congestion", "rush", "route", "connector",
+    "chauraha", "crossing", "highway", "expressway", "fas gaya", "diversion",
+    "à¤ªà¤°à¥€ à¤šà¥Œà¤•", "à¤Ÿà¥à¤°à¥ˆà¤«à¤¿à¤•", "à¤œà¤¾à¤®", "à¤°à¤¾à¤¸à¥à¤¤à¤¾", "à¤šà¥Œà¤°à¤¾à¤¹à¤¾"
+  ];
+  if (trafficKeywords.some(kw => q.includes(kw))) {
+    const en = `Here is the current transit advisory for Pari Chowk:\n\nâ€¢ **Traffic Status:** Moderate to heavy congestion during peak morning and evening office commutes.\nâ€¢ **Road Work:** Lane resurfacing on the Surajpur connector road creates brief bottleneck delays.\nâ€¢ **Smart Navigation Recommendation:** If you are heading towards Knowledge Park or Greater Noida West, take the inner service bypass rather than the roundabout core.\nâ€¢ Check our 'Civic navigation' feature for live turns that automatically bypass known traffic delays.`;
+    const hi = `à¤ªà¤°à¥€ à¤šà¥Œà¤• à¤”à¤° à¤¯à¤¾à¤¤à¤¾à¤¯à¤¾à¤¤ à¤•à¥€ à¤²à¤¾à¤‡à¤µ à¤¸à¥à¤¥à¤¿à¤¤à¤¿:\n\nâ€¢ **à¤Ÿà¥à¤°à¥ˆà¤«à¤¿à¤• à¤¸à¥à¤¥à¤¿à¤¤à¤¿:** à¤¸à¥à¤¬à¤¹ à¤”à¤° à¤¶à¤¾à¤® à¤•à¥‡ à¤ªà¥€à¤• à¤¸à¤®à¤¯ à¤®à¥‡à¤‚ à¤®à¤§à¥à¤¯à¤® à¤¸à¥‡ à¤­à¤¾à¤°à¥€ à¤Ÿà¥à¤°à¥ˆà¤«à¤¿à¤• à¤¦à¥‡à¤–à¤¾ à¤œà¤¾ à¤°à¤¹à¤¾ à¤¹à¥ˆà¥¤\nâ€¢ **à¤¸à¤¡à¤¼à¤• à¤•à¤¾à¤°à¥à¤¯:** à¤¸à¥‚à¤°à¤œà¤ªà¥à¤° à¤•à¤¨à¥‡à¤•à¥à¤Ÿà¤° à¤¸à¤¡à¤¼à¤• à¤ªà¤° à¤®à¤°à¤®à¥à¤®à¤¤ à¤•à¥‡ à¤•à¤¾à¤°à¤£ à¤µà¤¾à¤¹à¤¨à¥‹à¤‚ à¤•à¥€ à¤—à¤¤à¤¿ à¤§à¥€à¤®à¥€ à¤¹à¥ˆà¥¤\nâ€¢ **à¤¸à¥à¤—à¤® à¤®à¤¾à¤°à¥à¤— à¤¸à¥à¤à¤¾à¤µ:** à¤¯à¤¦à¤¿ à¤†à¤ª à¤¨à¥‰à¤²à¥‡à¤œ à¤ªà¤¾à¤°à¥à¤• à¤¯à¤¾ à¤—à¥à¤°à¥‡à¤Ÿà¤° à¤¨à¥‹à¤à¤¡à¤¾ à¤µà¥‡à¤¸à¥à¤Ÿ à¤œà¤¾ à¤°à¤¹à¥‡ à¤¹à¥ˆà¤‚, à¤¤à¥‹ à¤®à¥à¤–à¥à¤¯ à¤šà¥Œà¤°à¤¾à¤¹à¥‡ à¤•à¥‡ à¤¬à¤œà¤¾à¤¯ à¤‡à¤¨à¤° à¤¸à¤°à¥à¤µà¤¿à¤¸ à¤¬à¤¾à¤ˆà¤ªà¤¾à¤¸ à¤•à¤¾ à¤‰à¤ªà¤¯à¥‹à¤— à¤•à¤°à¥‡à¤‚à¥¤\nâ€¢ à¤¬à¤¿à¤¨à¤¾ à¤œà¤¾à¤® à¤µà¤¾à¤²à¥‡ à¤°à¤¾à¤¸à¥à¤¤à¥‹à¤‚ à¤•à¥‡ à¤²à¤¿à¤ à¤¹à¤®à¤¾à¤°à¥‡ 'Civic navigation' à¤¸à¥à¤•à¥à¤°à¥€à¤¨ à¤•à¤¾ à¤‰à¤ªà¤¯à¥‹à¤— à¤•à¤°à¥‡à¤‚à¥¤`;
+    saveToHistory(rawQ, en, hi, "Traffic & Navigation");
+    return { en, hi, actions: [
+      { labelEn: "Civic Navigation", labelHi: "à¤¸à¥à¤°à¤•à¥à¤·à¤¿à¤¤ à¤®à¤¾à¤°à¥à¤— à¤¨à¥‡à¤µà¤¿à¤—à¥‡à¤¶à¤¨", screen: "Civic navigation" },
+      { labelEn: "View Traffic on Map", labelHi: "à¤¨à¤•à¥à¤¶à¥‡ à¤ªà¤° à¤¦à¥‡à¤–à¥‡à¤‚", screen: "Explore map" }
+    ]};
+  }
+
+  // 9. Waterlogging, Drains & Sewerage
+  const waterKeywords = [
+    "water", "drain", "drainage", "sewer", "sewerage", "jalbharav", "naali", "nala", "paani",
+    "waterlogging", "flood", "rain", "overflow", "stagnant", "kichad", "à¤œà¤²à¤­à¤°à¤¾à¤µ", "à¤¨à¤¾à¤²à¥€", "à¤ªà¤¾à¤¨à¥€", "à¤¸à¥€à¤µà¤°"
+  ];
+  if (waterKeywords.some(kw => q.includes(kw))) {
+    const en = `Regarding waterlogging and drainage in Greater Noida:\n\nâ€¢ **Active Clearance:** Knowledge Park II and Surajpur arterial drains are currently under active mechanized de-silting by the GNIDA Water & Sewerage Department.\nâ€¢ **Resolution SLA:** Reported drain overflow and waterlogged road stretches carry a strict 24 to 48-hour resolution SLA.\nâ€¢ **Department Contact:** GNIDA Water Department Helpline is **0120-2326308**.\nâ€¢ You can file waterlogging reports with GPS coordinates to alert municipal suction tankers immediately.`;
+    const hi = `à¤œà¤²à¤­à¤°à¤¾à¤µ à¤”à¤° à¤¨à¤¾à¤²à¥€ à¤¨à¤¿à¤•à¤¾à¤¸à¥€ à¤•à¥€ à¤¸à¥à¤¥à¤¿à¤¤à¤¿:\n\nâ€¢ **à¤¸à¤«à¤¾à¤ˆ à¤…à¤­à¤¿à¤¯à¤¾à¤¨:** à¤¨à¥‰à¤²à¥‡à¤œ à¤ªà¤¾à¤°à¥à¤• II à¤”à¤° à¤¸à¥‚à¤°à¤œà¤ªà¥à¤° à¤•à¥‡ à¤¨à¤¾à¤²à¥‹à¤‚ à¤¸à¥‡ à¤—à¤¾à¤¦ à¤¨à¤¿à¤•à¤¾à¤²à¤¨à¥‡ à¤•à¤¾ à¤•à¤¾à¤°à¥à¤¯ à¤œà¥€à¤à¤¨à¤†à¤ˆà¤¡à¥€à¤ à¤œà¤² à¤à¤µà¤‚ à¤¸à¥€à¤µà¤°à¥‡à¤œ à¤µà¤¿à¤­à¤¾à¤— à¤¦à¥à¤µà¤¾à¤°à¤¾ à¤®à¤¶à¥€à¤¨à¥‹à¤‚ à¤¸à¥‡ à¤•à¤¿à¤¯à¤¾ à¤œà¤¾ à¤°à¤¹à¤¾ à¤¹à¥ˆà¥¤\nâ€¢ **à¤¸à¤®à¤¾à¤§à¤¾à¤¨ à¤¸à¤®à¤¯à¤¸à¥€à¤®à¤¾ (SLA):** à¤œà¤²à¤­à¤°à¤¾à¤µ à¤”à¤° à¤¬à¤‚à¤¦ à¤¨à¤¾à¤²à¤¿à¤¯à¥‹à¤‚ à¤•à¥€ à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ à¤ªà¤° 24 à¤¸à¥‡ 48 à¤˜à¤‚à¤Ÿà¥‡ à¤®à¥‡à¤‚ à¤¸à¤®à¤¾à¤§à¤¾à¤¨ à¤…à¤¨à¤¿à¤µà¤¾à¤°à¥à¤¯ à¤¹à¥ˆà¥¤\nâ€¢ **à¤µà¤¿à¤­à¤¾à¤— à¤¸à¤‚à¤ªà¤°à¥à¤•:** à¤œà¥€à¤à¤¨à¤†à¤ˆà¤¡à¥€à¤ à¤œà¤² à¤µà¤¿à¤­à¤¾à¤— à¤¹à¥‡à¤²à¥à¤ªà¤²à¤¾à¤‡à¤¨: **0120-2326308**à¥¤\nâ€¢ à¤†à¤ª à¤«à¥‹à¤Ÿà¥‹ à¤•à¥‡ à¤¸à¤¾à¤¥ à¤œà¤²à¤­à¤°à¤¾à¤µ à¤•à¥€ à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ à¤¦à¤°à¥à¤œ à¤•à¤° à¤¸à¤•à¤¤à¥‡ à¤¹à¥ˆà¤‚ à¤¤à¤¾à¤•à¤¿ à¤¨à¤—à¤° à¤ªà¤¾à¤²à¤¿à¤•à¤¾ à¤¸à¤•à¥à¤¶à¤¨ à¤Ÿà¥ˆà¤‚à¤•à¤° à¤®à¥Œà¤•à¥‡ à¤ªà¤° à¤­à¥‡à¤œà¥‡ à¤œà¤¾ à¤¸à¤•à¥‡à¤‚à¥¤`;
+    saveToHistory(rawQ, en, hi, "Waterlogging & Drainage");
+    return { en, hi, actions: [
+      { labelEn: "Report Waterlogging", labelHi: "à¤œà¤²à¤­à¤°à¤¾à¤µ à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ à¤•à¤°à¥‡à¤‚", screen: "Capture report" },
+      { labelEn: "View Authority Desk", labelHi: "à¤ªà¥à¤°à¤¾à¤§à¤¿à¤•à¤°à¤£ à¤¡à¥‡à¤¸à¥à¤• à¤¦à¥‡à¤–à¥‡à¤‚", screen: "Responsible authority" }
+    ]};
+  }
+
+  // 10. Streetlights & Electricity (NPCL)
+  const lightKeywords = [
+    "light", "lights", "streetlight", "streetlights", "electric", "electricity", "bijli", "andhera",
+    "bulb", "pole", "npcl", "power cut", "outage", "transformer", "wire", "taar", "à¤¬à¤¿à¤œà¤²à¥€", "à¤²à¤¾à¤‡à¤Ÿ", "à¤¸à¥à¤Ÿà¥à¤°à¥€à¤Ÿà¤²à¤¾à¤‡à¤Ÿ"
+  ];
+  if (lightKeywords.some(kw => q.includes(kw))) {
+    const en = `Regarding streetlights and power infrastructure:\n\nâ€¢ **Management:** Streetlights are jointly maintained by the GNIDA Electrical Wing and NPCL (Noida Power Company Limited).\nâ€¢ **Strict 24-Hour SLA:** Outages on public poles with reported GPS coordinates carry a legally mandated 24-hour repair turnaround.\nâ€¢ **NPCL Customer Helpline:** **0120-6229400** (24/7 operational).\nâ€¢ Submit a photo of the pole or location via 'Capture report' and we route it directly to the field maintenance crew.`;
+    const hi = `à¤¸à¥à¤Ÿà¥à¤°à¥€à¤Ÿà¤²à¤¾à¤‡à¤Ÿ à¤”à¤° à¤¬à¤¿à¤œà¤²à¥€ à¤µà¥à¤¯à¤µà¤¸à¥à¤¥à¤¾ à¤•à¥€ à¤œà¤¾à¤¨à¤•à¤¾à¤°à¥€:\n\nâ€¢ **à¤ªà¥à¤°à¤¬à¤‚à¤§à¤¨:** à¤—à¥à¤°à¥‡à¤Ÿà¤° à¤¨à¥‹à¤à¤¡à¤¾ à¤®à¥‡à¤‚ à¤¸à¥à¤Ÿà¥à¤°à¥€à¤Ÿà¤²à¤¾à¤‡à¤Ÿà¥à¤¸ à¤•à¤¾ à¤°à¤–à¤°à¤–à¤¾à¤µ à¤œà¥€à¤à¤¨à¤†à¤ˆà¤¡à¥€à¤ à¤‡à¤²à¥‡à¤•à¥à¤Ÿà¥à¤°à¤¿à¤•à¤² à¤µà¤¿à¤‚à¤— à¤”à¤° à¤à¤¨à¤ªà¥€à¤¸à¥€à¤à¤² (NPCL) à¤¦à¥à¤µà¤¾à¤°à¤¾ à¤¸à¤‚à¤¯à¥à¤•à¥à¤¤ à¤°à¥‚à¤ª à¤¸à¥‡ à¤•à¤¿à¤¯à¤¾ à¤œà¤¾à¤¤à¤¾ à¤¹à¥ˆà¥¤\nâ€¢ **24 à¤˜à¤‚à¤Ÿà¥‡ à¤•à¤¾ à¤¸à¤–à¥à¤¤ SLA:** à¤–à¤‚à¤­à¤¾ à¤¨à¤‚à¤¬à¤° à¤”à¤° à¤²à¥‹à¤•à¥‡à¤¶à¤¨ à¤•à¥‡ à¤¸à¤¾à¤¥ à¤¦à¤°à¥à¤œ à¤•à¥€ à¤—à¤ˆ à¤¶à¤¿à¤•à¤¾à¤¯à¤¤ à¤•à¤¾ à¤¸à¤®à¤¾à¤§à¤¾à¤¨ 24 à¤˜à¤‚à¤Ÿà¥‡ à¤®à¥‡à¤‚ à¤•à¤°à¤¨à¤¾ à¤…à¤¨à¤¿à¤µà¤¾à¤°à¥à¤¯ à¤¹à¥ˆà¥¤\nâ€¢ **à¤à¤¨à¤ªà¥€à¤¸à¥€à¤à¤² 24/7 à¤¹à¥‡à¤²à¥à¤ªà¤²à¤¾à¤‡à¤¨:** **0120-6229400**à¥¤\nâ€¢ à¤Ÿà¥‚à¤Ÿà¥‡ à¤–à¤‚à¤­à¥‡ à¤¯à¤¾ à¤¬à¤‚à¤¦ à¤²à¤¾à¤‡à¤Ÿ à¤•à¥€ à¤«à¥‹à¤Ÿà¥‹ à¤­à¥‡à¤œà¥‡à¤‚, à¤¹à¤® à¤‡à¤¸à¥‡ à¤¸à¥€à¤§à¥‡ à¤¨à¤œà¤¦à¥€à¤•à¥€ à¤«à¥€à¤²à¥à¤¡ à¤®à¥‡à¤‚à¤Ÿà¥‡à¤¨à¥‡à¤‚à¤¸ à¤Ÿà¥€à¤® à¤•à¥‹ à¤­à¥‡à¤œ à¤¦à¥‡à¤‚à¤—à¥‡à¥¤`;
+    saveToHistory(rawQ, en, hi, "Streetlights & Power");
+    return { en, hi, actions: [
+      { labelEn: "Report Streetlight", labelHi: "à¤¸à¥à¤Ÿà¥à¤°à¥€à¤Ÿà¤²à¤¾à¤‡à¤Ÿ à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ à¤•à¤°à¥‡à¤‚", screen: "Capture report" },
+      { labelEn: "View Authority Contacts", labelHi: "à¤ªà¥à¤°à¤¾à¤§à¤¿à¤•à¤°à¤£ à¤¸à¤‚à¤ªà¤°à¥à¤• à¤¦à¥‡à¤–à¥‡à¤‚", screen: "Responsible authority" }
+    ]};
+  }
+
+  // 11. Complaints Status & User Reports
+  const complaintKeywords = [
+    "complaint", "complaints", "report", "reports", "status", "tracking", "shikayat", "shikayatein",
+    "meri report", "check status", "kya hua", "sla", "pending", "resolved", "à¤¶à¤¿à¤•à¤¾à¤¯à¤¤", "à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ", "à¤¸à¥à¤¥à¤¿à¤¤à¤¿"
+  ];
+  if (complaintKeywords.some(kw => q.includes(kw))) {
+    if (liveReports && liveReports.length > 0) {
+      const open = liveReports.filter(r => r.status !== "Resolved");
+      const resolved = liveReports.filter(r => r.status === "Resolved");
+      const latest = liveReports[0];
+      const en = `Here is your current civic report status from the database:\n\nâ€¢ **Total Reports Filed:** ${liveReports.length} (${open.length} in progress, ${resolved.length} resolved)\nâ€¢ **Latest Ticket:** #${latest.report_number || latest.id.slice(0, 8)} (${latest.title || latest.category})\nâ€¢ **Location:** ${latest.locality || "Greater Noida"}\nâ€¢ **Current Stage:** ${latest.status} (Forwarded to authority with active SLA tracking)\n\nYou can track the full resolution timeline or inspect GroundTruth evidence in 'Report history'.`;
+      const hi = `à¤¡à¥‡à¤Ÿà¤¾à¤¬à¥‡à¤¸ à¤¸à¥‡ à¤†à¤ªà¤•à¥€ à¤¦à¤°à¥à¤œ à¤¶à¤¿à¤•à¤¾à¤¯à¤¤à¥‹à¤‚ à¤•à¥€ à¤¤à¤¾à¤œà¤¼à¤¾ à¤¸à¥à¤¥à¤¿à¤¤à¤¿:\n\nâ€¢ **à¤•à¥à¤² à¤¶à¤¿à¤•à¤¾à¤¯à¤¤à¥‡à¤‚:** ${liveReports.length} (${open.length} à¤ªà¥à¤°à¤•à¥à¤°à¤¿à¤¯à¤¾ à¤®à¥‡à¤‚, ${resolved.length} à¤¨à¤¿à¤¸à¥à¤¤à¤¾à¤°à¤¿à¤¤)\nâ€¢ **à¤¨à¤µà¥€à¤¨à¤¤à¤® à¤Ÿà¤¿à¤•à¤Ÿ:** #${latest.report_number || latest.id.slice(0, 8)} (${latest.title || latest.category})\nâ€¢ **à¤¸à¥à¤¥à¤¾à¤¨:** ${latest.locality || "à¤—à¥à¤°à¥‡à¤Ÿà¤° à¤¨à¥‹à¤à¤¡à¤¾"}\nâ€¢ **à¤µà¤°à¥à¤¤à¤®à¤¾à¤¨ à¤¸à¥à¤¥à¤¿à¤¤à¤¿:** ${latest.status} (à¤¸à¤‚à¤¬à¤‚à¤§à¤¿à¤¤ à¤µà¤¿à¤­à¤¾à¤— à¤•à¥‹ à¤ªà¥à¤°à¥‡à¤·à¤¿à¤¤ à¤µ à¤¸à¤•à¥à¤°à¤¿à¤¯ SLA à¤Ÿà¥à¤°à¥ˆà¤•à¤¿à¤‚à¤—)\n\nà¤†à¤ª 'Report history' à¤®à¥‡à¤‚ à¤œà¤¾à¤•à¤° à¤ªà¥‚à¤°à¤¾ à¤Ÿà¤¾à¤‡à¤®à¤²à¤¾à¤‡à¤¨ à¤”à¤° à¤—à¥à¤°à¤¾à¤‰à¤‚à¤¡à¤Ÿà¥à¤°à¥‚à¤¥ à¤«à¥‹à¤Ÿà¥‹ à¤¸à¤¾à¤•à¥à¤·à¥à¤¯ à¤¦à¥‡à¤– à¤¸à¤•à¤¤à¥‡ à¤¹à¥ˆà¤‚à¥¤`;
+      saveToHistory(rawQ, en, hi, "Complaint Status");
+      return { en, hi, actions: [
+        { labelEn: "View Report History", labelHi: "à¤¶à¤¿à¤•à¤¾à¤¯à¤¤ à¤‡à¤¤à¤¿à¤¹à¤¾à¤¸ à¤¦à¥‡à¤–à¥‡à¤‚", screen: "Report history" },
+        { labelEn: "Live Reference Tracking", labelHi: "à¤²à¤¾à¤‡à¤µ à¤Ÿà¥à¤°à¥ˆà¤•à¤¿à¤‚à¤— à¤¦à¥‡à¤–à¥‡à¤‚", screen: "Reference tracking" }
+      ]};
+    } else {
+      const en = `You have no pending municipal reports on file right now. Everything looks clear! If you observe any issue in your sector â€” such as an asphalt pothole, open garbage dump, or broken streetlight â€” you can submit a report in under 30 seconds.`;
+      const hi = `à¤µà¤°à¥à¤¤à¤®à¤¾à¤¨ à¤®à¥‡à¤‚ à¤†à¤ªà¤•à¥€ à¤•à¥‹à¤ˆ à¤­à¥€ à¤²à¤‚à¤¬à¤¿à¤¤ à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤¶à¤¿à¤•à¤¾à¤¯à¤¤ à¤¦à¤°à¥à¤œ à¤¨à¤¹à¥€à¤‚ à¤¹à¥ˆà¥¤ à¤¸à¤¬ à¤•à¥à¤› à¤ à¥€à¤• à¤¹à¥ˆ! à¤¯à¤¦à¤¿ à¤†à¤ªà¤•à¥‹ à¤…à¤ªà¤¨à¥‡ à¤•à¥à¤·à¥‡à¤¤à¥à¤° à¤®à¥‡à¤‚ à¤•à¥‹à¤ˆ à¤¸à¤¡à¤¼à¤• à¤•à¤¾ à¤—à¤¡à¥à¤¢à¤¾, à¤•à¤šà¤°à¤¾ à¤¢à¥‡à¤° à¤¯à¤¾ à¤¬à¤‚à¤¦ à¤¸à¥à¤Ÿà¥à¤°à¥€à¤Ÿà¤²à¤¾à¤‡à¤Ÿ à¤¦à¤¿à¤–à¥‡, à¤¤à¥‹ à¤†à¤ª 30 à¤¸à¥‡à¤•à¤‚à¤¡ à¤®à¥‡à¤‚ à¤¨à¤ˆ à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ à¤¦à¤°à¥à¤œ à¤•à¤° à¤¸à¤•à¤¤à¥‡ à¤¹à¥ˆà¤‚à¥¤`;
+      saveToHistory(rawQ, en, hi, "Complaint Status");
+      return { en, hi, actions: [
+        { labelEn: "File New Report", labelHi: "à¤¨à¤ˆ à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ à¤¦à¤°à¥à¤œ à¤•à¤°à¥‡à¤‚", screen: "Capture report" },
+        { labelEn: "View City Map", labelHi: "à¤¶à¤¹à¤° à¤•à¤¾ à¤¨à¤•à¥à¤¶à¤¾ à¤¦à¥‡à¤–à¥‡à¤‚", screen: "Explore map" }
+      ]};
+    }
+  }
+
+  // 12. Authority Contacts & Emergency Numbers
+  const authorityKeywords = [
+    "authority", "authorities", "helpline", "helplines", "contact", "contacts", "gnida", "officer",
+    "number", "phone", "call", "adhikari", "sampark", "police", "control room", "à¤¹à¥‡à¤²à¥à¤ªà¤²à¤¾à¤‡à¤¨", "à¤¸à¤‚à¤ªà¤°à¥à¤•", "à¤…à¤§à¤¿à¤•à¤¾à¤°à¥€", "à¤¨à¤‚à¤¬à¤°"
+  ];
+  if (authorityKeywords.some(kw => q.includes(kw))) {
+    const en = `Here are the verified Greater Noida Authority (GNIDA) & utility emergency contacts:\n\nâ€¢ **Roads & Civil Maintenance:** 0120-2326301 (SLA: 48-72h)\nâ€¢ **Streetlights & NPCL Power:** 0120-6229400 (SLA: 24h)\nâ€¢ **Water Supply & Sewerage:** 0120-2326308 (SLA: 24-48h)\nâ€¢ **Sanitation & Garbage Disposal:** 0120-2326305 (SLA: 12-24h)\nâ€¢ **Traffic Police Control Room:** 9971009001 (Immediate Dispatch)\n\nWould you like me to hand off a specific issue to one of these divisions?`;
+    const hi = `à¤—à¥à¤°à¥‡à¤Ÿà¤° à¤¨à¥‹à¤à¤¡à¤¾ à¤ªà¥à¤°à¤¾à¤§à¤¿à¤•à¤°à¤£ (GNIDA) à¤”à¤° à¤†à¤ªà¤¾à¤¤à¤•à¤¾à¤²à¥€à¤¨ à¤¹à¥‡à¤²à¥à¤ªà¤²à¤¾à¤‡à¤¨ à¤¨à¤‚à¤¬à¤°:\n\nâ€¢ **à¤¸à¤¡à¤¼à¤• à¤à¤µà¤‚ à¤¸à¤¿à¤µà¤¿à¤² à¤°à¤–à¤°à¤–à¤¾à¤µ:** 0120-2326301 (SLA: 48-72 à¤˜à¤‚à¤Ÿà¥‡)\nâ€¢ **à¤¸à¥à¤Ÿà¥à¤°à¥€à¤Ÿà¤²à¤¾à¤‡à¤Ÿ à¤”à¤° à¤à¤¨à¤ªà¥€à¤¸à¥€à¤à¤² à¤¬à¤¿à¤œà¤²à¥€:** 0120-6229400 (SLA: 24 à¤˜à¤‚à¤Ÿà¥‡)\nâ€¢ **à¤œà¤²à¤¾à¤ªà¥‚à¤°à¥à¤¤à¤¿ à¤à¤µà¤‚ à¤¸à¥€à¤µà¤°à¥‡à¤œ à¤¨à¤¿à¤•à¤¾à¤¸à¥€:** 0120-2326308 (SLA: 24-48 à¤˜à¤‚à¤Ÿà¥‡)\nâ€¢ **à¤¸à¥à¤µà¤šà¥à¤›à¤¤à¤¾ à¤à¤µà¤‚ à¤•à¤šà¤°à¤¾ à¤¨à¤¿à¤¸à¥à¤¤à¤¾à¤°à¤£:** 0120-2326305 (SLA: 12-24 à¤˜à¤‚à¤Ÿà¥‡)\nâ€¢ **à¤Ÿà¥à¤°à¥ˆà¤«à¤¿à¤• à¤ªà¥à¤²à¤¿à¤¸ à¤¨à¤¿à¤¯à¤‚à¤¤à¥à¤°à¤£ à¤•à¤•à¥à¤·:** 9971009001 (à¤¤à¥à¤µà¤°à¤¿à¤¤ à¤—à¤¶à¥à¤¤)\n\nà¤•à¥à¤¯à¤¾ à¤†à¤ª à¤‡à¤¨à¤®à¥‡à¤‚ à¤¸à¥‡ à¤•à¤¿à¤¸à¥€ à¤µà¤¿à¤­à¤¾à¤— à¤•à¥‹ à¤¶à¤¿à¤•à¤¾à¤¯à¤¤ à¤…à¤—à¥à¤°à¥‡à¤·à¤¿à¤¤ à¤•à¤°à¤¨à¤¾ à¤šà¤¾à¤¹à¤¤à¥‡ à¤¹à¥ˆà¤‚?`;
+    saveToHistory(rawQ, en, hi, "Authority Contacts");
+    return { en, hi, actions: [
+      { labelEn: "Responsible Authority Desk", labelHi: "à¤ªà¥à¤°à¤¾à¤§à¤¿à¤•à¤°à¤£ à¤¡à¥‡à¤¸à¥à¤• à¤¦à¥‡à¤–à¥‡à¤‚", screen: "Responsible authority" },
+      { labelEn: "Complaint Handoff", labelHi: "à¤¶à¤¿à¤•à¤¾à¤¯à¤¤ à¤…à¤—à¥à¤°à¥‡à¤·à¤£", screen: "Complaint handoff" }
+    ]};
+  }
+
+  // 13. Greeting & General Conversational Inquiry
+  const greetingKeywords = [
+    "hello", "hi", "hey", "namaste", "pranam", "kaise ho", "shukriya", "dhanyawad",
+    "thank you", "thanks", "good morning", "good evening", "namaskar", "à¤¨à¤®à¤¸à¥à¤¤à¥‡", "à¤¹à¥‡à¤²à¥‹", "à¤ªà¥à¤°à¤£à¤¾à¤®", "à¤¨à¤®à¤¸à¥à¤•à¤¾à¤°"
+  ];
+  if (greetingKeywords.some(kw => q.includes(kw))) {
+    const en = `Hello citizen! ðŸ‘‹ How can I assist you today? I'm your Greater Noida civic AI â€” you can ask me about road conditions in your sector, check local GNIDA helpline numbers, track complaints, or check today's headlines!`;
+    const hi = `à¤¨à¤®à¤¸à¥à¤¤à¥‡ à¤¨à¤¾à¤—à¤°à¤¿à¤•! ðŸ‘‹ à¤†à¤œ à¤®à¥ˆà¤‚ à¤†à¤ªà¤•à¥€ à¤•à¥à¤¯à¤¾ à¤¸à¤¹à¤¾à¤¯à¤¤à¤¾ à¤•à¤° à¤¸à¤•à¤¤à¤¾ à¤¹à¥‚à¤? à¤®à¥ˆà¤‚ à¤†à¤ªà¤•à¤¾ à¤—à¥à¤°à¥‡à¤Ÿà¤° à¤¨à¥‹à¤à¤¡à¤¾ à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤à¤†à¤ˆ à¤¸à¤¹à¤¾à¤¯à¤• à¤¹à¥‚à¤ â€” à¤†à¤ª à¤®à¥à¤à¤¸à¥‡ à¤…à¤ªà¤¨à¥‡ à¤•à¥à¤·à¥‡à¤¤à¥à¤° à¤®à¥‡à¤‚ à¤¸à¤¡à¤¼à¤• à¤•à¥€ à¤¸à¥à¤¥à¤¿à¤¤à¤¿, à¤œà¥€à¤à¤¨à¤†à¤ˆà¤¡à¥€à¤ à¤¹à¥‡à¤²à¥à¤ªà¤²à¤¾à¤‡à¤¨ à¤¨à¤‚à¤¬à¤°, à¤¶à¤¿à¤•à¤¾à¤¯à¤¤ à¤Ÿà¥à¤°à¥ˆà¤•à¤¿à¤‚à¤— à¤¯à¤¾ à¤†à¤œ à¤•à¥€ à¤¸à¥à¤°à¥à¤–à¤¿à¤¯à¤¾à¤ à¤ªà¥‚à¤› à¤¸à¤•à¤¤à¥‡ à¤¹à¥ˆà¤‚!`;
+    saveToHistory(rawQ, en, hi, "Greeting");
+    return { en, hi, actions: [
+      { labelEn: "Alpha II Potholes", labelHi: "à¤…à¤²à¥à¤«à¤¾ II à¤®à¥‡à¤‚ à¤—à¤¡à¥à¤¢à¥‡", query: "What potholes are reported in Alpha II?" },
+      { labelEn: "Pari Chowk Route", labelHi: "à¤ªà¤°à¥€ à¤šà¥Œà¤• à¤®à¤¾à¤°à¥à¤—", query: "How is the traffic near Pari Chowk?" },
+      { labelEn: "Check My Complaints", labelHi: "à¤®à¥‡à¤°à¥€ à¤¶à¤¿à¤•à¤¾à¤¯à¤¤à¥‡à¤‚", query: "What is the status of my reports?" }
+    ]};
+  }
+
+  // 14. Natural ChatGPT-Style Contextual Synthesis for Any Query
+  const en = `I analyzed your query: "${rawQ}". As your Greater Noida civic assistant, here is how I can help:\n\nâ€¢ If you are **reporting an issue** (such as potholes, waterlogging, or power outages), we can log a geotagged report and escalate it directly to GNIDA or NPCL under enforceable SLAs.\nâ€¢ If you are **checking road conditions or navigation**, I can inspect live sector reports across Alpha, Beta, Knowledge Park, and Pari Chowk.\nâ€¢ If you are **tracking municipal accountability**, our GroundTruth AI enables you to verify completed repair evidence.\n\nCould you specify which sector or department you'd like to check?`;
+  const hi = `à¤®à¥ˆà¤‚à¤¨à¥‡ à¤†à¤ªà¤•à¥‡ à¤ªà¥à¤°à¤¶à¥à¤¨ à¤•à¤¾ à¤µà¤¿à¤¶à¥à¤²à¥‡à¤·à¤£ à¤•à¤¿à¤¯à¤¾: "${rawQ}"à¥¤ à¤—à¥à¤°à¥‡à¤Ÿà¤° à¤¨à¥‹à¤à¤¡à¤¾ à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤¸à¤¹à¤¾à¤¯à¤• à¤•à¥‡ à¤°à¥‚à¤ª à¤®à¥‡à¤‚, à¤®à¥ˆà¤‚ à¤†à¤ªà¤•à¥€ à¤‡à¤¸ à¤ªà¥à¤°à¤•à¤¾à¤° à¤¸à¤¹à¤¾à¤¯à¤¤à¤¾ à¤•à¤° à¤¸à¤•à¤¤à¤¾ à¤¹à¥‚à¤:\n\nâ€¢ à¤¯à¤¦à¤¿ à¤†à¤ª **à¤•à¥‹à¤ˆ à¤¸à¤®à¤¸à¥à¤¯à¤¾ à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ à¤•à¤° à¤°à¤¹à¥‡ à¤¹à¥ˆà¤‚** (à¤œà¥ˆà¤¸à¥‡ à¤¸à¤¡à¤¼à¤• à¤•à¤¾ à¤—à¤¡à¥à¤¢à¤¾, à¤œà¤²à¤­à¤°à¤¾à¤µ à¤¯à¤¾ à¤¬à¤¿à¤œà¤²à¥€ à¤•à¥€ à¤¸à¤®à¤¸à¥à¤¯à¤¾), à¤¤à¥‹ à¤¹à¤® à¤œà¥€à¤ªà¥€à¤à¤¸ à¤²à¥‹à¤•à¥‡à¤¶à¤¨ à¤•à¥‡ à¤¸à¤¾à¤¥ à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ à¤¦à¤°à¥à¤œ à¤•à¤° à¤¸à¥€à¤§à¥‡ à¤œà¥€à¤à¤¨à¤†à¤ˆà¤¡à¥€à¤ à¤¯à¤¾ à¤à¤¨à¤ªà¥€à¤¸à¥€à¤à¤² à¤•à¥‹ à¤­à¥‡à¤œ à¤¸à¤•à¤¤à¥‡ à¤¹à¥ˆà¤‚à¥¤\nâ€¢ à¤¯à¤¦à¤¿ à¤†à¤ª **à¤¸à¤¡à¤¼à¤• à¤•à¥€ à¤¸à¥à¤¥à¤¿à¤¤à¤¿ à¤¯à¤¾ à¤¨à¥‡à¤µà¤¿à¤—à¥‡à¤¶à¤¨ à¤œà¤¾à¤¨à¤¨à¤¾ à¤šà¤¾à¤¹à¤¤à¥‡ à¤¹à¥ˆà¤‚**, à¤¤à¥‹ à¤®à¥ˆà¤‚ à¤…à¤²à¥à¤«à¤¾, à¤¬à¥€à¤Ÿà¤¾, à¤¨à¥‰à¤²à¥‡à¤œ à¤ªà¤¾à¤°à¥à¤• à¤”à¤° à¤ªà¤°à¥€ à¤šà¥Œà¤• à¤•à¥€ à¤¤à¤¾à¤œà¤¼à¤¾ à¤¸à¥à¤¥à¤¿à¤¤à¤¿ à¤¬à¤¤à¤¾ à¤¸à¤•à¤¤à¤¾ à¤¹à¥‚à¤à¥¤\nâ€¢ à¤¯à¤¦à¤¿ à¤†à¤ª **à¤¨à¤—à¤° à¤ªà¤¾à¤²à¤¿à¤•à¤¾ à¤œà¤µà¤¾à¤¬à¤¦à¥‡à¤¹à¥€ à¤Ÿà¥à¤°à¥ˆà¤• à¤•à¤° à¤°à¤¹à¥‡ à¤¹à¥ˆà¤‚**, à¤¤à¥‹ à¤¹à¤®à¤¾à¤°à¤¾ à¤—à¥à¤°à¤¾à¤‰à¤‚à¤¡à¤Ÿà¥à¤°à¥‚à¤¥ à¤à¤†à¤ˆ à¤«à¥‹à¤Ÿà¥‹ à¤¸à¤¾à¤•à¥à¤·à¥à¤¯ à¤¸à¤¤à¥à¤¯à¤¾à¤ªà¤¿à¤¤ à¤•à¤°à¤¨à¥‡ à¤®à¥‡à¤‚ à¤®à¤¦à¤¦ à¤•à¤°à¤¤à¤¾ à¤¹à¥ˆà¥¤\n\nà¤•à¥ƒà¤ªà¤¯à¤¾ à¤¬à¤¤à¤¾à¤à¤‚ à¤•à¤¿ à¤†à¤ª à¤•à¤¿à¤¸ à¤¸à¥‡à¤•à¥à¤Ÿà¤° à¤¯à¤¾ à¤µà¤¿à¤­à¤¾à¤— à¤•à¥‡ à¤¬à¤¾à¤°à¥‡ à¤®à¥‡à¤‚ à¤…à¤§à¤¿à¤• à¤œà¤¾à¤¨à¤•à¤¾à¤°à¥€ à¤šà¤¾à¤¹à¤¤à¥‡ à¤¹à¥ˆà¤‚?`;
+  saveToHistory(rawQ, en, hi, "General Civic Dialogue");
+  return { en, hi, actions: [
+    { labelEn: "Explore City Map", labelHi: "à¤¶à¤¹à¤° à¤•à¤¾ à¤¨à¤•à¥à¤¶à¤¾ à¤¦à¥‡à¤–à¥‡à¤‚", screen: "Explore map" },
+    { labelEn: "File a Report", labelHi: "à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ à¤¦à¤°à¥à¤œ à¤•à¤°à¥‡à¤‚", screen: "Capture report" },
+    { labelEn: "View Authority Desk", labelHi: "à¤ªà¥à¤°à¤¾à¤§à¤¿à¤•à¤°à¤£ à¤¡à¥‡à¤¸à¥à¤•", screen: "Responsible authority" }
+  ]};
+}
+
+// Interactive Voice Note Player Component
+function VoiceNotePlayer({ audioUrl, duration = 0, transcript = "", lang = "en" }) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [totalDuration, setTotalDuration] = useState(duration || 0);
+  const audioRef = useRef(null);
+
+  const togglePlay = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      audioRef.current.play()
+        .then(() => setIsPlaying(true))
+        .catch(err => {
+          console.warn("Audio playback error:", err);
+          setIsPlaying(false);
+        });
+    }
+  };
+
+  const onTimeUpdate = () => {
+    if (audioRef.current) {
+      setCurrentTime(audioRef.current.currentTime);
+      if (audioRef.current.duration && !isNaN(audioRef.current.duration)) {
+        setTotalDuration(audioRef.current.duration);
+      }
+    }
+  };
+
+  const onEnded = () => {
+    setIsPlaying(false);
+    setCurrentTime(0);
+  };
+
+  const formatTime = (secs) => {
+    if (!secs || isNaN(secs)) return "0:00";
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${m}:${s < 10 ? "0" : ""}${s}`;
+  };
+
+  const progressPct = totalDuration > 0 ? Math.min(100, (currentTime / totalDuration) * 100) : 0;
+
+  return (
+    <div className="voicenote-card">
+      <audio
+        ref={audioRef}
+        src={audioUrl}
+        preload="metadata"
+        onTimeUpdate={onTimeUpdate}
+        onEnded={onEnded}
+        onLoadedMetadata={(e) => {
+          if (e.target.duration && !isNaN(e.target.duration)) {
+            setTotalDuration(e.target.duration);
+          }
+        }}
+      />
+
+      <div className="voicenote-player-row">
+        <button
+          type="button"
+          className={`voicenote-play-btn ${isPlaying ? "playing" : ""}`}
+          onClick={togglePlay}
+          aria-label={isPlaying ? "Pause voice note" : "Play voice note"}
+        >
+          {isPlaying ? <Pause size={14} /> : <Play size={14} style={{ marginLeft: "2px" }} />}
+        </button>
+
+        <div
+          className="voicenote-waveform-container"
+          onClick={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const newPct = clickX / rect.width;
+            if (audioRef.current && totalDuration > 0) {
+              audioRef.current.currentTime = newPct * totalDuration;
+            }
+          }}
+          title="Click to seek"
+        >
+          <div className={`voicenote-waveform-bars ${isPlaying ? "animating" : ""}`}>
+            {[35, 65, 90, 45, 80, 100, 50, 75, 95, 40, 85, 60, 90, 55, 70, 40, 65, 85, 50, 70].map((h, i) => (
+              <span
+                key={i}
+                style={{
+                  height: `${h}%`,
+                  opacity: (i / 20) * 100 <= progressPct ? 1 : 0.4
+                }}
+              />
+            ))}
+          </div>
+          <div className="voicenote-progress-track">
+            <div className="voicenote-progress-fill" style={{ width: `${progressPct}%` }} />
+          </div>
+        </div>
+
+        <span className="voicenote-time-badge">
+          {isPlaying ? formatTime(currentTime) : formatTime(totalDuration)}
+        </span>
+      </div>
+
+      {transcript && (
+        <div className="voicenote-transcript-preview">
+          <span className="voicenote-transcript-label">
+            {lang === "hi" ? "à¤Ÿà¥à¤°à¤¾à¤‚à¤¸à¤•à¥à¤°à¤¿à¤ªà¥à¤Ÿ" : "TRANSCRIPT"}
+          </span>
+          <p className="voicenote-transcript-text">"{transcript}"</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function AskAI({
+  go,
+  query = "",
+  setQuery,
+  language = "English",
+  setLanguage = () => {}
+}) {
+  const [currentLang, setCurrentLang] = useState(language || "English");
+  const [outputMode, setOutputMode] = useState("both"); // "both" (Voice + Text) or "text" (Text Only)
+  const [messages, setMessages] = useState([
+    {
+      id: "m-welcome",
+      role: "assistant",
+      textEn: "Hello Citizen! I'm NagrikAI â€” your city AI assistant. You can speak or type to ask about road hazards, municipal services, complaint statuses, or GNIDA departments.",
+      textHi: "à¤¨à¤®à¤¸à¥à¤¤à¥‡ à¤¨à¤¾à¤—à¤°à¤¿à¤•! à¤®à¥ˆà¤‚ à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤à¤†à¤ˆ à¤¹à¥‚à¤ â€” à¤†à¤ªà¤•à¤¾ à¤¶à¤¹à¤° à¤à¤†à¤ˆ à¤¸à¤¹à¤¾à¤¯à¤•à¥¤ à¤†à¤ª à¤—à¥à¤°à¥‡à¤Ÿà¤° à¤¨à¥‹à¤à¤¡à¤¾ à¤•à¥€ à¤¸à¤¡à¤¼à¤•à¥‹à¤‚ à¤•à¥‡ à¤—à¤¡à¥à¤¢à¥‡, à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤¸à¥‡à¤µà¤¾à¤à¤‚, à¤¶à¤¿à¤•à¤¾à¤¯à¤¤ à¤¸à¥à¤¥à¤¿à¤¤à¤¿ à¤¯à¤¾ à¤œà¥€à¤à¤¨à¤†à¤ˆà¤¡à¥€à¤ à¤µà¤¿à¤­à¤¾à¤—à¥‹à¤‚ à¤•à¥‡ à¤¬à¤¾à¤°à¥‡ à¤®à¥‡à¤‚ à¤¬à¥‹à¤²à¤•à¤° à¤¯à¤¾ à¤²à¤¿à¤–à¤•à¤° à¤ªà¥‚à¤› à¤¸à¤•à¤¤à¥‡ à¤¹à¥ˆà¤‚à¥¤",
+      activeLang: language === "Hindi" ? "hi" : "en",
+      actions: [
+        { labelEn: "What do you provide?", labelHi: "à¤†à¤ª à¤•à¥à¤¯à¤¾ à¤¸à¥‡à¤µà¤¾à¤à¤‚ à¤¦à¥‡à¤¤à¥‡ à¤¹à¥ˆà¤‚?", query: "What civic services does NagrikAI provide?" },
+        { labelEn: "Potholes in Alpha II", labelHi: "à¤…à¤²à¥à¤«à¤¾ II à¤®à¥‡à¤‚ à¤—à¤¡à¥à¤¢à¥‡", query: "What potholes are reported in Alpha II?" },
+        { labelEn: "Pari Chowk traffic", labelHi: "à¤ªà¤°à¥€ à¤šà¥Œà¤• à¤Ÿà¥à¤°à¥ˆà¤«à¤¿à¤•", query: "How is the traffic and road condition near Pari Chowk?" }
+      ]
+    }
+  ]);
+
+  const [inputVal, setInputVal] = useState("");
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [dbReports, setDbReports] = useState([]);
+
+  // Voice Note Recording State
+  const [isRecordingVoiceNote, setIsRecordingVoiceNote] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [liveTranscript, setLiveTranscript] = useState("");
+
+  const mediaRecorderRef = useRef(null);
+  const mediaStreamRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const recordingTimerRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const chatBottomRef = useRef(null);
+
+  // Refs to eliminate stale closure bugs during speech recognition
+  const latestTranscriptRef = useRef("");
+  const isRecordingRef = useRef(false);
+
+  // Sync external language changes
+  useEffect(() => {
+    if (language && language !== currentLang) {
+      setCurrentLang(language);
+    }
+  }, [language]);
+
+  const handleLangChange = (newLang) => {
+    setCurrentLang(newLang);
+    setLanguage(newLang);
+    stopSpeaking();
+  };
+
+  // Fetch live reports from Supabase on mount
+  useEffect(() => {
+    let active = true;
+    async function loadReports() {
+      if (!isSupabaseConfigured) return;
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        if (authData?.user) {
+          const { data } = await supabase
+            .from("reports")
+            .select("id, report_number, title, category, status, locality, created_at")
+            .order("created_at", { ascending: false })
+            .limit(20);
+          if (active && Array.isArray(data)) {
+            setDbReports(data);
+          }
+        }
+      } catch (err) {
+        console.warn("AskAI reports fetch:", err);
+      }
+    }
+    loadReports();
+    return () => { active = false; };
+  }, []);
+
+  // Check for pending reopened conversation or query from outside
+  useEffect(() => {
+    const reopened = localStorage.getItem("nagrikai_pending_reopen_query");
+    if (reopened) {
+      localStorage.removeItem("nagrikai_pending_reopen_query");
+      handleSend(reopened);
+      return;
+    }
+
+    if (window.__pendingVoiceNote) {
+      const p = window.__pendingVoiceNote;
+      window.__pendingVoiceNote = null;
+      handleSendVoiceNote(p.audioUrl, p.duration, p.transcript, p.lang || (currentLang === "Hindi" ? "hi" : "en"));
+    } else if (query && query.trim()) {
+      handleSend(query.trim());
+      if (setQuery) setQuery("");
+    }
+  }, [query]);
+
+  // Scroll to bottom on new message or recording state change
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isRecordingVoiceNote, liveTranscript]);
+
+  // Clean up any audio streams on unmount
+  useEffect(() => {
+    return () => {
+      stopSpeaking();
+      isRecordingRef.current = false;
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach(t => t.stop());
+      }
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
+      if (recognitionRef.current) {
+        try { recognitionRef.current.abort(); } catch {}
+      }
+    };
+  }, []);
+
+  // Robust SpeechSynthesis with native Hindi voice selection
+  const speakText = (text, targetLang = currentLang) => {
+    if (outputMode === "text" || !window.speechSynthesis) return;
+
+    try {
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(text);
+      const isHi = targetLang === "Hindi" || targetLang === "hi" || /[\u0900-\u097F]/.test(text);
+
+      utter.lang = isHi ? "hi-IN" : "en-IN";
+      utter.rate = isHi ? 0.95 : 1.0;
+      utter.pitch = 1.0;
+
+      // Select matching voice
+      const voices = window.speechSynthesis.getVoices();
+      if (isHi) {
+        const hiVoice = voices.find(v => v.lang.startsWith("hi") || v.name.toLowerCase().includes("hindi"));
+        if (hiVoice) utter.voice = hiVoice;
+      } else {
+        const enVoice = voices.find(v => v.lang === "en-IN" || v.lang.startsWith("en"));
+        if (enVoice) utter.voice = enVoice;
+      }
+
+      utter.onstart = () => setIsSpeaking(true);
+      utter.onend = () => setIsSpeaking(false);
+      utter.onerror = () => setIsSpeaking(false);
+
+      window.speechSynthesis.speak(utter);
+    } catch (e) {
+      console.warn("Speech synthesis error:", e);
+      setIsSpeaking(false);
+    }
+  };
+
+  const stopSpeaking = () => {
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+    }
+  };
+
+  // Start Voice Note Recording
+  const startVoiceNoteRecording = async () => {
+    stopSpeaking();
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert("Microphone recording is not supported in this browser. Please use Chrome, Edge, or Safari.");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+
+      let mimeType = "";
+      if (typeof MediaRecorder !== "undefined") {
+        if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+          mimeType = "audio/webm;codecs=opus";
+        } else if (MediaRecorder.isTypeSupported("audio/webm")) {
+          mimeType = "audio/webm";
+        } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+          mimeType = "audio/mp4";
+        } else if (MediaRecorder.isTypeSupported("audio/ogg")) {
+          mimeType = "audio/ogg";
+        }
+      }
+
+      const mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.start(250);
+
+      latestTranscriptRef.current = "";
+      isRecordingRef.current = true;
+      setLiveTranscript("");
+
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        try {
+          const recog = new SpeechRecognition();
+          recog.continuous = true;
+          recog.interimResults = true;
+          recog.lang = currentLang === "Hindi" ? "hi-IN" : "en-IN";
+
+          recog.onresult = (event) => {
+            let fullText = "";
+            for (let i = 0; i < event.results.length; ++i) {
+              fullText += event.results[i][0].transcript + " ";
+            }
+            const cleanText = fullText.trim();
+            if (cleanText) {
+              latestTranscriptRef.current = cleanText;
+              setLiveTranscript(cleanText);
+            }
+          };
+
+          recog.onerror = (e) => {
+            if (e.error !== "no-speech") {
+              console.warn("Speech recognition notice:", e.error);
+            }
+          };
+
+          recog.onend = () => {
+            if (isRecordingRef.current) {
+              try { recog.start(); } catch {}
+            }
+          };
+
+          recog.start();
+          recognitionRef.current = recog;
+        } catch (recErr) {
+          console.warn("Speech recognition initialization:", recErr);
+        }
+      }
+
+      setRecordingSeconds(0);
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds(prev => prev + 1);
+      }, 1000);
+
+      setIsRecordingVoiceNote(true);
+    } catch (err) {
+      console.error("Microphone access error:", err);
+      alert("Could not access microphone. Please enable microphone permission in your browser.");
+    }
+  };
+
+  // Stop Recording and Send Voice Note
+  const stopVoiceNoteAndSend = () => {
+    if (!mediaRecorderRef.current || !isRecordingVoiceNote) return;
+
+    isRecordingRef.current = false;
+
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+
+    const duration = recordingSeconds || 1;
+    const transcriptText = (latestTranscriptRef.current || liveTranscript || "").trim();
+
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch {}
+      recognitionRef.current = null;
+    }
+
+    mediaRecorderRef.current.onstop = () => {
+      try {
+        const mime = mediaRecorderRef.current?.mimeType || "audio/webm";
+        const audioBlob = new Blob(audioChunksRef.current, { type: mime });
+        const audioUrl = URL.createObjectURL(audioBlob);
+
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach(t => t.stop());
+          mediaStreamRef.current = null;
+        }
+
+        handleSendVoiceNote(audioUrl, duration, transcriptText, currentLang === "Hindi" ? "hi" : "en");
+      } catch (err) {
+        console.error("Voice note assembly error:", err);
+      }
+    };
+
+    try {
+      mediaRecorderRef.current.stop();
+    } catch (e) {
+      console.warn("MediaRecorder stop error:", e);
+    }
+
+    setIsRecordingVoiceNote(false);
+    setLiveTranscript("");
+  };
+
+  // Cancel Voice Note Recording without sending
+  const cancelVoiceNote = () => {
+    isRecordingRef.current = false;
+
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort(); } catch {}
+      recognitionRef.current = null;
+    }
+
+    if (mediaRecorderRef.current) {
+      try { mediaRecorderRef.current.stop(); } catch {}
+    }
+
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(t => t.stop());
+      mediaStreamRef.current = null;
+    }
+
+    audioChunksRef.current = [];
+    latestTranscriptRef.current = "";
+    setIsRecordingVoiceNote(false);
+    setLiveTranscript("");
+    setRecordingSeconds(0);
+  };
+
+  // Send Voice Note Message & Generate Conversational AI Response
+  const handleSendVoiceNote = (audioUrl, duration, transcriptText, lang = "en") => {
+    const isHi = lang === "hi" || currentLang === "Hindi";
+    const queryText = transcriptText;
+
+    const userMsg = {
+      id: "u-vn-" + Date.now(),
+      role: "user",
+      isVoiceNote: true,
+      audioUrl: audioUrl,
+      duration: duration,
+      transcript: transcriptText,
+      textEn: transcriptText ? `ðŸŽ¤ Voice Note: "${transcriptText}"` : "ðŸŽ¤ Voice Note",
+      textHi: transcriptText ? `ðŸŽ¤ à¤µà¥‰à¤¯à¤¸à¤¨à¥‹à¤Ÿ: "${transcriptText}"` : "ðŸŽ¤ à¤µà¥‰à¤¯à¤¸à¤¨à¥‹à¤Ÿ",
+      activeLang: isHi ? "hi" : "en",
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    };
+
+    const aiResponse = generateAIModelResponse(queryText, dbReports, true, duration);
+
+    const assistantMsg = {
+      id: "a-vn-" + Date.now(),
+      role: "assistant",
+      textEn: aiResponse.en,
+      textHi: aiResponse.hi,
+      activeLang: isHi ? "hi" : "en",
+      actions: aiResponse.actions || [],
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    };
+
+    setMessages(prev => [...prev, userMsg, assistantMsg]);
+    setInputVal("");
+    setLiveTranscript("");
+    latestTranscriptRef.current = "";
+    if (setQuery) setQuery("");
+
+    // Speak AI response if voice mode is enabled
+    const textToSpeak = isHi ? aiResponse.hi : aiResponse.en;
+    speakText(textToSpeak, isHi ? "Hindi" : "English");
+  };
+
+  // Send Text Message
+  const handleSend = (textToSend = null) => {
+    const q = (textToSend !== null ? textToSend : inputVal).trim();
+    if (!q) return;
+
+    stopSpeaking();
+    if (isRecordingVoiceNote) cancelVoiceNote();
+
+    const isHi = currentLang === "Hindi" || /[\u0900-\u097F]/.test(q);
+
+    const userMsg = {
+      id: "u-" + Date.now(),
+      role: "user",
+      textEn: q,
+      textHi: q,
+      activeLang: isHi ? "hi" : "en",
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    };
+
+    const aiResponse = generateAIModelResponse(q, dbReports, false);
+
+    const assistantMsg = {
+      id: "a-" + Date.now(),
+      role: "assistant",
+      textEn: aiResponse.en,
+      textHi: aiResponse.hi,
+      activeLang: isHi ? "hi" : "en",
+      actions: aiResponse.actions || [],
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    };
+
+    setMessages(prev => [...prev, userMsg, assistantMsg]);
+    setInputVal("");
+    setLiveTranscript("");
+    latestTranscriptRef.current = "";
+    if (setQuery) setQuery("");
+
+    // Speak AI response if voice mode is enabled
+    const textToSpeak = isHi ? aiResponse.hi : aiResponse.en;
+    speakText(textToSpeak, isHi ? "Hindi" : "English");
+  };
+
+  // Toggle message language display between English and Hindi
+  const toggleMessageLang = (msgId) => {
+    setMessages(prev =>
+      prev.map(m => {
+        if (m.id === msgId) {
+          const nextLang = m.activeLang === "hi" ? "en" : "hi";
+          return { ...m, activeLang: nextLang };
+        }
+        return m;
+      })
+    );
+  };
+
+  const formatSeconds = (secs) => {
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${m}:${s < 10 ? "0" : ""}${s}`;
+  };
+
+  const suggestionChips = [
+    { labelEn: "ðŸŒŸ What services do you provide?", labelHi: "ðŸŒŸ à¤†à¤ªà¤•à¥€ à¤¸à¥‡à¤µà¤¾à¤à¤‚ à¤•à¥à¤¯à¤¾ à¤¹à¥ˆà¤‚?", q: "What civic services does NagrikAI provide?" },
+    { labelEn: "ðŸš— Potholes in Alpha II", labelHi: "ðŸš— à¤…à¤²à¥à¤«à¤¾ II à¤®à¥‡à¤‚ à¤—à¤¡à¥à¤¢à¥‡", q: "What potholes are reported in Alpha II?" },
+    { labelEn: "ðŸš¦ Pari Chowk traffic & route", labelHi: "ðŸš¦ à¤ªà¤°à¥€ à¤šà¥Œà¤• à¤Ÿà¥à¤°à¥ˆà¤«à¤¿à¤•", q: "How is the traffic and road condition near Pari Chowk?" },
+    { labelEn: "ðŸ“¸ How GroundTruth AI works?", labelHi: "ðŸ“¸ à¤—à¥à¤°à¤¾à¤‰à¤‚à¤¡à¤Ÿà¥à¤°à¥‚à¤¥ à¤à¤†à¤ˆ à¤•à¥ˆà¤¸à¥‡ à¤•à¤¾à¤® à¤•à¤°à¤¤à¤¾ à¤¹à¥ˆ?", q: "How does GroundTruth AI verify repairs?" },
+    { labelEn: "ðŸ“‹ Check complaint status", labelHi: "ðŸ“‹ à¤®à¥‡à¤°à¥€ à¤¶à¤¿à¤•à¤¾à¤¯à¤¤à¥‹à¤‚ à¤•à¥€ à¤¸à¥à¤¥à¤¿à¤¤à¤¿", q: "What is the status of my reported complaints?" },
+    { labelEn: "ðŸ“ž GNIDA Authority Helplines", labelHi: "ðŸ“ž à¤œà¥€à¤à¤¨à¤†à¤ˆà¤¡à¥€à¤ à¤¹à¥‡à¤²à¥à¤ªà¤²à¤¾à¤‡à¤¨ à¤¨à¤‚à¤¬à¤°", q: "What are the contact numbers for GNIDA and NPCL?" }
+  ];
+
+  return (
+    <div className="page ask-ai-container">
+      {/* Top Bar */}
+      <div className="topbar">
+        <button className="icon-btn" onClick={() => go("Home")}>
+          <ChevronLeft size={19} />
+        </button>
+        <b>{currentLang === "Hindi" ? "à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤à¤†à¤ˆ" : "Ask NagrikAI"}</b>
+        <button
+          className="icon-btn"
+          onClick={() => go("Voice assistant")}
+          title="Open Fullscreen Voice Assistant"
+          style={{ color: "#28d7a0" }}
+        >
+          <Mic size={18} />
+        </button>
+      </div>
+
+      {/* Control Header: Language Options & Output Mode */}
+      <div className="ask-ai-header">
+        <div className="ask-ai-header-row">
+          <span className="ask-ai-badge">
+            <Sparkles size={11} />
+            {currentLang === "Hindi" ? "à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤¬à¥à¤¦à¥à¤§à¤¿à¤®à¤¤à¥à¤¤à¤¾ à¤®à¥‰à¤¡à¤²" : "CIVIC AI MODEL"}
+          </span>
+
+          {/* Language Selector Toggle */}
+          <div className="lang-selector-group">
+            <button
+              className={`lang-selector-btn ${currentLang === "English" ? "active" : ""}`}
+              onClick={() => handleLangChange("English")}
+            >
+              English
+            </button>
+            <button
+              className={`lang-selector-btn ${currentLang === "Hindi" ? "active" : ""}`}
+              onClick={() => handleLangChange("Hindi")}
+            >
+              à¤¹à¤¿à¤¨à¥à¤¦à¥€
+            </button>
+          </div>
+        </div>
+
+        {/* Output Mode Switcher: Voice & Text vs Text Only */}
+        <div className="ask-ai-controls-row">
+          <span style={{ fontSize: "10px", color: "#64748b", fontWeight: "600" }}>
+            {currentLang === "Hindi" ? "à¤†à¤‰à¤Ÿà¤ªà¥à¤Ÿ à¤µà¤¿à¤•à¤²à¥à¤ª:" : "OUTPUT MODE:"}
+          </span>
+
+          <div className="output-mode-group">
+            <button
+              className={`output-mode-btn ${outputMode === "both" ? "active" : ""}`}
+              onClick={() => setOutputMode("both")}
+              title="AI outputs both text and voice speech"
+            >
+              <Volume2 size={12} />
+              <span>{currentLang === "Hindi" ? "à¤†à¤µà¤¾à¤œ + à¤Ÿà¥‡à¤•à¥à¤¸à¥à¤Ÿ" : "Voice & Text"}</span>
+            </button>
+
+            <button
+              className={`output-mode-btn ${outputMode === "text" ? "active" : ""}`}
+              onClick={() => {
+                stopSpeaking();
+                setOutputMode("text");
+              }}
+              title="AI outputs text only (Muted)"
+            >
+              <MessageSquare size={12} />
+              <span>{currentLang === "Hindi" ? "à¤•à¥‡à¤µà¤² à¤Ÿà¥‡à¤•à¥à¤¸à¥à¤Ÿ" : "Text Only"}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Active Speech Synthesizer Waves Banner */}
+      {isSpeaking && (
+        <div className="speaking-banner">
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <div className="speaking-waves">
+              <span className="speaking-wave-bar" />
+              <span className="speaking-wave-bar" />
+              <span className="speaking-wave-bar" />
+              <span className="speaking-wave-bar" />
+            </div>
+            <span>
+              {currentLang === "Hindi" ? "à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤à¤†à¤ˆ à¤¬à¥‹à¤² à¤°à¤¹à¤¾ à¤¹à¥ˆ (à¤¹à¤¿à¤¨à¥à¤¦à¥€)..." : "NagrikAI speaking (English)..."}
+            </span>
+          </div>
+          <button className="speaking-stop-btn" onClick={stopSpeaking}>
+            <Square size={10} style={{ marginRight: "3px" }} />
+            {currentLang === "Hindi" ? "à¤°à¥‹à¤•à¥‡à¤‚" : "Stop"}
+          </button>
+        </div>
+      )}
+
+      {/* Live Voice Note Recording Bar */}
+      {isRecordingVoiceNote && (
+        <div className="live-voicenote-recording-bar">
+          <div className="live-rec-left">
+            <div className="live-rec-dot-pulse" />
+            <span className="live-rec-timer">
+              REC {formatSeconds(recordingSeconds)}
+            </span>
+            <div className="live-rec-waveform">
+              <span /><span /><span /><span /><span /><span /><span /><span />
+            </div>
+          </div>
+
+          <div className="live-rec-right">
+            <button
+              type="button"
+              className="live-rec-cancel-btn"
+              onClick={cancelVoiceNote}
+              title={currentLang === "Hindi" ? "à¤µà¥‰à¤¯à¤¸à¤¨à¥‹à¤Ÿ à¤°à¤¦à¥à¤¦ à¤•à¤°à¥‡à¤‚" : "Cancel Voice Note"}
+            >
+              <Trash2 size={15} />
+            </button>
+
+            <button
+              type="button"
+              className="live-rec-send-btn"
+              onClick={stopVoiceNoteAndSend}
+              title={currentLang === "Hindi" ? "à¤µà¥‰à¤¯à¤¸à¤¨à¥‹à¤Ÿ à¤­à¥‡à¤œà¥‡à¤‚" : "Send Voice Note"}
+            >
+              <Check size={16} />
+              <span>{currentLang === "Hindi" ? "à¤­à¥‡à¤œà¥‡à¤‚" : "Send"}</span>
+            </button>
+          </div>
+
+          <div className="live-rec-transcript-bubble">
+            <small>{currentLang === "Hindi" ? "à¤²à¤¾à¤‡à¤µ à¤¶à¤¬à¥à¤¦ / à¤Ÿà¥à¤°à¤¾à¤‚à¤¸à¤•à¥à¤°à¤¿à¤ªà¥à¤Ÿ:" : "Live speech preview:"}</small>
+            <p>
+              {liveTranscript || (
+                <span style={{ color: "#64748b", fontStyle: "italic" }}>
+                  {currentLang === "Hindi" ? "à¤¬à¥‹à¤²à¤¿à¤, à¤†à¤ªà¤•à¥€ à¤†à¤µà¤¾à¤œ à¤°à¤¿à¤•à¥‰à¤°à¥à¤¡ à¤¹à¥‹ à¤°à¤¹à¥€ à¤¹à¥ˆ..." : "Speak now, your audio is recording live..."}
+                </span>
+              )}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Chat Messages Stream */}
+      <div className="chat-stream">
+        {messages.map((m) => {
+          const displayText = m.activeLang === "hi" ? (m.textHi || m.textEn) : (m.textEn || m.textHi);
+
+          return (
+            <div key={m.id} className={`msg-row ${m.role}`}>
+              <div className="msg-bubble">
+                {/* Voice Note Player Card if message contains audio */}
+                {m.audioUrl ? (
+                  <VoiceNotePlayer
+                    audioUrl={m.audioUrl}
+                    duration={m.duration}
+                    transcript={m.transcript}
+                    lang={m.activeLang}
+                  />
+                ) : (
+                  <p style={{ margin: 0, fontSize: "12px", lineHeight: "1.58", whiteSpace: "pre-line" }}>
+                    {displayText}
+                  </p>
+                )}
+
+                {/* In-app Navigation / Conversational Chips */}
+                {m.actions && m.actions.length > 0 && (
+                  <div className="msg-actions">
+                    {m.actions.map((act, i) => (
+                      <button
+                        key={i}
+                        className="msg-action-chip"
+                        onClick={() => {
+                          if (act.screen) go(act.screen);
+                          else if (act.query) handleSend(act.query);
+                        }}
+                      >
+                        <Navigation size={10} />
+                        {m.activeLang === "hi" ? act.labelHi : act.labelEn}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="msg-meta-row">
+                {m.timestamp && <span>{m.timestamp}</span>}
+
+                {m.role === "assistant" && (
+                  <>
+                    {/* Speak Button (in message's active language) */}
+                    <button
+                      className="msg-listen-btn"
+                      onClick={() => speakText(displayText, m.activeLang === "hi" ? "Hindi" : "English")}
+                      title={m.activeLang === "hi" ? "à¤¹à¤¿à¤¨à¥à¤¦à¥€ à¤®à¥‡à¤‚ à¤¸à¥à¤¨à¥‡à¤‚" : "Listen in English"}
+                    >
+                      <Volume2 size={12} />
+                      <span>{m.activeLang === "hi" ? "à¤¸à¥à¤¨à¥‡à¤‚ (à¤¹à¤¿à¤¨à¥à¤¦à¥€)" : "Listen"}</span>
+                    </button>
+
+                    {/* Toggle Language between Hindi and English */}
+                    <button
+                      className="msg-translate-btn"
+                      onClick={() => toggleMessageLang(m.id)}
+                      title="Translate between English and Hindi"
+                    >
+                      <Languages size={12} />
+                      <span>{m.activeLang === "hi" ? "English" : "à¤¹à¤¿à¤¨à¥à¤¦à¥€"}</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        <div ref={chatBottomRef} />
+      </div>
+
+      {/* Suggested Prompts based on real database topics */}
+      <div className="prompt-suggestions">
+        <div className="prompt-suggestions-label">
+          {currentLang === "Hindi" ? "à¤¸à¥à¤à¤¾à¤ à¤—à¤ à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤ªà¥à¤°à¤¶à¥à¤¨" : "POPULAR CIVIC QUESTIONS"}
+        </div>
+        <div className="prompt-chips-scroll">
+          {suggestionChips.map((chip, idx) => (
+            <button
+              key={idx}
+              className="prompt-chip"
+              onClick={() => handleSend(chip.q)}
+            >
+              {currentLang === "Hindi" ? chip.labelHi : chip.labelEn}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Input Bar with Mic & Send */}
+      <div className="ai-input-bar">
+        <input
+          value={inputVal}
+          onChange={(e) => setInputVal(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleSend();
+          }}
+          disabled={isRecordingVoiceNote}
+          placeholder={
+            isRecordingVoiceNote
+              ? (currentLang === "Hindi" ? "à¤µà¥‰à¤¯à¤¸à¤¨à¥‹à¤Ÿ à¤°à¤¿à¤•à¥‰à¤°à¥à¤¡ à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ..." : "Recording voice note...")
+              : (currentLang === "Hindi" ? "à¤¸à¥‡à¤µà¤¾à¤“à¤‚ à¤¯à¤¾ à¤¶à¤¿à¤•à¤¾à¤¯à¤¤ à¤•à¥‡ à¤¬à¤¾à¤°à¥‡ à¤®à¥‡à¤‚ à¤ªà¥‚à¤›à¥‡à¤‚..." : "Ask about our services, road status, GNIDA...")
+          }
+        />
+
+        {/* Live Voice Note Microphone Button */}
+        <button
+          className={`ai-mic-btn ${isRecordingVoiceNote ? "listening" : ""}`}
+          onClick={isRecordingVoiceNote ? stopVoiceNoteAndSend : startVoiceNoteRecording}
+          title={isRecordingVoiceNote ? "Stop & Send Voice Note" : (currentLang === "Hindi" ? "à¤µà¥‰à¤¯à¤¸à¤¨à¥‹à¤Ÿ à¤°à¤¿à¤•à¥‰à¤°à¥à¤¡ à¤•à¤°à¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤ à¤¦à¤¬à¤¾à¤à¤‚" : "Record Voice Note")}
+          aria-label="Voice note input"
+        >
+          {isRecordingVoiceNote ? <Square size={16} fill="currentColor" /> : <Mic size={18} />}
+        </button>
+
+        {/* Send Button */}
+        <button
+          className="ai-send-btn"
+          onClick={() => handleSend()}
+          disabled={!inputVal.trim() || isRecordingVoiceNote}
+          aria-label="Send message"
+        >
+          <Send size={16} />
+        </button>
+      </div>
+
+      <p className="hint" style={{ marginTop: "8px", textAlign: "center" }}>
+        {currentLang === "Hindi"
+          ? "à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤à¤†à¤ˆ à¤—à¥à¤°à¥‡à¤Ÿà¤° à¤¨à¥‹à¤à¤¡à¤¾ à¤¨à¤—à¤° à¤ªà¤¾à¤²à¤¿à¤•à¤¾ à¤¸à¥‡à¤µà¤¾à¤“à¤‚ à¤”à¤° à¤œà¥€à¤à¤¨à¤†à¤ˆà¤¡à¥€à¤ à¤¨à¤¾à¤—à¤°à¤¿à¤• à¤°à¤¿à¤•à¥‰à¤°à¥à¤¡ à¤¸à¥‡ à¤œà¥à¤¡à¤¼à¤¾ à¤¹à¥ˆà¥¤"
+          : "Powered by Greater Noida civic intelligence & verified municipal records."}
+      </p>
+    </div>
+  );
+}
+
+export function Voice({
+  recording,
+  setRecording,
+  go,
+  query,
+  setQuery,
+  language = "English",
+  setLanguage = () => {}
+}) {
+  const [currentLang, setCurrentLang] = useState(language || "English");
+  const [transcript, setTranscript] = useState("");
+  const [isRecording, setIsRecording] = useState(false);
+  const [seconds, setSeconds] = useState(0);
+
+  const mediaRecorderRef = useRef(null);
+  const mediaStreamRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const timerRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const latestTranscriptRef = useRef("");
+  const isRecordingRef = useRef(false);
+
+  useEffect(() => {
+    if (language && language !== currentLang) {
+      setCurrentLang(language);
+    }
+  }, [language]);
+
+  const handleLangToggle = (newLang) => {
+    if (isRecording) {
+      stopVoiceRecording(false);
+    }
+    setCurrentLang(newLang);
+    setLanguage(newLang);
+  };
+
+  const startVoiceRecording = async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert("Microphone not supported on this device/browser.");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+
+      let mimeType = "";
+      if (typeof MediaRecorder !== "undefined") {
+        if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+          mimeType = "audio/webm;codecs=opus";
+        } else if (MediaRecorder.isTypeSupported("audio/webm")) {
+          mimeType = "audio/webm";
+        } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+          mimeType = "audio/mp4";
+        }
+      }
+
+      const mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.start(250);
+
+      latestTranscriptRef.current = "";
+      isRecordingRef.current = true;
+      setTranscript("");
+
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        try {
+          const recog = new SpeechRecognition();
+          recog.continuous = true;
+          recog.interimResults = true;
+          recog.lang = currentLang === "Hindi" ? "hi-IN" : "en-IN";
+
+          recog.onresult = (event) => {
+            let fullText = "";
+            for (let i = 0; i < event.results.length; ++i) {
+              fullText += event.results[i][0].transcript + " ";
+            }
+            const clean = fullText.trim();
+            if (clean) {
+              latestTranscriptRef.current = clean;
+              setTranscript(clean);
+            }
+          };
+
+          recog.onerror = (e) => {
+            if (e.error !== "no-speech") {
+              console.warn("Voice assistant speech notice:", e.error);
+            }
+          };
+
+          recog.onend = () => {
+            if (isRecordingRef.current) {
+              try { recog.start(); } catch {}
+            }
+          };
+
+          recog.start();
+          recognitionRef.current = recog;
+        } catch (e) {
+          console.warn("Speech recognition error:", e);
+        }
+      }
+
+      setSeconds(0);
+      if (timerRef.current) clearInterval(timerRef.current);
+      timerRef.current = setInterval(() => {
+        setSeconds(prev => prev + 1);
+      }, 1000);
+
+      setIsRecording(true);
+      if (setRecording) setRecording(true);
+    } catch (err) {
+      console.error("Microphone permission failed:", err);
+      alert("Could not access microphone. Please enable microphone permissions.");
+    }
+  };
+
+  const stopVoiceRecording = (shouldNavigate = true) => {
+    isRecordingRef.current = false;
+
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch {}
+      recognitionRef.current = null;
+    }
+
+    const duration = seconds || 1;
+    const spoken = (latestTranscriptRef.current || transcript || "").trim();
+
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.onstop = () => {
+        try {
+          const mime = mediaRecorderRef.current?.mimeType || "audio/webm";
+          const audioBlob = new Blob(audioChunksRef.current, { type: mime });
+          const audioUrl = URL.createObjectURL(audioBlob);
+
+          if (mediaStreamRef.current) {
+            mediaStreamRef.current.getTracks().forEach(t => t.stop());
+            mediaStreamRef.current = null;
+          }
+
+          if (shouldNavigate) {
+            window.__pendingVoiceNote = {
+              audioUrl,
+              duration,
+              transcript: spoken,
+              lang: currentLang === "Hindi" ? "hi" : "en"
+            };
+            go("Ask NagrikAI");
+          }
+        } catch (e) {
+          console.error("Voice note stop error:", e);
+        }
+      };
+
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (e) {
+        console.warn("Recorder stop error:", e);
+      }
+    } else {
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach(t => t.stop());
+        mediaStreamRef.current = null;
+      }
+    }
+
+    setIsRecording(false);
+    if (setRecording) setRecording(false);
+  };
+
+  const toggleRecording = () => {
+    if (isRecording) {
+      stopVoiceRecording(true);
+    } else {
+      startVoiceRecording();
+    }
+  };
+
+  const formatSecs = (s) => {
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec < 10 ? "0" : ""}${sec}`;
+  };
+
+  return (
+    <div className="page voice-mode-screen">
+      {/* Top Bar with Language Selector */}
+      <div className="topbar">
+        <button className="icon-btn" onClick={() => {
+          if (isRecording) stopVoiceRecording(false);
+          go("Ask NagrikAI");
+        }}>
+          <ChevronLeft size={19} />
+        </button>
+        <b>{currentLang === "Hindi" ? "à¤¬à¥‹à¤²à¤•à¤° à¤ªà¥‚à¤›à¥‡à¤‚" : "Speak your city"}</b>
+
+        <div className="lang-selector-group" style={{ transform: "scale(0.9)" }}>
+          <button
+            className={`lang-selector-btn ${currentLang === "English" ? "active" : ""}`}
+            onClick={() => handleLangToggle("English")}
+          >
+            EN
+          </button>
+          <button
+            className={`lang-selector-btn ${currentLang === "Hindi" ? "active" : ""}`}
+            onClick={() => handleLangToggle("Hindi")}
+          >
+            à¤¹à¤¿à¤¨à¥à¤¦à¥€
+          </button>
+        </div>
+      </div>
+
+      <div className="eyebrow">
+        {currentLang === "Hindi" ? "à¤†à¤µà¤¾à¤œ à¤®à¥‹à¤¡ â€¢ à¤¹à¤¿à¤¨à¥à¤¦à¥€ / ENGLISH" : "VOICE MODE â€¢ ENGLISH / à¤¹à¤¿à¤¨à¥à¤¦à¥€"}
+      </div>
+
+      <h1 style={{ whiteSpace: "pre-line" }}>
+        {isRecording
+          ? (currentLang === "Hindi" ? `à¤¸à¥à¤¨ à¤°à¤¹à¤¾ à¤¹à¥‚à¤...\n[REC ${formatSecs(seconds)}]` : `I'm listening.\n[REC ${formatSecs(seconds)}]`)
+          : (currentLang === "Hindi" ? "à¤¬à¥‹à¤²à¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤\nà¤Ÿà¥ˆà¤ª à¤•à¤°à¥‡à¤‚à¥¤" : "Tap the orb.\nSpeak your city.")}
+      </h1>
+
+      {/* Interactive Animated Voice Orb */}
+      <button
+        className={`voice-orb-interactive ${isRecording ? "listening" : ""}`}
+        onClick={toggleRecording}
+        title={isRecording ? "Tap to finish and ask AI" : "Tap to record voice note"}
+      >
+        <span /><span /><span /><span /><span /><span />
+        <span /><span /><span /><span /><span />
+      </button>
+
+      <p className={`center ${isRecording ? "green" : "muted"}`} style={{ fontWeight: 600 }}>
+        {isRecording
+          ? (currentLang === "Hindi" ? "â— à¤µà¥‰à¤¯à¤¸à¤¨à¥‹à¤Ÿ à¤°à¤¿à¤•à¥‰à¤°à¥à¤¡ à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ â€” à¤­à¥‡à¤œà¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤ à¤¦à¥‹à¤¬à¤¾à¤°à¤¾ à¤Ÿà¥ˆà¤ª à¤•à¤°à¥‡à¤‚" : "â— Recording voice note â€” tap orb to send to AI")
+          : (currentLang === "Hindi" ? `â— à¤­à¤¾à¤·à¤¾: à¤¹à¤¿à¤¨à¥à¤¦à¥€ â€” à¤¶à¥à¤°à¥‚ à¤•à¤°à¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤ à¤Šà¤ªà¤° à¤Ÿà¥ˆà¤ª à¤•à¤°à¥‡à¤‚` : `â— Language: English â€” tap orb above to record`)}
+      </p>
+
+      {/* Live Transcript Box */}
+      <div className="voice-transcript-box">
+        <div className="voice-transcript-label">
+          <span>{currentLang === "Hindi" ? "à¤²à¤¾à¤‡à¤µ à¤Ÿà¥à¤°à¤¾à¤‚à¤¸à¤•à¥à¤°à¤¿à¤ªà¥à¤Ÿ" : "LIVE TRANSCRIPT"}</span>
+          <span style={{ color: "#94a3b8", fontWeight: "normal" }}>
+            {currentLang === "Hindi" ? "à¤¹à¤¿à¤¨à¥à¤¦à¥€ à¤‡à¤¨à¤ªà¥à¤Ÿ" : "English input"}
+          </span>
+        </div>
+        <div className="voice-transcript-text">
+          {transcript || (
+            <span style={{ color: "#64748b", fontStyle: "italic" }}>
+              {currentLang === "Hindi"
+                ? "à¤¯à¤¹à¤¾à¤ à¤†à¤ªà¤•à¥‡ à¤¬à¥‹à¤²à¥‡ à¤—à¤ à¤¶à¤¬à¥à¤¦ à¤µà¤¾à¤¸à¥à¤¤à¤µà¤¿à¤• à¤¸à¤®à¤¯ à¤®à¥‡à¤‚ à¤¦à¤¿à¤–à¤¾à¤ˆ à¤¦à¥‡à¤‚à¤—à¥‡..."
+                : "Your speech will appear here in real-time as you speak..."}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <button
+        className="btn"
+        onClick={() => stopVoiceRecording(true)}
+        disabled={!isRecording && !transcript.trim()}
+      >
+        {currentLang === "Hindi" ? "à¤¯à¤¹ à¤µà¥‰à¤¯à¤¸à¤¨à¥‹à¤Ÿ à¤à¤†à¤ˆ à¤¸à¥‡ à¤ªà¥‚à¤›à¥‡à¤‚" : "Send this voice note to AI"}
+      </button>
+
+      <button
+        className="btn secondary"
+        onClick={() => {
+          if (isRecording) stopVoiceRecording(false);
+          go("Ask NagrikAI");
+        }}
+      >
+        {currentLang === "Hindi" ? "à¤šà¥ˆà¤Ÿ à¤ªà¤° à¤µà¤¾à¤ªà¤¸ à¤œà¤¾à¤à¤‚" : "Back to Ask AI Chat"}
+      </button>
+
+      <p className="hint">
+        {currentLang === "Hindi"
+          ? "à¤¨à¥‡à¤—à¥‡à¤Ÿà¤¿à¤µ à¤²à¥‡à¤Ÿà¥‡à¤‚à¤¸à¥€ à¤®à¥€à¤¡à¤¿à¤¯à¤¾ à¤°à¤¿à¤•à¥‰à¤°à¥à¤¡à¤° à¤à¤µà¤‚ à¤µà¥‡à¤¬ à¤¸à¥à¤ªà¥€à¤š à¤¦à¥à¤µà¤¾à¤°à¤¾ à¤¸à¤‚à¤šà¤¾à¤²à¤¿à¤¤à¥¤ à¤¹à¤¿à¤¨à¥à¤¦à¥€ à¤”à¤° à¤…à¤‚à¤—à¥à¤°à¥‡à¤œà¥€ à¤®à¥‡à¤‚ à¤ªà¥‚à¤°à¥à¤£ à¤¦à¥‹à¤¤à¤°à¤«à¤¾ à¤µà¥‰à¤¯à¤¸à¤¨à¥‹à¤Ÿ à¤¸à¤®à¤°à¥à¤¥à¤¿à¤¤à¥¤"
+          : "Powered by native MediaRecorder & Web Speech. Complete two-way voicenotes in English & Hindi."}
+      </p>
+    </div>
+  );
+}
+
+export default AskAI;

@@ -1,0 +1,197 @@
+import React, { useState, useEffect } from "react";
+import {
+  ChevronLeft,
+  MessageSquare,
+  Mic,
+  Calendar,
+  Clock,
+  Volume2,
+  Trash2,
+  Sparkles,
+  ArrowRight,
+  Filter,
+  CheckCircle2
+} from "lucide-react";
+import "./askAI.css";
+
+export function AskAIConversations({ go }) {
+  const [conversations, setConversations] = useState([]);
+  const [filter, setFilter] = useState("all"); // "all", "voicenote", "text", "en", "hi"
+  const [activeAudioId, setActiveAudioId] = useState(null);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("nagrikai_ai_conversations");
+      const parsed = stored ? JSON.parse(stored) : [];
+      setConversations(Array.isArray(parsed) ? parsed : []);
+    } catch (e) {
+      console.warn("Could not load AI conversations:", e);
+      setConversations([]);
+    }
+  }, []);
+
+  const handleClearHistory = () => {
+    if (window.confirm("Are you sure you want to clear your Ask AI conversation history?")) {
+      localStorage.removeItem("nagrikai_ai_conversations");
+      setConversations([]);
+    }
+  };
+
+  const filteredList = conversations.filter((item) => {
+    if (filter === "voicenote") return item.isVoiceNote;
+    if (filter === "text") return !item.isVoiceNote;
+    if (filter === "en") return item.language === "English";
+    if (filter === "hi") return item.language === "Hindi";
+    return true;
+  });
+
+  return (
+    <div className="page ask-ai-conversations-screen">
+      {/* Top Header */}
+      <div className="topbar">
+        <button className="icon-btn" onClick={() => go("Ask NagrikAI")}>
+          <ChevronLeft size={19} />
+        </button>
+        <b>Ask AI Conversations</b>
+        {conversations.length > 0 && (
+          <button
+            className="icon-btn"
+            onClick={handleClearHistory}
+            title="Clear all conversation history"
+            style={{ color: "#ef4444" }}
+          >
+            <Trash2 size={16} />
+          </button>
+        )}
+      </div>
+
+      <div className="eyebrow">CITIZEN PROFILE • AI DIALOGUE HISTORY</div>
+      <h1>Your AI conversations.<br />Every voice & text.</h1>
+      <p className="muted" style={{ marginBottom: "16px" }}>
+        Review your complete record of queries, voice notes, language transcripts, and AI municipal responses.
+      </p>
+
+      {/* Overview Stat Cards */}
+      <div className="conv-stats-grid">
+        <div className="conv-stat-card">
+          <strong>{conversations.length}</strong>
+          <small>Total Chats</small>
+        </div>
+        <div className="conv-stat-card">
+          <strong style={{ color: "#28d7a0" }}>
+            {conversations.filter(c => c.isVoiceNote).length}
+          </strong>
+          <small>Voice Notes</small>
+        </div>
+        <div className="conv-stat-card">
+          <strong style={{ color: "#38bdf8" }}>
+            {conversations.filter(c => c.language === "Hindi").length}
+          </strong>
+          <small>हिन्दी Queries</small>
+        </div>
+      </div>
+
+      {/* Filter Tabs */}
+      <div className="conv-filter-row">
+        {[
+          ["all", "All Conversations"],
+          ["voicenote", "🎤 Voice Notes"],
+          ["text", "💬 Text Chats"],
+          ["hi", "हिन्दी (Hindi)"],
+          ["en", "English"]
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            className={`conv-filter-btn ${filter === key ? "active" : ""}`}
+            onClick={() => setFilter(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Conversations Stream */}
+      {filteredList.length === 0 ? (
+        <div className="conv-empty-box">
+          <MessageSquare size={36} style={{ color: "#475569", marginBottom: "12px" }} />
+          <h3>No conversations found</h3>
+          <p className="muted">
+            {filter === "all"
+              ? "You haven't chatted with NagrikAI yet. Send a text or record a voice note to get started!"
+              : "No conversations match the selected filter."}
+          </p>
+          <button className="btn" style={{ marginTop: "12px" }} onClick={() => go("Ask NagrikAI")}>
+            Start a Conversation with AI
+          </button>
+        </div>
+      ) : (
+        <div className="conv-cards-list">
+          {filteredList.map((conv) => (
+            <div key={conv.id} className="conv-card">
+              {/* Card Meta Top */}
+              <div className="conv-card-top">
+                <div className="conv-card-time">
+                  <Clock size={11} />
+                  <span>{conv.timestamp}</span>
+                </div>
+                <div className="conv-card-badges">
+                  <span className={`conv-type-badge ${conv.isVoiceNote ? "voice" : "text"}`}>
+                    {conv.isVoiceNote ? `🎤 Voice Note (${conv.duration || 1}s)` : "💬 Text"}
+                  </span>
+                  <span className={`conv-lang-badge ${conv.language === "Hindi" ? "hi" : "en"}`}>
+                    {conv.language === "Hindi" ? "हिन्दी" : "English"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Citizen Query / Transcript Section */}
+              <div className="conv-query-section">
+                <div className="conv-section-label">
+                  <span>CITIZEN TRANSCRIPT</span>
+                  {conv.category && <span className="conv-category-tag">{conv.category}</span>}
+                </div>
+                <p className="conv-query-text">
+                  "{conv.userQuery}"
+                </p>
+              </div>
+
+              {/* AI Model Response Section */}
+              <div className="conv-response-section">
+                <div className="conv-section-label" style={{ color: "#28d7a0" }}>
+                  <Sparkles size={11} style={{ marginRight: "4px" }} />
+                  <span>NAGRIKAI RESPONSE</span>
+                </div>
+                <p className="conv-response-text">
+                  {conv.aiResponse}
+                </p>
+              </div>
+
+              {/* Action Bar */}
+              <div className="conv-card-footer">
+                <button
+                  className="conv-reopen-btn"
+                  onClick={() => {
+                    localStorage.setItem("nagrikai_pending_reopen_query", conv.userQuery);
+                    go("Ask NagrikAI");
+                  }}
+                >
+                  <span>Continue in Ask AI</span>
+                  <ArrowRight size={12} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Floating CTA */}
+      <div style={{ marginTop: "24px", marginBottom: "16px" }}>
+        <button className="btn" onClick={() => go("Ask NagrikAI")}>
+          Ask NagrikAI a New Question
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export default AskAIConversations;
