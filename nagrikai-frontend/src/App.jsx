@@ -49,7 +49,7 @@ import {
   Compass, Copy, Droplets, Eye, FileText, Filter, Gauge, Globe2, Headphones, Home,
   Info, Calendar, Languages, Layers, LocateFixed, LockKeyhole, Mail, Map, MapPin, Menu,
   Mic, MicOff, Moon, Navigation, Phone, Plus, RefreshCw, Search, Send, Settings, Shield,
-  ShieldCheck, SlidersHorizontal, Sparkles, Sun, Sunrise, Sunset, TrendingUp, User, Users,
+  ShieldCheck, SlidersHorizontal, Sparkles, Sun, Sunrise, Sunset, Trash2, TrendingUp, User, Users,
   Volume2, WifiOff, Wind, X, Camera, Image as ImageIcon, MessageCircle, BarChart3
 } from "lucide-react";
 
@@ -1344,7 +1344,15 @@ const detectUserLocation = async () => {
     setLanguage={setLanguage}
   />
 )}
-        {screen === "Civic navigation" && <NavigationScreen go={go} />}
+        {screen === "Civic navigation" && (
+          <NavigationScreen
+            go={go}
+            userLocation={userLocation}
+            locationDetails={locationDetails}
+            liveReports={liveNearbyReports}
+            onLocate={detectUserLocation}
+          />
+        )}
         {screen === "City analytics" && <Analytics go={go} />}
         {screen === "Profile" && <Profile go={go} reportCount={reportCount} onLogout={handleLogout} authLoading={authLoading} />}
         {screen === "Report history" && (
@@ -1355,7 +1363,14 @@ const detectUserLocation = async () => {
             onSelectTracking={openReportTracking}
           />
         )}
-        {screen === "Notifications" && <Notifications go={go} enabled={notifications} setEnabled={setNotifications} />}
+        {screen === "Notifications" && (
+          <Notifications
+            go={go}
+            enabled={notifications}
+            setEnabled={setNotifications}
+            liveReports={liveNearbyReports}
+          />
+        )}
         {screen === "Accessibility" && <Accessibility go={go} values={accessibility} setValues={setAccessibility} />}
         {screen === "Privacy & settings" && <Privacy go={go} privacy={privacy} setPrivacy={setPrivacy} />}
         {screen === "Loading" && <Loading go={go} />}
@@ -2129,7 +2144,7 @@ function HomeScreen({
                 </b>
 
                 <small>
-                  {hourlyWeather.precipitation_probability?.[index] ?? "Ã¢â‚¬â€"}%
+                  {hourlyWeather.precipitation_probability?.[index] ?? "—"}%
                   rain
                 </small>
               </div>
@@ -2172,7 +2187,7 @@ function HomeScreen({
         </div>
 
         <strong className="score">
-          {cityHealthScore !== null ? `${cityHealthScore} / 100` : "Ã¢â‚¬â€"}
+          {cityHealthScore !== null ? `${cityHealthScore} / 100` : "—"}
         </strong>
 
         <small className="muted">
@@ -3159,7 +3174,7 @@ function ExploreMap({
             <>
               <small style={{ color: "#36d6a0" }}>DESTINATION REACHED</small>
               <h2 style={{ margin: "9px 0", fontSize: "23px" }}>
-                Ã°Å¸Å½â€° You have arrived!
+                You have arrived!
               </h2>
               <small style={{ color: "#aab9c7" }}>{routeInfo?.destination}</small>
             </>
@@ -3197,7 +3212,7 @@ function ExploreMap({
               fontSize: "20px"
             }}
           >
-            Ã¢â€”Å½
+            ●
           </button>
         </div>
 
@@ -3265,7 +3280,7 @@ function ExploreMap({
                 fontWeight: "700"
               }}
             >
-              {voiceEnabled ? "Ã°Å¸â€Å  Voice ON" : "Ã°Å¸â€â€¡ Voice OFF"}
+              {voiceEnabled ? "Voice ON" : "Voice OFF"}
             </button>
 
             <button
@@ -3324,7 +3339,7 @@ function ExploreMap({
             <p>Latitude: {userLocation.lat.toFixed(6)}</p>
             <p>Longitude: {userLocation.lng.toFixed(6)}</p>
             <small className="muted">
-              GPS accuracy: Ã‚Â±{Math.round(userLocation.accuracy)} metres
+              GPS accuracy: {"\u00B1"}{Math.round(userLocation.accuracy)} metres
             </small>
           </>
         )}
@@ -3702,7 +3717,7 @@ function ExploreMap({
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
 
-              {/* Ã¢â€â‚¬Ã¢â€â‚¬ Distance boundary circle Ã¢â€â‚¬Ã¢â€â‚¬ */}
+              {/* Distance boundary circle */}
               {position && (
                 <Circle
                   center={position}
@@ -3717,74 +3732,39 @@ function ExploreMap({
                 />
               )}
 
-              {/* Ã¢â€â‚¬Ã¢â€â‚¬ Intelligence Layer: Traffic flow Ã¢â€â‚¬Ã¢â€â‚¬ */}
-              {position && intelligenceLayers.includes("Traffic flow") && (
-                <>
-                  <Polyline
-                    positions={[
-                      [position[0] - 0.005, position[1] - 0.009],
-                      [position[0] - 0.002, position[1] - 0.004],
-                      [position[0] + 0.002, position[1] - 0.001]
-                    ]}
-                    pathOptions={{ color: "#ff4d4f", weight: 6, opacity: 0.85 }}
-                  >
-                    <Popup><b>Traffic Congestion</b><br />Heavy delay (+9 min) near Pari Chowk</Popup>
-                  </Polyline>
-                  <Polyline
-                    positions={[
-                      [position[0] + 0.002, position[1] - 0.001],
-                      [position[0] + 0.006, position[1] + 0.003],
-                      [position[0] + 0.009, position[1] + 0.007]
-                    ]}
-                    pathOptions={{ color: "#faad14", weight: 6, opacity: 0.85 }}
-                  >
-                    <Popup><b>Moderate Traffic</b><br />Slow moving along commercial avenue</Popup>
-                  </Polyline>
-                  <Polyline
-                    positions={[
-                      [position[0] - 0.007, position[1] + 0.002],
-                      [position[0] - 0.003, position[1] + 0.006],
-                      [position[0] + 0.003, position[1] + 0.009]
-                    ]}
-                    pathOptions={{ color: "#52c41a", weight: 6, opacity: 0.85 }}
-                  >
-                    <Popup><b>Free Flowing Traffic</b><br />Normal travel speeds on bypass corridor</Popup>
-                  </Polyline>
-                </>
-              )}
-
-              {/* Ã¢â€â‚¬Ã¢â€â‚¬ Intelligence Layer: Issue density heatmap Ã¢â€â‚¬Ã¢â€â‚¬ */}
-              {position && intelligenceLayers.includes("Issue density heatmap") && (
-                <>
-                  <Circle
-                    center={[position[0] + 0.002, position[1] - 0.002]}
-                    radius={350}
-                    pathOptions={{ color: "#ff4d4f", fillColor: "#ff4d4f", fillOpacity: 0.22, weight: 1.5, dashArray: "3, 3" }}
-                  >
-                    <Popup><b>High Issue Density Cluster</b><br />5 reports logged in this 350m radius</Popup>
-                  </Circle>
-                  <Circle
-                    center={[position[0] - 0.003, position[1] + 0.003]}
-                    radius={280}
-                    pathOptions={{ color: "#fa8c16", fillColor: "#fa8c16", fillOpacity: 0.18, weight: 1.5, dashArray: "3, 3" }}
-                  >
-                    <Popup><b>Moderate Activity Cluster</b><br />3 reports active</Popup>
-                  </Circle>
-                </>
-              )}
-
-              {/* Ã¢â€â‚¬Ã¢â€â‚¬ Intelligence Layer: Predicted waterlogging Ã¢â€â‚¬Ã¢â€â‚¬ */}
-              {position && intelligenceLayers.includes("Predicted waterlogging") && (
+              {/* Intelligence Layer: Issue density heatmap (derived from live reports) */}
+              {position && intelligenceLayers.includes("Issue density heatmap") && visibleIssues.map(issue => (
                 <Circle
-                  center={[position[0] + 0.0065, position[1] - 0.0055]}
-                  radius={380}
-                  pathOptions={{ color: "#1890ff", fillColor: "#1890ff", fillOpacity: 0.28, weight: 2 }}
+                  key={`heat-${issue.id}`}
+                  center={[issue.lat, issue.lng]}
+                  radius={220}
+                  pathOptions={{ color: "#ff4d4f", fillColor: "#ff4d4f", fillOpacity: 0.16, weight: 1, dashArray: "3, 3" }}
                 >
-                  <Popup><b>Predicted Monsoon Waterlogging</b><br />High flood risk at low-lying drainage choke point</Popup>
+                  <Popup>
+                    <b>{issue.label}</b><br />
+                    {issue.category} • {issue.severity}
+                  </Popup>
                 </Circle>
-              )}
+              ))}
 
-              {/* Ã¢â€â‚¬Ã¢â€â‚¬ Filtered civic issues markers Ã¢â€â‚¬Ã¢â€â‚¬ */}
+              {/* Intelligence Layer: Waterlogging reports (derived from live reports) */}
+              {position && intelligenceLayers.includes("Predicted waterlogging") && visibleIssues
+                .filter(issue => issue.category === "Waterlogging")
+                .map(issue => (
+                  <Circle
+                    key={`water-${issue.id}`}
+                    center={[issue.lat, issue.lng]}
+                    radius={260}
+                    pathOptions={{ color: "#1890ff", fillColor: "#1890ff", fillOpacity: 0.24, weight: 1.5 }}
+                  >
+                    <Popup>
+                      <b>Waterlogging Report</b><br />
+                      {issue.label}
+                    </Popup>
+                  </Circle>
+                ))}
+
+              {/* Filtered civic issues markers */}
               {visibleIssues.map(issue => {
                 const COLOR_MAP = {
                   "Potholes & damaged roads": "#ff5252",
@@ -3883,7 +3863,7 @@ function ExploreMap({
         Filtered by distance radius ({distance}) and active categories.
       </p>
 
-      {/* Ã¢â€â‚¬Ã¢â€â‚¬ Map legend & active layers Ã¢â€â‚¬Ã¢â€â‚¬ */}
+      {/* Map legend & active layers */}
       <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "10px" }}>
         <div style={{
           display: "flex",
@@ -3920,14 +3900,15 @@ function ExploreMap({
                 border: "1px solid #16a9e0",
                 color: "#75c8ff"
               }}>
-                Ã¢Å“Â¦ {layer}
+            ●
               </span>
             ))}
           </div>
         )}
       </div>
 
-      {/* Ã¢â€â‚¬Ã¢â€â‚¬ Inline filter panel Ã¢â€â‚¬Ã¢â€â‚¬ */}
+
+      {/* ── Inline filter panel ── */}
       <div style={{ marginTop: "12px" }}>
         <button
           onClick={() => setFiltersOpen(v => !v)}
@@ -3991,7 +3972,7 @@ function ExploreMap({
                 >
                   <span>{opt}</span>
                   <span style={{ color: filters.includes(opt) ? "#28d7a0" : "#5a7080" }}>
-                    {filters.includes(opt) ? "Ã¢Å“â€œ" : "Ã¢â€”â€¹"}
+                {filters.includes(opt) ? "\u2713" : "\u25CB"}
                   </span>
                 </button>
               ))}
@@ -4099,7 +4080,7 @@ function MapFilters({
         {opts.map(x => (
           <button className="filter-option" onClick={() => toggleFilter(x)} key={x}>
             <span>{x}</span>
-            <span className={filters.includes(x) ? "green" : ""}>{filters.includes(x) ? "Ã¢Å“â€œ" : "Ã¢â€”â€¹"}</span>
+            <span className={filters.includes(x) ? "green" : ""}>{filters.includes(x) ? "\u2713" : "\u25CB"}</span>
           </button>
         ))}
       </Card>
@@ -4256,7 +4237,11 @@ function CaptureReport({ issue, setIssue, description, setDescription, photo, se
           </b>
           <MapPin size={16} />
         </div>
-        <small className="muted">28.4744, 77.5040 • GPS is approximate</small>
+        <small className="muted">
+          {reportLocation && Number.isFinite(Number(reportLocation.lat)) && Number.isFinite(Number(reportLocation.lng))
+            ? `${Number(reportLocation.lat).toFixed(4)}, ${Number(reportLocation.lng).toFixed(4)} • GPS coordinates`
+            : "Waiting for GPS coordinates"}
+        </small>
       </Card>
 
       <input
@@ -4456,23 +4441,44 @@ function Submitted({go, report}) {
   );
 }
 function IssueDetails({ go, issue }) {
-  return <div className="page"><StatusBarTitle title="Issue #GN-2048" back={() => go("Explore map")} /><Label>GN-2048 • MONITORING VERIFICATION</Label><h1>{issue}</h1><Card><b>12 people confirmed this</b><p>3 evidence photos • 240 m from you</p></Card><Card>{["12 Nov · Report received", "13 Nov · Assigned to road maintenance", "14 Nov · Repair requested / proof pending", "15 Nov · Community review requested"].map(x => <p key={x}>• &nbsp;{x}</p>)}</Card><Button onClick={() => go("GroundTruth AI")}>Check repair</Button><Button secondary onClick={() => go("Responsible authority")}>Authority Ã¢â€ â€™</Button><Button secondary onClick={() => go("Capture report")}>I still see this issue</Button></div>;
+  return <div className="page"><StatusBarTitle title="Issue #GN-2048" back={() => go("Explore map")} /><Label>GN-2048 • MONITORING VERIFICATION</Label><h1>{issue}</h1><Card><b>12 people confirmed this</b><p>3 evidence photos • 240 m from you</p></Card><Card>{["12 Nov · Report received", "13 Nov · Assigned to road maintenance", "14 Nov · Repair requested / proof pending", "15 Nov · Community review requested"].map(x => <p key={x}>• &nbsp;{x}</p>)}</Card><Button onClick={() => go("GroundTruth AI")}>Check repair</Button><Button secondary onClick={() => go("Responsible authority")}>Authority →</Button><Button secondary onClick={() => go("Capture report")}>I still see this issue</Button></div>;
 }
 function GroundTruth({ go }) {
   return <div className="page"><StatusBarTitle title="GroundTruth AI" back={() => go("Issue details")} /><Label>EVIDENCE, NOT JUST A STATUS CHANGE</Label><h1>Was it actually fixed?</h1><p className="muted">Compare the claim with what's on the ground.</p><Card><small className="muted">BEFORE · 12 NOV</small><div className="evidence-box">Road damage detected</div><small className="muted">AFTER · 14 NOV</small><div className="evidence-box after">Latest image submitted</div><h3 className="green">Likely repaired · 88%</h3><p>Demo assessment only. Surface appears filled, but location match and durability need human review.</p><span className="severity">Pending</span></Card><Button onClick={() => go("Capture report")}>Request on-site verification</Button><Button secondary onClick={() => go("Issue details")}>Back to issue</Button><p className="hint">AI cannot certify a repair. A field review is required.</p></div>;
 }
 function Authority({ go }) {
-  return <div className="page"><StatusBarTitle title="Who owns this issue?" back={() => go("Issue details")} /><Label>JURISDICTION MATCH • DEMO</Label><h1>The right desk.<br />Not another dead end.</h1><Card><h3>Greater Noida Industrial Development Authority</h3><b className="green">Civil / Road Maintenance</b><p>Suggested for Alpha II internal roads based on location.</p><small className="muted">Jurisdiction confidence: 92% • Verify before submission</small></Card><Card><b>Ready to send</b><p>Ã¢Å“â€œ GPS location & issue summary</p><p>Ã¢Å“â€œ Timestamped photographic evidence</p><p>Ã¢Å“â€œ Community confirmations</p></Card><Button onClick={() => go("Complaint handoff")}>Prepare official complaint</Button><Button secondary onClick={() => go("Reference tracking")}>Track an existing reference</Button></div>;
+  return (
+    <div className="page">
+      <StatusBarTitle title="Who owns this issue?" back={() => go("Explore map")} />
+      <Label>JURISDICTION HANDOFF</Label>
+      <h1>The right desk.<br />Not another dead end.</h1>
+      <Card>
+        <b>Authority routing</b>
+        <p className="muted">Direct municipal portal integration is not yet connected. Use your report's GPS coordinates and evidence from Report history to submit to your local civic authority.</p>
+      </Card>
+      <Button onClick={() => go("Report history")}>Open report history</Button>
+      <Button secondary onClick={() => go("Explore map")}>Back to map</Button>
+    </div>
+  );
 }
 function Handoff({ go, notify }) {
-  return <div className="page"><StatusBarTitle title="Official complaint" back={() => go("Responsible authority")} /><Label>REVIEW BEFORE YOU HAND OFF</Label><Card><b className="green">To: GNIDA · Road Maintenance</b><h3>Subject: Road damage near Alpha II market</h3><p>A deep pothole on Alpha II main road poses a risk to two-wheelers. Please inspect and repair the road surface.</p><small className="muted">Location: 28.4744, 77.5040</small></Card><Card><b>Share evidence and issue location</b><p className="muted">You will be redirected to the official portal for personal details, if required.</p></Card>
-  <Button
-  secondary
-  onClick={() => notify("Official authority integration is not available yet.")}
->
-  Official handoff unavailable
-</Button>
-<Button secondary onClick={() => go("Responsible authority")}>Back to authority</Button><p className="hint">SIMULATED NOTIFICATION Ã¢â‚¬â€ no government portal connection.</p></div>;
+  return (
+    <div className="page">
+      <StatusBarTitle title="Official complaint" back={() => go("Responsible authority")} />
+      <Label>OFFICIAL PORTAL HANDOFF</Label>
+      <Card>
+        <b>External portal unavailable</b>
+        <p className="muted">No government portal is connected yet. Your report details and location are saved in your NagrikAI report history.</p>
+      </Card>
+      <Button
+        secondary
+        onClick={() => notify("Official authority integration is not available yet.")}
+      >
+        Official handoff unavailable
+      </Button>
+      <Button secondary onClick={() => go("Report history")}>View your reports</Button>
+    </div>
+  );
 }
 function Tracking({ go }) {
   return (
@@ -4590,7 +4596,7 @@ function Weather({
   };
 
   const getUvRating = (uv) => {
-    if (typeof uv !== "number") return "Ã¢â‚¬â€";
+    if (typeof uv !== "number") return "—";
     const rounded = Math.round(uv);
     if (uv <= 2) return `${rounded} (Low)`;
     if (uv <= 5) return `${rounded} (Mod)`;
@@ -4715,7 +4721,7 @@ function Weather({
 
 
   const formatSunTime = (timeStr) => {
-    if (!timeStr) return "Ã¢â‚¬â€";
+    if (!timeStr) return "—";
     const [datePart, timePart] = timeStr.split("T");
     if (!timePart) return timeStr;
     const [yr, mo, dy] = datePart.split("-").map(Number);
@@ -5011,7 +5017,7 @@ const aqiPercent = aqiVal === null
                     {typeof rainProb === "number" && rainProb > 0 ? (
                       <span className="rain-val">{rainProb}%</span>
                     ) : (
-                      <small style={{ color: "#5a6e7c" }}>Ã¢â‚¬â€</small>
+                      <small style={{ color: "#5a6e7c" }}>—</small>
                     )}
                   </div>
                 );
@@ -5100,7 +5106,7 @@ const aqiPercent = aqiVal === null
 
             <div className="aqi-val-row">
               <span className="aqi-number" style={{ color: aqiInfo.color }}>
-                {aqiVal === null ? "Ã¢â‚¬â€" : aqiVal}
+                {aqiVal === null ? "—" : aqiVal}
               </span>
               <small className="muted">AQI · {aqiInfo.label}</small>
             </div>
@@ -5116,14 +5122,14 @@ const aqiPercent = aqiVal === null
   <span>
     <b>PM2.5:</b>{" "}
     {typeof aqiResult?.averages?.pm2_5 === "number"
-      ? `${Math.round(aqiResult.averages.pm2_5)} Ã‚Âµg/mÃ‚Â³`
+      ? `${Math.round(aqiResult.averages.pm2_5)} µg/m³`
       : "Unavailable"}
   </span>
 
   <span>
     <b>PM10:</b>{" "}
     {typeof aqiResult?.averages?.pm10 === "number"
-      ? `${Math.round(aqiResult.averages.pm10)} Ã‚Âµg/mÃ‚Â³`
+      ? `${Math.round(aqiResult.averages.pm10)} µg/m³`
       : "Unavailable"}
   </span>
 </div>
@@ -5207,7 +5213,7 @@ const aqiPercent = aqiVal === null
                   </small>
                   {rainChance > 15 && (
                     <span style={{ fontSize: "9px", color: "#70c8ff", fontWeight: "600" }}>
-                      Ã°Å¸â€™Â§{rainChance}%
+            ●
                     </span>
                   )}
                 </div>
@@ -5243,21 +5249,366 @@ const aqiPercent = aqiVal === null
 
 function LegacyAskAI({ go, query, setQuery }) {
   return <div className="page"><StatusBarTitle title="Ask NagrikAI" back={() => go("Home")} /><Label>ÃƒÂ¢Ã…â€œÃ‚Â¦ CITY-AWARE AI</Label><div className="chat-bubble user">How should I get to Pari Chowk today?</div><Card><b className="green">Skip the jam. Keep the morning.</b><p>From Alpha II, take the Knowledge Park route, add 8 min but avoids the reported pothole and slow traffic near Pari Chowk.</p><p>Pari Chowk is auctioning for a parking lot. Let's skip the role.</p><small className="muted">Based on 2 reports • Sample traffic data</small></Card><Button onClick={() => go("Civic navigation")}>Show safer route</Button><Button secondary onClick={() => go("Weather & air")}>What is the air quality like?</Button><div className="chat-input"><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Ask about your city..." /><button onClick={() => { setQuery(""); }}><Send size={17} /></button></div><p className="hint">AI responses are simulated in this frontend prototype.</p></div>;
+  return <div className="page"><StatusBarTitle title="Ask NagrikAI" back={() => go("Home")} /><Label>✦ CITY-AWARE AI</Label><Card><p className="muted">Use the main Ask NagrikAI assistant for live civic answers.</p></Card><Button onClick={() => go("Ask NagrikAI")}>Open Ask NagrikAI</Button></div>;
 }
 function LegacyVoice({ recording, setRecording, go }) {
-  return <div className="page"><StatusBarTitle title="Speak your city" back={() => go("Ask NagrikAI")} /><Label>VOICE MODE • ENGLISH / ÃƒÂ Ã‚Â¤Ã‚Â¹ÃƒÂ Ã‚Â¤Ã‚Â¿ÃƒÂ Ã‚Â¤Ã‚Â¨ÃƒÂ Ã‚Â¥Ã‚ÂÃƒÂ Ã‚Â¤Ã‚Â¦ÃƒÂ Ã‚Â¥Ã¢â€šÂ¬</Label><h1>Go ahead.<br />I'm listening.</h1><button className={`voice-orb ${recording ? "recording" : ""}`} onClick={() => setRecording(!recording)}><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /></button><p className="green center">{recording ? "ÃƒÂ¢Ã¢â‚¬â€Ã‚Â Recording ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â tap to stop" : "ÃƒÂ¢Ã¢â‚¬â€Ã‚Â Ready to review Ãƒâ€š· 00:04"}</p><Card><b>TRANSCRIPT</b><p>ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œAlpha II se Pari Chowk jaane ka safer route batao.ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â</p></Card><Button onClick={() => go("Civic navigation")}>Use this question</Button><Button secondary onClick={() => setRecording(false)}>{recording ? "Stop recording" : "Cancel recording"}</Button><p className="hint">Microphone permission is not requested in this demo. Connect Web Speech API for live voice.</p></div>;
+  return <div className="page"><StatusBarTitle title="Speak your city" back={() => go("Ask NagrikAI")} /><Label>VOICE MODE • ENGLISH / हिन्दी</Label><h1>Go ahead.<br />I'm listening.</h1><button className={`voice-orb ${recording ? "recording" : ""}`} onClick={() => setRecording(!recording)}><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /></button><p className="green center">{recording ? "● Recording — tap to stop" : "● Ready"}</p><Button onClick={() => go("Civic navigation")}>Open Civic navigation</Button><Button secondary onClick={() => setRecording(false)}>{recording ? "Stop recording" : "Cancel recording"}</Button></div>;
 }
-function NavigationScreen({ go }) {
-  return <div className="page"><StatusBarTitle title="Safer ways forward" back={() => go("Explore map")} /><Card><small className="muted">FROM &nbsp; Alpha II market</small><b>TO &nbsp; Pari Chowk metro station</b></Card><MiniMap onClick={() => go("Explore map")} /><Card><div className="split"><b>Via Knowledge Park • 4.6 km</b><b className="green">12 min</b></div><p className="muted">Avoids 1 pothole & a slow-traffic segment</p></Card><Card><div className="split"><b>Shortest · Alpha II road</b><span className="amber">18 min</span></div><p className="muted">3.0 km • 1 reported road hazard</p></Card><Button onClick={() => go("Explore map")}>View hazards on route</Button><p className="hint">Routes and travel times are illustrative. Not for live navigation.</p></div>;
+function NavigationScreen({ go, userLocation, locationDetails, liveReports = [], onLocate }) {
+  const [destinationInput, setDestinationInput] = useState("");
+  const [routeStatus, setRouteStatus] = useState("idle");
+  const [routeError, setRouteError] = useState("");
+  const [routes, setRoutes] = useState([]);
+  const [destLabel, setDestLabel] = useState("");
+
+  const originLabel = useMemo(() => {
+    const parts = [locationDetails?.locality, locationDetails?.city, locationDetails?.state]
+      .filter((value, index, all) => value && all.indexOf(value) === index);
+    if (parts.length > 0) return parts.join(", ");
+    if (userLocation?.lat && userLocation?.lng) {
+      return `${Number(userLocation.lat).toFixed(4)}, ${Number(userLocation.lng).toFixed(4)}`;
+    }
+    return "Current location not detected";
+  }, [locationDetails, userLocation]);
+
+  const nearbyHazards = useMemo(() => {
+    if (!Array.isArray(liveReports)) return [];
+    return liveReports
+      .filter(r => r.status !== "Resolved")
+      .slice(0, 5);
+  }, [liveReports]);
+
+  const handleFindRoute = async (e) => {
+    e.preventDefault();
+    const queryText = destinationInput.trim();
+    if (!queryText) return;
+    if (!userLocation?.lat || !userLocation?.lng) {
+      setRouteError("Enable location first so we can route from your current position.");
+      setRouteStatus("error");
+      return;
+    }
+
+    setRouteStatus("loading");
+    setRouteError("");
+    try {
+      const geoRes = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryText)}`
+      );
+      if (!geoRes.ok) throw new Error("Could not look up destination.");
+      const geoData = await geoRes.json();
+      if (!Array.isArray(geoData) || geoData.length === 0) {
+        throw new Error("Destination not found. Try a more specific place name.");
+      }
+
+      const targetLat = Number(geoData[0].lat);
+      const targetLng = Number(geoData[0].lon);
+      setDestLabel(geoData[0].display_name?.split(",").slice(0, 2).join(", ") || queryText);
+
+      const osrmRes = await fetch(
+        `https://router.project-osrm.org/route/v1/driving/${userLocation.lng},${userLocation.lat};${targetLng},${targetLat}?overview=false&alternatives=true`
+      );
+      if (!osrmRes.ok) throw new Error("Routing service unavailable.");
+      const osrmData = await osrmRes.json();
+      const fetchedRoutes = Array.isArray(osrmData?.routes) ? osrmData.routes : [];
+      if (fetchedRoutes.length === 0) {
+        throw new Error("No drivable route found to this destination.");
+      }
+
+      setRoutes(
+        fetchedRoutes.map((r, idx) => ({
+          id: idx,
+          distanceKm: (Number(r.distance || 0) / 1000).toFixed(1),
+          durationMin: Math.max(1, Math.round(Number(r.duration || 0) / 60)),
+        }))
+      );
+      setRouteStatus("success");
+    } catch (err) {
+      setRoutes([]);
+      setRouteError(err.message || "Could not calculate route.");
+      setRouteStatus("error");
+    }
+  };
+
+  return (
+    <div className="page">
+      <StatusBarTitle title="Safer ways forward" back={() => go("Explore map")} />
+      <Card>
+        <small className="muted">FROM</small>
+        <div className="split" style={{ marginTop: 4 }}>
+          <b>{originLabel}</b>
+          {!userLocation && (
+            <button type="button" className="chip active" onClick={onLocate}>
+              Detect GPS
+            </button>
+          )}
+        </div>
+      </Card>
+
+      <form onSubmit={handleFindRoute} style={{ display: "flex", gap: 8, margin: "10px 0" }}>
+        <input
+          value={destinationInput}
+          onChange={(e) => setDestinationInput(e.target.value)}
+          placeholder="Enter destination..."
+          style={{ flex: 1 }}
+        />
+        <Button type="submit" disabled={routeStatus === "loading" || !destinationInput.trim()}>
+          {routeStatus === "loading" ? "Routing..." : "Route"}
+        </Button>
+      </form>
+
+      {routeStatus === "error" && (
+        <Card>
+          <p className="amber">{routeError}</p>
+        </Card>
+      )}
+
+      {routeStatus === "success" && routes.length > 0 && (
+        <>
+          <Label>ROUTES TO {destLabel.toUpperCase()}</Label>
+          {routes.map((r, idx) => (
+            <Card key={r.id}>
+              <div className="split">
+                <b>{idx === 0 ? "Recommended route" : `Alternative ${idx}`} • {r.distanceKm} km</b>
+                <b className={idx === 0 ? "green" : "amber"}>{r.durationMin} min</b>
+              </div>
+            </Card>
+          ))}
+        </>
+      )}
+
+      <Label>ACTIVE NEARBY HAZARDS ({nearbyHazards.length})</Label>
+      {nearbyHazards.length === 0 ? (
+        <Card>
+          <p className="muted">No active civic hazards reported nearby.</p>
+        </Card>
+      ) : (
+        nearbyHazards.map((h) => (
+          <Card key={h.id}>
+            <div className="split">
+              <b>{h.title}</b>
+              <span className={h.severity === "High" ? "amber" : "muted"}>{h.severity || "Medium"}</span>
+            </div>
+            <small className="muted">{h.category}{h.locality ? ` • ${h.locality}` : ""}</small>
+          </Card>
+        ))
+      )}
+
+      <Button onClick={() => go("Explore map")}>Open live map</Button>
+    </div>
+  );
 }
 function Analytics({ go }) {
-  return <div className="page"><StatusBarTitle title="City intelligence" back={() => go("Home")} /><Label>GREATER NOIDA / LAST 30 DAYS</Label><div className="metric-grid"><Card><strong>1,284</strong><small>Reports</small></Card><Card><strong>68%</strong><small>Resolved</small></Card><Card><strong>2.8d</strong><small>Median fix</small></Card></div><Card><div className="split"><b>REPORTS BY WEEK</b><span className="green">Ã¢Ë†â€™18%</span></div><div className="bars">{[68, 55, 74, 62].map((v, i) => <div key={i}><i style={{ height: v + "%" }} /><small>W{i + 1}</small></div>)}</div></Card><Card><b>Where the city needs attention</b><p>1 &nbsp; Pari Chowk <span className="right">86 reports</span></p><p>2 &nbsp; Alpha II <span className="right">54 reports</span></p><p>3 &nbsp; Surajpur <span className="right">39 reports</span></p></Card><p className="hint">Sample data • Not an official civic statistics source.</p></div>;
+  const [stats, setStats] = useState(null);
+  const [status, setStatus] = useState("loading");
+  const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    const loadAnalytics = async () => {
+      if (!isSupabaseConfigured) {
+        if (active) {
+          setErrorMsg("City analytics unavailable. Check Supabase configuration.");
+          setStatus("error");
+        }
+        return;
+      }
+      try {
+        const { data, error } = await supabase
+          .from("reports")
+          .select("id, status, category, locality, created_at");
+        if (error) throw error;
+
+        const rows = Array.isArray(data) ? data : [];
+        const total = rows.length;
+        const resolved = rows.filter(r => r.status === "Resolved").length;
+        const resolvedPct = total > 0 ? Math.round((resolved / total) * 100) : 0;
+        const openCount = total - resolved;
+
+        const now = Date.now();
+        const weekMs = 7 * 24 * 60 * 60 * 1000;
+        const weekCounts = [0, 0, 0, 0];
+        rows.forEach(r => {
+          const ts = new Date(r.created_at).getTime();
+          if (!Number.isFinite(ts)) return;
+          const weeksAgo = Math.floor((now - ts) / weekMs);
+          if (weeksAgo >= 0 && weeksAgo < 4) {
+            weekCounts[3 - weeksAgo] += 1;
+          }
+        });
+        const maxWeek = Math.max(1, ...weekCounts);
+        const weekHeights = weekCounts.map(c => Math.round((c / maxWeek) * 100));
+
+        const localityMap = {};
+        rows.forEach(r => {
+          const key = (r.locality || r.category || "Unspecified").trim();
+          localityMap[key] = (localityMap[key] || 0) + 1;
+        });
+        const topAreas = Object.entries(localityMap)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5);
+
+        if (active) {
+          setStats({ total, resolvedPct, openCount, weekCounts, weekHeights, topAreas });
+          setStatus("success");
+        }
+      } catch (err) {
+        if (active) {
+          setErrorMsg(err.message || "Could not load city analytics.");
+          setStatus("error");
+        }
+      }
+    };
+    loadAnalytics();
+    return () => { active = false; };
+  }, []);
+
+  return (
+    <div className="page">
+      <StatusBarTitle title="City intelligence" back={() => go("Home")} />
+      <Label>LIVE REPORTS OVERVIEW</Label>
+      {status === "loading" && <p className="muted">Loading live analytics...</p>}
+      {status === "error" && (
+        <Card>
+          <p className="amber">{errorMsg}</p>
+        </Card>
+      )}
+      {status === "success" && stats && (
+        <>
+          <div className="metric-grid">
+            <Card><strong>{stats.total}</strong><small>Reports</small></Card>
+            <Card><strong>{stats.resolvedPct}%</strong><small>Resolved</small></Card>
+            <Card><strong>{stats.openCount}</strong><small>Open</small></Card>
+          </div>
+          <Card>
+            <div className="split">
+              <b>REPORTS BY WEEK (LAST 4 WEEKS)</b>
+              <span className="muted">{stats.weekCounts.reduce((a, b) => a + b, 0)} recent</span>
+            </div>
+            <div className="bars">
+              {stats.weekHeights.map((v, i) => (
+                <div key={i} title={`${stats.weekCounts[i]} reports`}>
+                  <i style={{ height: `${Math.max(v, stats.weekCounts[i] > 0 ? 12 : 0)}%` }} />
+                  <small>W{i + 1}</small>
+                </div>
+              ))}
+            </div>
+          </Card>
+          <Card>
+            <b>Where reports are concentrated</b>
+            {stats.topAreas.length === 0 ? (
+              <p className="muted">No civic reports recorded yet.</p>
+            ) : (
+              stats.topAreas.map(([area, count], idx) => (
+                <p key={area}>
+                  {idx + 1} &nbsp; {area} <span className="right">{count} {count === 1 ? "report" : "reports"}</span>
+                </p>
+              ))
+            )}
+          </Card>
+        </>
+      )}
+    </div>
+  );
 }
+
+const CIVIC_PRESETS = [
+  { id: "eco", emoji: "🌿", label: "Eco" },
+  { id: "civic", emoji: "🏙️", label: "Civic" },
+  { id: "guardian", emoji: "🛡️", label: "Guardian" },
+  { id: "pioneer", emoji: "✨", label: "Pioneer" },
+  { id: "navigator", emoji: "🧭", label: "Navigator" },
+  { id: "bright", emoji: "☀️", label: "Bright" },
+];
+
+const PROFILE_AVATAR_STORAGE_KEY = "nagrikai_profile_avatar";
 
 function Profile({go, onLogout, authLoading}) {
   const [profile, setProfile] = useState(null);
   const [loadStatus, setLoadStatus] = useState("loading");
   const [loadError, setLoadError] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState(() => {
+    try {
+      return localStorage.getItem(PROFILE_AVATAR_STORAGE_KEY) || "";
+    } catch {
+      return "";
+    }
+  });
+  const [showPresets, setShowPresets] = useState(false);
+  const [avatarNotice, setAvatarNotice] = useState("");
+  const fileInputRef = useRef(null);
+  const noticeTimerRef = useRef(null);
+
+  const showAvatarNotice = (message) => {
+    setAvatarNotice(message);
+    if (noticeTimerRef.current) {
+      clearTimeout(noticeTimerRef.current);
+    }
+    noticeTimerRef.current = setTimeout(() => {
+      setAvatarNotice("");
+    }, 3000);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (noticeTimerRef.current) {
+        clearTimeout(noticeTimerRef.current);
+      }
+    };
+  }, []);
+
+  const persistAvatar = (value) => {
+    try {
+      if (value) {
+        localStorage.setItem(PROFILE_AVATAR_STORAGE_KEY, value);
+      } else {
+        localStorage.removeItem(PROFILE_AVATAR_STORAGE_KEY);
+      }
+    } catch {
+      // Ignore storage quota or access errors.
+    }
+  };
+
+  const handleImageSelect = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      showAvatarNotice("Please select a valid image file.");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      showAvatarNotice("Image must be under 5 MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      if (!result) return;
+      setAvatarUrl(result);
+      persistAvatar(result);
+      setShowPresets(false);
+      showAvatarNotice("Profile photo updated.");
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemovePhoto = () => {
+    setAvatarUrl("");
+    persistAvatar("");
+    setShowPresets(false);
+    showAvatarNotice("Profile photo removed.");
+  };
+
+  const handleSelectPreset = (preset) => {
+    const value = `preset:${preset.emoji}`;
+    setAvatarUrl(value);
+    persistAvatar(value);
+    setShowPresets(false);
+    showAvatarNotice(`Selected ${preset.label} avatar.`);
+  };
 
   useEffect(() => {
     let active = true;
@@ -5541,6 +5892,11 @@ const loadProfile = async () => {
           {x}<ChevronRight size={16}/>
         </button>
       ))}
+      <div style={{ marginTop: 24 }}>
+        <Button secondary onClick={onLogout} disabled={authLoading}>
+          {authLoading ? "Logging out..." : "Log out"}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -5633,24 +5989,104 @@ function History({go}) {
     </div>
   );
 }
-function Notifications({ go, enabled, setEnabled }) {
-  return <div className="page"><StatusBarTitle title="Notifications" back={() => go("Profile")} /><Label>TODAY</Label>{[["Repair claimed. You decide.", "New repair evidence for #GN-2048. Help verify it on the ground.", "8 min ago"], ["Your city briefing is ready", "A clearer route, rising AQI, and the hazards near you.", "34 min ago"], ["Road hazard near Alpha II", "A new community report is within 500 m of your saved area.", "1 hour ago"]].map(([a, b, c]) => <Card key={a}><b>{a}</b><p>{b}</p><small className="green">{c}</small></Card>)}<Card className="split"><b>Nearby alerts</b><button className={`switch ${enabled ? "yes" : ""}`} onClick={() => setEnabled(!enabled)}><i /></button></Card><p className="hint">Sample notifications • No push service connected</p></div>;
+function Notifications({ go, enabled, setEnabled, liveReports = [] }) {
+  const [items, setItems] = useState([]);
+  const [status, setStatus] = useState("loading");
+
+  useEffect(() => {
+    let active = true;
+    const loadNotifications = async () => {
+      const nextItems = [];
+      if (isSupabaseConfigured) {
+        try {
+          const { data: authData } = await supabase.auth.getUser();
+          const userId = authData?.user?.id;
+          if (userId) {
+            const { data } = await supabase
+              .from("reports")
+              .select("id, report_number, title, status, created_at")
+              .eq("user_id", userId)
+              .order("created_at", { ascending: false })
+              .limit(10);
+            if (Array.isArray(data)) {
+              data.forEach((r) => {
+                nextItems.push({
+                  id: `my-${r.id}`,
+                  title: `Report #GN-${r.report_number}: ${r.status || "Submitted"}`,
+                  body: r.title,
+                  time: r.created_at
+                    ? new Date(r.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })
+                    : "",
+                });
+              });
+            }
+          }
+        } catch {
+          // Ignore notification fetch errors and fall back to empty/nearby list.
+        }
+      }
+
+      if (enabled && Array.isArray(liveReports)) {
+        liveReports.slice(0, 5).forEach((r) => {
+          nextItems.push({
+            id: `near-${r.id}`,
+            title: `Nearby: ${r.category || "Civic issue"}`,
+            body: r.title,
+            time: r.locality || "Nearby",
+          });
+        });
+      }
+
+      if (active) {
+        setItems(nextItems);
+        setStatus("success");
+      }
+    };
+    loadNotifications();
+    return () => { active = false; };
+  }, [enabled, liveReports]);
+
+  return (
+    <div className="page">
+      <StatusBarTitle title="Notifications" back={() => go("Profile")} />
+      <Card className="split">
+        <b>Nearby alerts</b>
+        <button className={`switch ${enabled ? "yes" : ""}`} onClick={() => setEnabled(!enabled)}>
+          <i />
+        </button>
+      </Card>
+      <Label>RECENT ACTIVITY</Label>
+      {status === "loading" && <p className="muted">Loading notifications...</p>}
+      {status === "success" && items.length === 0 && (
+        <Card>
+          <p className="muted">No notifications yet. Activity on your reports and nearby issues will appear here.</p>
+        </Card>
+      )}
+      {status === "success" && items.map((item) => (
+        <Card key={item.id}>
+          <b>{item.title}</b>
+          <p>{item.body}</p>
+          {item.time && <small className="green">{item.time}</small>}
+        </Card>
+      ))}
+    </div>
+  );
 }
 function Accessibility({ go, values, setValues }) {
   const rows = [["text", "Larger text", "Adjust device's preferred text scale."], ["motion", "Reduce motion", "Keep transitions and animations light."], ["voice", "Voice guidance", "Read civic summaries and key actions aloud."], ["contrast", "High-contrast labels", "Increase contrast on colour indicators."]];
-  return <div className="page"><StatusBarTitle title="Made for everyone" back={() => go("Profile")} /><h1>Comfort is not optional.</h1><p className="muted">Tune the interface to how you see, hear and move.</p>{rows.map(([id, title, desc]) => <Card key={id}><div className="split"><b>{title}</b><button className={`switch ${values[id] ? "yes" : ""}`} onClick={() => setValues(v => ({ ...v, [id]: !v[id] }))}><i /></button></div><small className="muted">{desc}</small></Card>)}<Card><b>Road hazard ahead</b><p className="amber">High severity · 240 m away</p><small className="muted">Preview of an accessible alert card</small></Card></div>;
+  return <div className="page"><StatusBarTitle title="Made for everyone" back={() => go("Profile")} /><h1>Comfort is not optional.</h1><p className="muted">Tune the interface to how you see, hear and move.</p>{rows.map(([id, title, desc]) => <Card key={id}><div className="split"><b>{title}</b><button className={`switch ${values[id] ? "yes" : ""}`} onClick={() => setValues(v => ({ ...v, [id]: !v[id] }))}><i /></button></div><small className="muted">{desc}</small></Card>)}</div>;
 }
 function Privacy({ go, privacy, setPrivacy }) {
-  return <div className="page"><StatusBarTitle title="Privacy & settings" back={() => go("Profile")} /><Label>YOUR DATA, YOUR CALL</Label><Card><div className="split"><b>Precise location</b><button className={`switch ${privacy ? "yes" : ""}`} onClick={() => setPrivacy(!privacy)}><i /></button></div><p className="muted">Only while capturing a report or requesting a route.</p></Card><Card><div className="split"><b>Anonymous public reports</b><span className="green">On</span></div><p className="muted">Hide your name from the community.</p></Card><Card><div className="split"><b>Personalised AI suggestions</b><span className="muted">Off</span></div><p className="muted">Use saved areas and preferences, not private messages.</p></Card>{["Language / English & \u0939\u093F\u0928\u094D\u0926\u0940", "Accessibility", "Preview offline recovery"].map(x => <button className="menu-row" key={x} onClick={() => go(x === "Accessibility" ? x : "Language")}>{x}<ChevronRight size={16} /></button>)}<p className="hint">Prototype only. No real personal data is collected or transmitted.</p></div>;
+  return <div className="page"><StatusBarTitle title="Privacy & settings" back={() => go("Profile")} /><Label>YOUR DATA, YOUR CALL</Label><Card><div className="split"><b>Precise location</b><button className={`switch ${privacy ? "yes" : ""}`} onClick={() => setPrivacy(!privacy)}><i /></button></div><p className="muted">Only while capturing a report or requesting a route.</p></Card><Card><div className="split"><b>Anonymous public reports</b><span className="green">On</span></div><p className="muted">Hide your name from the community.</p></Card><Card><div className="split"><b>Personalised AI suggestions</b><span className="muted">Off</span></div><p className="muted">Use saved areas and preferences, not private messages.</p></Card>{["Language / English & \u0939\u093F\u0928\u094D\u0926\u0940", "Accessibility"].map(x => <button className="menu-row" key={x} onClick={() => go(x === "Accessibility" ? x : "Language")}>{x}<ChevronRight size={16} /></button>)}</div>;
 }
 function Loading({ go }) {
-  return <div className="page"><StatusBarTitle title="Syncing your city" back={() => go("Home")} /><Label>GETTING THE LATEST CITY SNAPSHOT</Label>{[1, 2, 3].map(x => <Card key={x}><div className="skeleton long" /><div className="skeleton short" /><div className="skeleton medium" /></Card>)}<h3 className="green center">Connecting the dots...</h3><p className="muted center">Reports, weather and road conditions.<br />Sample data for this prototype.</p><Button onClick={() => go("Home")}>Continue to Home</Button></div>;
+  return <div className="page"><StatusBarTitle title="Syncing your city" back={() => go("Home")} /><Label>GETTING THE LATEST CITY SNAPSHOT</Label>{[1, 2, 3].map(x => <Card key={x}><div className="skeleton long" /><div className="skeleton short" /><div className="skeleton medium" /></Card>)}<h3 className="green center">Connecting the dots...</h3><p className="muted center">Loading live reports, weather, and nearby conditions.</p><Button onClick={() => go("Home")}>Continue to Home</Button></div>;
 }
 function Empty({ go }) {
   return <div className="page"><StatusBarTitle title="Your reports" back={() => go("Report history")} /><div className="empty-state"><FileText size={34} /><h2>No reports. Yet.</h2><p>A safer street can start with one well-documented report.</p></div><Button onClick={() => go("Capture report")}>Make your first report</Button><Button secondary onClick={() => go("Explore map")}>Explore issues near you</Button><Card><b>A useful report takes a minute.</b><p className="muted">Add a clear photo, confirm the location, and let AI help with the details.</p></Card></div>;
 }
 function Offline({ go }) {
-  return <div className="page"><StatusBarTitle title="You're offline" back={() => go("Home")} /><div className="offline-icon"><WifiOff size={34} /></div><h1>Signal lost.<br />Your voice isn't.</h1><p className="muted">I couldn't refresh your city feed. Check your connection and try again.</p><Card><b className="green">Last saved snapshot: 09:20 IST</b></Card><Button onClick={() => go("Loading")}>Try again</Button><Button secondary onClick={() => go("Home")}>View saved city snapshot</Button><Card><b>Your draft stays with you.</b><p className="muted">In the production app, pending reports are kept on-device until you reconnect.</p></Card></div>;
+  return <div className="page"><StatusBarTitle title="You're offline" back={() => go("Home")} /><div className="offline-icon"><WifiOff size={34} /></div><h1>Signal lost.<br />Your voice isn't.</h1><p className="muted">Couldn't refresh your city feed. Check your connection and try again.</p><Button onClick={() => go("Loading")}>Try again</Button><Button secondary onClick={() => go("Home")}>Return Home</Button></div>;
 }
 
 export default App;
