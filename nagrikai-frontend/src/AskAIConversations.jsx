@@ -2,87 +2,174 @@ import React, { useState, useEffect } from "react";
 import {
   ChevronLeft,
   MessageSquare,
-  Mic,
-  Calendar,
   Clock,
-  Volume2,
   Trash2,
   Sparkles,
-  ArrowRight,
-  Filter,
-  CheckCircle2
+  ArrowRight
 } from "lucide-react";
+import {
+  getAuthenticatedUser,
+  loadOwnConversations,
+  deleteOwnConversations,
+  PENDING_CONVERSATION_KEY,
+  START_NEW_CONVERSATION_KEY,
+  activeConversationKey
+} from "./aiConversationStore";
 import "./askAI.css";
-
-// Initial realistic default civic conversations if user opens before recording
-const DEFAULT_CONVERSATIONS = [
-  {
-    id: "conv-seed-1",
-    timestamp: "26 Nov 2026, 05:15 AM",
-    date: new Date(Date.now() - 3600000 * 2).toISOString(),
-    userQuery: "What civic services does NagrikAI provide in Greater Noida?",
-    aiResponse: "NagrikAI provides real-time civic intelligence across Greater Noida: tracking road hazards with verified database records, routing complaints directly to GNIDA and NPCL with guaranteed SLA resolution, offering GroundTruth AI photo-verification of repairs, and providing smart navigation that bypasses flooded underpasses and Pari Chowk traffic delays.",
-    isVoiceNote: false,
-    duration: 0,
-    language: "English",
-    category: "Services Overview"
-  },
-  {
-    id: "conv-seed-2",
-    timestamp: "26 Nov 2026, 04:45 AM",
-    date: new Date(Date.now() - 3600000 * 4).toISOString(),
-    userQuery: "परी चौक पर ट्रैफिक की क्या स्थिति है और बाईपास खुला है?",
-    aiResponse: "परी चौक पर वर्तमान में पीक ऑवर के कारण मध्यम यातायात है। सूरजपुर बाईपास कनेक्टर सड़क पर जीएनआईडीए सिविल विभाग द्वारा डामरीकरण कार्य चल रहा है, इसलिए हमने नॉलेज पार्क इनर सर्विस रोड को वैकल्पिक सुगम मार्ग के रूप में अनुशंसित किया है।",
-    isVoiceNote: true,
-    duration: 6,
-    language: "Hindi",
-    category: "Traffic & Navigation"
-  },
-  {
-    id: "conv-seed-3",
-    timestamp: "25 Nov 2026, 09:30 PM",
-    date: new Date(Date.now() - 3600000 * 12).toISOString(),
-    userQuery: "How can I report a broken streetlight in Beta I and what is the SLA?",
-    aiResponse: "You can file a broken streetlight report in under 30 seconds via the Capture Report screen. Your report is automatically tagged with GPS coordinates and dispatched to the NPCL and GNIDA Electrical Wing. Under municipal guidelines, broken streetlights carry a strict 24-hour repair SLA.",
-    isVoiceNote: true,
-    duration: 8,
-    language: "English",
-    category: "Streetlights & SLA"
-  }
-];
 
 export function AskAIConversations({ go }) {
   const [conversations, setConversations] = useState([]);
-  const [filter, setFilter] = useState("all"); // "all", "voicenote", "text", "en", "hi"
-  const [activeAudioId, setActiveAudioId] = useState(null);
+  const [filter, setFilter] = useState("all");
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [currentUser, setCurrentUser] = useState(null);
+  const [clearing, setClearing] = useState(false);
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem("nagrikai_ai_conversations");
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setConversations(parsed);
-          return;
+    let active = true;
+
+    const loadHistory = async () => {
+      try {
+        setLoading(true);
+        setLoadError("");
+
+        const user = await getAuthenticatedUser();
+        if (!active) return;
+
+        setCurrentUser(user);
+
+        const result = await loadOwnConversations(user.id);
+        if (!active) return;
+
+        const messageGroups = {};
+
+        (result.messages || []).forEach(message => {
+          if (!messageGroups[message.conversation_id]) {
+            messageGroups[message.conversation_id] = [];
+          }
+
+          messageGroups[message.conversation_id].push(message);
+        });
+
+        const formatted = (result.conversations || []).map(conversation => {
+          const thread = messageGroups[conversation.id] || [];
+
+          const lastUserIndex = thread.reduce(
+            (last, message, index) =>
+              message.role === "user" ? index : last,
+            -1
+          );
+
+          const lastUser =
+            lastUserIndex >= 0 ? thread[lastUserIndex] : null;
+
+          const lastAssistant =
+            lastUserIndex >= 0
+              ? thread.slice(lastUserIndex + 1).find(
+                  message => message.role === "assistant"
+                )
+              : null;
+
+          const language =
+            lastUser?.active_lang === "hi" ? "Hindi" : "English";
+
+          const userQuery = lastUser
+            ? (
+                lastUser.transcript ||
+                lastUser.text_en ||
+                lastUser.text_hi ||
+                conversation.title
+              )
+            : conversation.title || "Conversation";
+
+          const aiResponse = lastAssistant
+            ? (
+                language === "Hindi"
+                  ? lastAssistant.text_hi || lastAssistant.text_en
+                  : lastAssistant.text_en || lastAssistant.text_hi
+              )
+            : "No response recorded yet.";
+
+          return {
+            id: conversation.id,
+            timestamp: new Date(
+              conversation.updated_at || conversation.created_at
+            ).toLocaleString("en-IN", {
+              dateStyle: "medium",
+              timeStyle: "short"
+            }),
+            userQuery,
+            aiResponse,
+            isVoiceNote: Boolean(lastUser?.is_voice_note),
+            duration: lastUser?.duration_seconds || 0,
+            language,
+            category: conversation.category || "Civic Assistance",
+            messageCount: thread.length,
+            updatedAt: conversation.updated_at || conversation.created_at
+          };
+        });
+
+        if (active) setConversations(formatted);
+      } catch (error) {
+        console.error("Could not load AI conversations:", error);
+
+        if (active) {
+          setLoadError(
+            error.message || "Unable to load your conversation history."
+          );
         }
+      } finally {
+        if (active) setLoading(false);
       }
-      // Seed default if empty
-      setConversations(DEFAULT_CONVERSATIONS);
-      localStorage.setItem("nagrikai_ai_conversations", JSON.stringify(DEFAULT_CONVERSATIONS));
-    } catch (e) {
-      console.warn("Could not load AI conversations:", e);
-      setConversations(DEFAULT_CONVERSATIONS);
-    }
+    };
+
+    loadHistory();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
-  const handleClearHistory = () => {
-    if (window.confirm("Are you sure you want to clear your Ask AI conversation history?")) {
-      localStorage.removeItem("nagrikai_ai_conversations");
+  const handleClearHistory = async () => {
+    if (!currentUser || clearing) return;
+
+    if (
+      !window.confirm(
+        "Are you sure you want to permanently clear your Ask AI conversation history?"
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setClearing(true);
+      await deleteOwnConversations(currentUser.id);
+
+      localStorage.removeItem(activeConversationKey(currentUser.id));
+      localStorage.removeItem(PENDING_CONVERSATION_KEY);
+
       setConversations([]);
+    } catch (error) {
+      console.error("Could not clear AI history:", error);
+      window.alert(error.message || "Could not clear conversation history.");
+    } finally {
+      setClearing(false);
     }
   };
 
-  const filteredList = conversations.filter((item) => {
+  const openConversation = (conversationId) => {
+    localStorage.setItem(PENDING_CONVERSATION_KEY, conversationId);
+    localStorage.removeItem(START_NEW_CONVERSATION_KEY);
+    go("Ask NagrikAI");
+  };
+
+  const startNewConversation = () => {
+    localStorage.setItem(START_NEW_CONVERSATION_KEY, "true");
+    localStorage.removeItem(PENDING_CONVERSATION_KEY);
+    go("Ask NagrikAI");
+  };
+
+  const filteredList = conversations.filter(item => {
     if (filter === "voicenote") return item.isVoiceNote;
     if (filter === "text") return !item.isVoiceNote;
     if (filter === "en") return item.language === "English";
@@ -92,16 +179,18 @@ export function AskAIConversations({ go }) {
 
   return (
     <div className="page ask-ai-conversations-screen">
-      {/* Top Header */}
       <div className="topbar">
-        <button className="icon-btn" onClick={() => go("Profile")}>
+        <button className="icon-btn" onClick={() => go("Ask NagrikAI")}>
           <ChevronLeft size={19} />
         </button>
+
         <b>Ask AI Conversations</b>
+
         {conversations.length > 0 && (
           <button
             className="icon-btn"
             onClick={handleClearHistory}
+            disabled={clearing}
             title="Clear all conversation history"
             style={{ color: "#ef4444" }}
           >
@@ -111,32 +200,35 @@ export function AskAIConversations({ go }) {
       </div>
 
       <div className="eyebrow">CITIZEN PROFILE • AI DIALOGUE HISTORY</div>
+
       <h1>Your AI conversations.<br />Every voice & text.</h1>
+
       <p className="muted" style={{ marginBottom: "16px" }}>
-        Review your complete record of queries, voice notes, language transcripts, and AI municipal responses.
+        Review your saved queries, voice transcripts, languages, and NagrikAI responses.
+        Your history is linked to your signed-in account.
       </p>
 
-      {/* Overview Stat Cards */}
       <div className="conv-stats-grid">
         <div className="conv-stat-card">
           <strong>{conversations.length}</strong>
           <small>Total Chats</small>
         </div>
+
         <div className="conv-stat-card">
           <strong style={{ color: "#28d7a0" }}>
             {conversations.filter(c => c.isVoiceNote).length}
           </strong>
           <small>Voice Notes</small>
         </div>
+
         <div className="conv-stat-card">
           <strong style={{ color: "#38bdf8" }}>
             {conversations.filter(c => c.language === "Hindi").length}
           </strong>
-          <small>हिन्दी Queries</small>
+          <small>Hindi Chats</small>
         </div>
       </div>
 
-      {/* Filter Tabs */}
       <div className="conv-filter-row">
         {[
           ["all", "All Conversations"],
@@ -155,70 +247,99 @@ export function AskAIConversations({ go }) {
         ))}
       </div>
 
-      {/* Conversations Stream */}
-      {filteredList.length === 0 ? (
+      {loading ? (
         <div className="conv-empty-box">
-          <MessageSquare size={36} style={{ color: "#475569", marginBottom: "12px" }} />
+          <MessageSquare size={30} style={{ color: "#38bdf8" }} />
+          <h3>Loading your conversations...</h3>
+          <p className="muted">Retrieving your saved history securely.</p>
+        </div>
+      ) : loadError ? (
+        <div className="conv-empty-box">
+          <MessageSquare size={36} style={{ color: "#ef4444" }} />
+          <h3>Unable to load history</h3>
+          <p className="muted">{loadError}</p>
+        </div>
+      ) : filteredList.length === 0 ? (
+        <div className="conv-empty-box">
+          <MessageSquare
+            size={36}
+            style={{ color: "#475569", marginBottom: "12px" }}
+          />
+
           <h3>No conversations found</h3>
+
           <p className="muted">
             {filter === "all"
               ? "You haven't chatted with NagrikAI yet. Send a text or record a voice note to get started!"
               : "No conversations match the selected filter."}
           </p>
-          <button className="btn" style={{ marginTop: "12px" }} onClick={() => go("Ask NagrikAI")}>
+
+          <button
+            className="btn"
+            style={{ marginTop: "12px" }}
+            onClick={startNewConversation}
+          >
             Start a Conversation with AI
           </button>
         </div>
       ) : (
         <div className="conv-cards-list">
-          {filteredList.map((conv) => (
+          {filteredList.map(conv => (
             <div key={conv.id} className="conv-card">
-              {/* Card Meta Top */}
               <div className="conv-card-top">
                 <div className="conv-card-time">
                   <Clock size={11} />
                   <span>{conv.timestamp}</span>
                 </div>
+
                 <div className="conv-card-badges">
-                  <span className={`conv-type-badge ${conv.isVoiceNote ? "voice" : "text"}`}>
-                    {conv.isVoiceNote ? `🎤 Voice Note (${conv.duration || 1}s)` : "💬 Text"}
+                  <span
+                    className={`conv-type-badge ${conv.isVoiceNote ? "voice" : "text"}`}
+                  >
+                    {conv.isVoiceNote
+                      ? `🎤 Voice Note (${conv.duration || 0}s)`
+                      : "💬 Text"}
                   </span>
-                  <span className={`conv-lang-badge ${conv.language === "Hindi" ? "hi" : "en"}`}>
+
+                  <span
+                    className={`conv-lang-badge ${conv.language === "Hindi" ? "hi" : "en"}`}
+                  >
                     {conv.language === "Hindi" ? "हिन्दी" : "English"}
                   </span>
                 </div>
               </div>
 
-              {/* Citizen Query / Transcript Section */}
               <div className="conv-query-section">
                 <div className="conv-section-label">
                   <span>CITIZEN TRANSCRIPT</span>
-                  {conv.category && <span className="conv-category-tag">{conv.category}</span>}
+                  {conv.category && (
+                    <span className="conv-category-tag">{conv.category}</span>
+                  )}
                 </div>
+
                 <p className="conv-query-text">
                   "{conv.userQuery}"
                 </p>
               </div>
 
-              {/* AI Model Response Section */}
               <div className="conv-response-section">
-                <div className="conv-section-label" style={{ color: "#28d7a0" }}>
+                <div
+                  className="conv-section-label"
+                  style={{ color: "#28d7a0" }}
+                >
                   <Sparkles size={11} style={{ marginRight: "4px" }} />
                   <span>NAGRIKAI RESPONSE</span>
                 </div>
+
                 <p className="conv-response-text">
                   {conv.aiResponse}
                 </p>
               </div>
 
-              {/* Action Bar */}
               <div className="conv-card-footer">
                 <button
                   className="conv-reopen-btn"
-                  onClick={() => {
-                    localStorage.setItem("nagrikai_pending_reopen_query", conv.userQuery);
-                    go("Ask NagrikAI");
-                  }}
+                  onClick={() => openConversation(conv.id)}
                 >
                   <span>Continue in Ask AI</span>
                   <ArrowRight size={12} />
@@ -229,9 +350,8 @@ export function AskAIConversations({ go }) {
         </div>
       )}
 
-      {/* Floating CTA */}
       <div style={{ marginTop: "24px", marginBottom: "16px" }}>
-        <button className="btn" onClick={() => go("Ask NagrikAI")}>
+        <button className="btn" onClick={startNewConversation}>
           Ask NagrikAI a New Question
         </button>
       </div>

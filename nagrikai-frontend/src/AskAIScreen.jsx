@@ -10,6 +10,7 @@ import {
   Languages,
   Check,
   MessageSquare,
+  Plus,
   Play,
   Pause,
   Trash2,
@@ -17,6 +18,7 @@ import {
   HelpCircle
 } from "lucide-react";
 import { supabase, isSupabaseConfigured } from "./supabaseClient";
+import { getAuthenticatedUser, saveConversationTurn, loadOwnConversation, activeConversationKey, PENDING_CONVERSATION_KEY, START_NEW_CONVERSATION_KEY } from "./aiConversationStore";
 import "./askAI.css";
 
 // Verified Municipal & Service Knowledge Base for Greater Noida
@@ -59,35 +61,8 @@ function generateAIModelResponse(query, liveReports = [], isVoiceNote = false, d
   const rawQ = (query || "").trim();
   const q = rawQ.toLowerCase();
 
-  // Helper to persist conversation into localStorage for the Profile screen
-  const saveToHistory = (userText, aiReplyEn, aiReplyHi, category) => {
-    try {
-      const stored = localStorage.getItem("nagrikai_ai_conversations");
-      const list = stored ? JSON.parse(stored) : [];
-      const isHi = /[\u0900-\u097F]/.test(userText) || q.includes("hindi") || q.includes("namaste") || q.includes("kaun");
-      const newEntry = {
-        id: "conv-" + Date.now(),
-        timestamp: new Date().toLocaleString("en-IN", {
-          day: "numeric",
-          month: "short",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit"
-        }),
-        date: new Date().toISOString(),
-        userQuery: userText || (isVoiceNote ? `🎤 Voice Note (${duration || 2}s)` : "Civic question"),
-        aiResponse: isHi ? aiReplyHi : aiReplyEn,
-        isVoiceNote: !!isVoiceNote,
-        duration: duration || 0,
-        language: isHi ? "Hindi" : "English",
-        category: category || "Civic Assistance"
-      };
-      const updated = [newEntry, ...list.slice(0, 49)];
-      localStorage.setItem("nagrikai_ai_conversations", JSON.stringify(updated));
-    } catch (e) {
-      console.warn("Could not save conversation:", e);
-    }
-  };
+  // Conversation history is saved from the actual message handlers to Supabase.
+  const saveToHistory = () => {};
 
   // 1. Silent or Brief Voice Note Handling
   if (isVoiceNote && (!q || q === "voice note" || q === "voice note civic query" || q === "वॉयसनोट द्वारा प्रश्न")) {
@@ -471,6 +446,68 @@ export function AskAI({
   const recognitionRef = useRef(null);
   const chatBottomRef = useRef(null);
 
+  // Authenticated, per-user conversation state
+  const authUserRef = useRef(null);
+  const conversationIdRef = useRef(null);
+  const conversationInitPromiseRef = useRef(Promise.resolve());
+  const conversationSaveQueueRef = useRef(Promise.resolve());
+
+  const startNewConversation = async () => {
+    await conversationSaveQueueRef.current;
+
+    const user = authUserRef.current || await getAuthenticatedUser();
+    authUserRef.current = user;
+
+    conversationIdRef.current = null;
+    localStorage.removeItem(activeConversationKey(user.id));
+    localStorage.removeItem(PENDING_CONVERSATION_KEY);
+    localStorage.removeItem(START_NEW_CONVERSATION_KEY);
+
+    setMessages(current =>
+      current.filter(message => message.id === "m-welcome")
+    );
+    setInputVal("");
+  };
+  const persistConversationTurn = (userMessage, assistantMessage) => {
+    const saveTurn = async () => {
+      await conversationInitPromiseRef.current;
+
+      const user = authUserRef.current || await getAuthenticatedUser();
+      authUserRef.current = user;
+
+      const storageKey = activeConversationKey(user.id);
+      let conversationId = conversationIdRef.current;
+
+      if (!conversationId) {
+        const storedId = localStorage.getItem(storageKey);
+
+        if (storedId) {
+          const existing = await loadOwnConversation(storedId, user.id);
+          if (existing) conversationId = storedId;
+        }
+      }
+
+      const savedId = await saveConversationTurn({
+        conversationId,
+        user,
+        userMessage,
+        assistantMessage
+      });
+
+      conversationIdRef.current = savedId;
+      localStorage.setItem(storageKey, savedId);
+    };
+
+    conversationSaveQueueRef.current =
+      conversationSaveQueueRef.current
+        .then(saveTurn)
+        .catch(error => {
+          console.error("Could not save AI conversation to Supabase:", error);
+        });
+
+    return conversationSaveQueueRef.current;
+  };
+
   // Refs to eliminate stale closure bugs during speech recognition
   const latestTranscriptRef = useRef("");
   const isRecordingRef = useRef(false);
@@ -513,6 +550,81 @@ export function AskAI({
     return () => { active = false; };
   }, []);
 
+  // Initialise only the signed-in user's conversation thread.
+  useEffect(() => {
+    let active = true;
+
+    const initializeConversation = async () => {
+      const pendingId = localStorage.getItem(PENDING_CONVERSATION_KEY);
+      if (pendingId) {
+        localStorage.removeItem(PENDING_CONVERSATION_KEY);
+      }
+
+      const startNew =
+        localStorage.getItem(START_NEW_CONVERSATION_KEY) === "true";
+
+      if (startNew) {
+        localStorage.removeItem(START_NEW_CONVERSATION_KEY);
+      }
+
+      const user = await getAuthenticatedUser();
+      if (!active) return;
+
+      authUserRef.current = user;
+
+      const storageKey = activeConversationKey(user.id);
+
+      if (startNew) {
+        conversationIdRef.current = null;
+        localStorage.removeItem(storageKey);
+        return;
+      }
+
+      const targetId = pendingId || localStorage.getItem(storageKey);
+      if (!targetId) return;
+
+      const restored = await loadOwnConversation(targetId, user.id);
+      if (!active) return;
+
+      if (!restored) {
+        conversationIdRef.current = null;
+        localStorage.removeItem(storageKey);
+        console.warn("Requested AI conversation was not found for this account.");
+        return;
+      }
+
+      conversationIdRef.current = targetId;
+      localStorage.setItem(storageKey, targetId);
+
+      setMessages(current => {
+        const welcome = current.find(message => message.id === "m-welcome");
+        return [...(welcome ? [welcome] : []), ...restored.messages];
+      });
+
+      const lastUserMessage = [...restored.messages]
+        .reverse()
+        .find(message => message.role === "user");
+
+      if (lastUserMessage) {
+        const restoredLanguage =
+          lastUserMessage.activeLang === "hi" ? "Hindi" : "English";
+
+        setCurrentLang(restoredLanguage);
+        setLanguage(restoredLanguage);
+      }
+    };
+
+    const initialization = initializeConversation();
+    conversationInitPromiseRef.current = initialization;
+
+    initialization.catch(error => {
+      console.error("AI conversation initialization failed:", error);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, []);
   // Check for pending reopened conversation or query from outside
   useEffect(() => {
     const reopened = localStorage.getItem("nagrikai_pending_reopen_query");
@@ -796,6 +908,7 @@ export function AskAI({
     };
 
     setMessages(prev => [...prev, userMsg, assistantMsg]);
+    persistConversationTurn(userMsg, assistantMsg);
     setInputVal("");
     setLiveTranscript("");
     latestTranscriptRef.current = "";
@@ -838,6 +951,7 @@ export function AskAI({
     };
 
     setMessages(prev => [...prev, userMsg, assistantMsg]);
+    persistConversationTurn(userMsg, assistantMsg);
     setInputVal("");
     setLiveTranscript("");
     latestTranscriptRef.current = "";
@@ -890,7 +1004,21 @@ export function AskAI({
           title="Open Fullscreen Voice Assistant"
           style={{ color: "#28d7a0" }}
         >
-          <Mic size={18} />
+            <Mic size={18} />
+        </button>
+        <button
+          className="icon-btn"
+          onClick={() => go("AI conversations")}
+          title="View AI conversation history"
+        >
+            <MessageSquare size={18} />
+        </button>
+        <button
+          className="icon-btn"
+          onClick={() => startNewConversation().catch(error => console.error("Could not start new conversation:", error))}
+          title="Start a new conversation"
+        >
+          <Plus size={17} />
         </button>
       </div>
 

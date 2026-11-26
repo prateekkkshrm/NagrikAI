@@ -208,7 +208,7 @@
 
 .wsky-anchor {
   position: absolute;
-  top: 0; left: 0; right: 0;
+  top: -25px; left: 0; right: -10px;
   height: min(75vh, 560px);
   z-index: 0;
   pointer-events: none;
@@ -217,3 +217,109 @@
 .wsky-anchor .wsky { position: absolute; inset: 0; height: 100%; }
 
 .home-sky > *:not(.wsky-anchor) { position: relative; z-index: 1; }
+
+
+/* Keep dashboard content above the animation */
+.home-sky > *:not(.wsky-anchor) {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---------- Translucent weather glass card ---------- */
+
+.home-sky .weather-card {
+  background: rgba(16, 29, 43, 0.56);
+  border: 1px solid rgba(255, 255, 255, 0.20);
+  border-radius: 16px;
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.10);
+}
+
+/* Improve text readability over changing sky colours */
+.home-sky .weather-card strong {
+  color: #ffffff;
+}
+
+.home-sky .weather-card span,
+.home-sky .weather-card small,
+.home-sky .weather-card p {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+
+/* Desktop device has 20px horizontal screen-content padding */
+@media (min-width: 761px) {
+  .wsky-anchor {
+    left: -20px;
+    right: -20px;
+  }
+}
+
+
+/* Keep all Home screen content above the animated sky */
+.home-sky > *:not(.wsky-anchor) {
+  position: relative;
+  z-index: 1;
+}
+
+.wsky-anchor {
+  position: sticky;
+  top: 0;
+  height: 0;
+  overflow: visible;
+}
+.wsky-anchor .wsky {
+  position: absolute;
+  top: 0;
+  left: calc(var(--screen-pad-x) * -1);
+  right: calc(var(--screen-pad-x) * -1);
+  height: 100vh;  /* or the screen's height */
+}
+
+@media (min-width: 761px) {
+  .home-sky { --screen-pad-x: 20px; }
+}
+
+/* ---------- NagrikAI Home: full-bleed sky ---------- */
+
+.home-sky {
+  --screen-pad-x: 22px;
+  position: relative;
+  isolation: isolate;
+  min-height: 100%;
+  overflow: visible;
+}
+
+.wsky-anchor {
+  position: absolute;
+  top: -25px;
+  bottom: -150px;
+  left: calc(var(--screen-pad-x) * -1);
+  right: calc(var(--screen-pad-x) * -1);
+  width: auto;
+  height: auto;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.wsky-anchor .wsky {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.68;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+.home-sky > *:not(.wsky-anchor) {
+  position: relative;
+  z-index: 1;
+}
+
+@media (min-width: 761px) {
+  .home-sky { --screen-pad-x: 20px; }
+}

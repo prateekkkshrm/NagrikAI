@@ -15,3 +15,9 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/send-email-otp/deno.json"
 entrypoint = "./functions/send-email-otp/index.ts"
+
+[functions.assess-groundtruth]
+enabled = true
+verify_jwt = false
+import_map = "./functions/assess-groundtruth/deno.json"
+entrypoint = "./functions/assess-groundtruth/index.ts"
