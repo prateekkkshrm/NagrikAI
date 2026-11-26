@@ -24,6 +24,7 @@ import {
   haversineMeters,
   removeEvidenceFileQuietly,
   triggerGroundTruthAssessment,
+  verifyReportPhotoCategory,
   uploadEvidenceFile,
   validateReportDraft,
 } from "./groundtruthService";
@@ -32,6 +33,7 @@ import { Capacitor } from "@capacitor/core";
 import { Geolocation } from "@capacitor/geolocation";
 import { translateDOM } from "./translations";
 import { supabase, isSupabaseConfigured } from "./supabaseClient";
+import ExifReader from "exifreader";
 import {
   MapContainer,
   TileLayer,
@@ -68,7 +70,7 @@ const navItems = [
   { id: "Home", label: "Home", icon: Home },
   { id: "Explore map", label: "Explore", icon: Map },
   { id: "Capture report", label: "Report", icon: Plus },
-  { id: "Ask NagrikAI", label: "Ask AI", icon: Sparkles },
+  { id: "GroundTruth AI", label: "GroundTruth", icon: ShieldCheck },
   { id: "Profile", label: "Profile", icon: User }
 ];
 
@@ -210,6 +212,9 @@ function getAqiDetails(aqi) {
 
 function App() {
   const [screen, setScreen] = useState("Splash");
+  const [askAiOpen, setAskAiOpen] = useState(false);
+  const [askAiMounted, setAskAiMounted] = useState(false);
+  const [askAiSessionKey, setAskAiSessionKey] = useState(0);
   const [language, setLanguage] = useState(() => localStorage.getItem("nagrikai-language") || "English");
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
@@ -231,6 +236,8 @@ function App() {
   const [issue, setIssue] = useState("");
   const [description, setDescription] = useState("");
   const [photo, setPhoto] = useState(null);
+  const [photoSource, setPhotoSource] = useState("camera");
+  const [galleryLocationConfirmed, setGalleryLocationConfirmed] = useState(null);
   const [userLocation, setUserLocation] = useState(null);
   const [locationStatus, setLocationStatus] = useState("idle");
   const [locationError, setLocationError] = useState("");
@@ -261,6 +268,10 @@ function App() {
   const [liveReportsStatus, setLiveReportsStatus] = useState("idle");
   const [authoMeter, setAuthoMeter] = useState(null);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [draftEvidencePath, setDraftEvidencePath] = useState(null);
+  const [imageCategoryCheck, setImageCategoryCheck] = useState(null);
+  const [imageCheckStatus, setImageCheckStatus] = useState("idle");
+  const [challengeParentId, setChallengeParentId] = useState(null);
 
   useEffect(() => {
     let mounted = true;
@@ -421,6 +432,12 @@ function App() {
 
   }, [userLocation]);
 
+  const openAskAI = () => {
+    setAskAiMounted(true);
+    setAskAiOpen(true);
+  };
+  const closeAskAI = () => setAskAiOpen(false);
+
   const go = (name) => {
     const publicScreens = ["Splash", "Welcome", "Language", "Login", "OTP verification", "Email verification"];
 
@@ -432,11 +449,29 @@ function App() {
       return;
     }
 
+    if (name === "Ask NagrikAI") {
+      openAskAI();
+      return;
+    }
+
     setScreen(name);
     const nav = navItems.find(n => n.id === name);
     if (nav) setSelectedTab(nav.id);
     window.scrollTo?.(0, 0);
   };
+
+  const goFromAskAI = (name) => {
+    if (name === "Ask NagrikAI") return;
+    closeAskAI();
+    go(name);
+  };
+
+  const returnToAskAI = () => {
+    go("Home");
+    setAskAiSessionKey((key) => key + 1);
+    openAskAI();
+  };
+
   const notify = (msg) => {
     setToast(msg);
     window.clearTimeout(window.__toastTimer);
@@ -526,6 +561,14 @@ function App() {
 
       setUserLocation(location);
       setLocationStatus(location.accuracy > 500 ? "low-accuracy" : "success");
+      if (isSupabaseConfigured) {
+        supabase.rpc("update_citizen_location", {
+          p_lat: location.lat,
+          p_lng: location.lng,
+        }).catch((error) => {
+          console.warn("Could not store last-known citizen location:", error?.message || error);
+        });
+      }
 
       fetch(
         `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${location.lat}&longitude=${location.lng}&localityLanguage=en`
@@ -872,6 +915,8 @@ function App() {
       setEmail("");
       setEmailOtp(["", "", "", "", "", ""]);
       setAccountMode("existing");
+      setAskAiOpen(false);
+      setAskAiMounted(false);
 
       setReportCount(0);
       setIssue("");
@@ -916,6 +961,23 @@ function App() {
       setLiveReportsStatus("error");
     }
   };
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+
+    const channel = supabase
+      .channel("nagrikai-live-reports")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "reports" },
+        () => refreshLiveReports(userLocation)
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [authSession?.user?.id, userLocation?.lat, userLocation?.lng]);
 
   useEffect(() => {
     if (authSession?.user && isSupabaseConfigured) {
@@ -1003,6 +1065,11 @@ function App() {
   const checkNearbyReports = async () => {
     if (duplicateStatus === "loading") return;
 
+    if (photo?.source === "gallery" && galleryLocationConfirmed !== true) {
+      notify("Confirm or adjust the gallery photo location before checking duplicates.");
+      return;
+    }
+
     const draftCheck = validateReportDraft({
       issue,
       description,
@@ -1026,6 +1093,8 @@ function App() {
     setDuplicateReports([]);
     setDuplicateError("");
     setDuplicateStatus("loading");
+    setImageCategoryCheck(null);
+    setImageCheckStatus("loading");
     go("Possible duplicate");
 
     try {
@@ -1035,6 +1104,29 @@ function App() {
       if (authError) throw authError;
       if (!authData?.user) {
         throw new Error("Please sign in before checking nearby reports.");
+      }
+
+      const uploadedPath = draftEvidencePath || await uploadEvidenceFile(photo.file, authData.user.id);
+      if (!draftEvidencePath) setDraftEvidencePath(uploadedPath);
+
+      const categoryCheck = await verifyReportPhotoCategory({
+        photoPath: uploadedPath,
+        category,
+        title: issue.trim(),
+        description: description.trim(),
+      });
+      setImageCategoryCheck(categoryCheck);
+      setImageCheckStatus(
+        !categoryCheck.ok ? "error" : categoryCheck.verified ? "verified" : "rejected"
+      );
+
+      if (!categoryCheck.ok || !categoryCheck.verified) {
+        setDuplicateStatus("error");
+        setDuplicateError(
+          categoryCheck.reason ||
+          "AI could not verify that this image matches the selected issue category."
+        );
+        return;
       }
 
       const { data, error } = await supabase.rpc(
@@ -1052,6 +1144,7 @@ function App() {
       setDuplicateStatus("success");
     } catch (error) {
       console.error("Nearby report lookup failed:", error);
+      setImageCheckStatus((status) => status === "loading" ? "error" : status);
       setDuplicateError(
         error.message || "Nearby reports could not be checked."
       );
@@ -1097,7 +1190,50 @@ function App() {
         throw new Error("Please sign in before submitting a report.");
       }
 
-      uploadedPhotoPath = await uploadEvidenceFile(photo.file, user.id);
+      uploadedPhotoPath = draftEvidencePath || await uploadEvidenceFile(photo.file, user.id);
+
+      if (challengeParentId) {
+        const { data: challengeData, error: challengeError } = await supabase.rpc(
+          "challenge_resolved_report",
+          {
+            p_report_id: challengeParentId,
+            p_title: issue.trim(),
+            p_description: description.trim(),
+            p_category: category,
+            p_photo_path: uploadedPhotoPath,
+            p_photo_source: photoSource,
+            p_gallery_location_confirmed: photoSource === "gallery" ? galleryLocationConfirmed : true,
+            p_location_source: locationSource === "manual_adjusted" ? "manual_adjusted" : "gps",
+            p_lat: activeReportLocation.lat,
+            p_lng: activeReportLocation.lng,
+            p_ai_category_verified: imageCategoryCheck?.verified === true,
+            p_ai_category_confidence: imageCategoryCheck?.confidence ?? null,
+            p_ai_category_reason: imageCategoryCheck?.reason || null,
+          }
+        );
+        if (challengeError) throw challengeError;
+
+        setSubmittedReport({
+          id: challengeParentId,
+          report_number: challengeData?.report_number,
+          title: issue.trim(),
+          status: "Challenged",
+          evidenceAdded: true,
+          aiAssessment: null,
+          aiError: null,
+        });
+        setSelectedReportId(challengeParentId);
+        setChallengeParentId(null);
+        setDraftEvidencePath(null);
+        setImageCategoryCheck(null);
+        setPhoto(null);
+        setIssue("");
+        setDescription("");
+        refreshLiveReports(userLocation);
+        go("Report submitted");
+        notify("Resolution challenge submitted with new evidence.");
+        return;
+      }
 
       const reportPayload = {
         user_id: user.id,
@@ -1116,7 +1252,12 @@ function App() {
         city: activeReportLocationDetails?.city || null,
         state: activeReportLocationDetails?.state || null,
         country: activeReportLocationDetails?.country || null,
-        photo_path: uploadedPhotoPath
+        photo_path: uploadedPhotoPath,
+        photo_source: photoSource,
+        gallery_location_confirmed: photoSource === "gallery" ? galleryLocationConfirmed : true,
+        ai_category_verified: imageCategoryCheck?.verified === true,
+        ai_category_confidence: imageCategoryCheck?.confidence ?? null,
+        ai_category_reason: imageCategoryCheck?.reason || null,
       };
 
       const { data: reportData, error: reportError } = await supabase
@@ -1156,6 +1297,10 @@ function App() {
       setReportLocation(null);
       setReportLocationDetails(null);
       setLocationSource("gps");
+      setPhotoSource("camera");
+      setGalleryLocationConfirmed(null);
+      setDraftEvidencePath(null);
+      setImageCategoryCheck(null);
 
       refreshLiveReports(userLocation);
       supabase
@@ -1217,7 +1362,7 @@ function App() {
         throw new Error("Please sign in before adding evidence.");
       }
 
-      uploadedPhotoPath = await uploadEvidenceFile(photo.file, user.id);
+      uploadedPhotoPath = draftEvidencePath || await uploadEvidenceFile(photo.file, user.id);
 
       const { data: evidenceData, error: evidenceError } = await supabase
         .from("report_evidence")
@@ -1293,6 +1438,15 @@ function App() {
   const openReportInGroundTruth = (reportId) => {
     setSelectedReportId(reportId);
     go("GroundTruth AI");
+  };
+
+  const openResolutionChallenge = (reportId) => {
+    setChallengeParentId(reportId);
+    setIssue("");
+    setDescription("");
+    setPhoto(null);
+    go("Capture report");
+    notify("Challenge mode: attach new evidence and describe why the issue is not resolved.");
   };
 
   const openReportDetails = (reportId) => {
@@ -1384,6 +1538,8 @@ function App() {
             setDescription={setDescription}
             photo={photo}
             setPhoto={setPhoto}
+            setPhotoSource={setPhotoSource}
+            setGalleryLocationConfirmed={setGalleryLocationConfirmed}
             category={category}
             setCategory={setCategory}
             userLocation={userLocation}
@@ -1429,7 +1585,7 @@ function App() {
             duplicateLoading={duplicateStatus === "loading"}
           />
         )}
-        {screen === "Possible duplicate" && <Duplicate go={go} issue={issue} matches={duplicateReports} status={duplicateStatus} error={duplicateError} onRetry={checkNearbyReports} onSubmitNew={submitReport} newLoading={submissionLoading} onAddEvidence={submitEvidence} evidenceLoading={evidenceLoading} />}
+        {screen === "Possible duplicate" && <Duplicate go={go} issue={issue} matches={duplicateReports} status={duplicateStatus} error={duplicateError} imageCategoryCheck={imageCategoryCheck} imageCheckStatus={imageCheckStatus} onRetry={checkNearbyReports} onSubmitNew={submitReport} newLoading={submissionLoading} onAddEvidence={submitEvidence} evidenceLoading={evidenceLoading} />}
         {screen === "Report submitted" && (
           <Submitted
             go={go}
@@ -1455,6 +1611,7 @@ function App() {
             selectedReportId={selectedReportId}
             setSelectedReportId={setSelectedReportId}
             onOpenReportDetails={openReportDetails}
+            onChallengeResolution={openResolutionChallenge}
           />
         )}
         {screen === "Responsible authority" && <Authority go={go} />}
@@ -1478,16 +1635,7 @@ function App() {
             locationStatus={locationStatus}
           />
         )}
-        {screen === "AI conversations" && <AskAIConversations go={go} />}
-        {screen === "Ask NagrikAI" && (
-          <AskAI
-            go={go}
-            query={query}
-            setQuery={setQuery}
-            language={language}
-            setLanguage={setLanguage}
-          />
-        )}
+        {screen === "AI conversations" && <AskAIConversations go={returnToAskAI} />}
         {screen === "Voice assistant" && (
           <Voice
             go={go}
@@ -1530,12 +1678,50 @@ function App() {
       </main>
       {!["Splash", "Welcome", "Language", "Login", "OTP verification", "Email verification"].includes(screen) &&
         <BottomNav selected={selectedTab} nav={nav} />}
+      {!["Splash", "Welcome", "Language", "Login", "OTP verification", "Email verification"].includes(screen) && (
+        <button
+          type="button"
+          className="ask-ai-fab"
+          onClick={() => askAiOpen ? closeAskAI() : openAskAI()}
+          aria-label={askAiOpen ? "Close Ask AI" : "Open Ask AI"}
+          title={askAiOpen ? "Close Ask AI" : "Ask NagrikAI"}
+        >
+          <Sparkles size={18} />
+          <span>Ask AI</span>
+        </button>
+      )}
+      {askAiMounted && (
+        <div
+          className="ask-ai-popup-backdrop"
+          hidden={!askAiOpen}
+          aria-hidden={!askAiOpen}
+          onClick={closeAskAI}
+        >
+          <section
+            className="ask-ai-popup-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Ask NagrikAI assistant"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <AskAI
+              key={askAiSessionKey}
+              go={goFromAskAI}
+              onClose={closeAskAI}
+              query={query}
+              setQuery={setQuery}
+              language={language}
+              setLanguage={setLanguage}
+            />
+          </section>
+        </div>
+      )}
       {toast && <div className="toast"><CheckCircle2 size={15} />{toast}</div>}
     </div>
     <aside className="screen-index">
       <div className="index-head"><div className="brand-mark small">N</div><div><b>NagrikAI</b><small>Prototype navigation</small></div></div>
       <p className="index-caption">ALL 30 SCREENS</p>
-      <div className="index-grid">{screens.map((s, i) => <button key={s} className={screen === s ? "active" : ""} onClick={() => go(s)}><span>{String(i + 1).padStart(2, "0")}</span>{s}</button>)}</div>
+      <div className="index-grid">{screens.map((s, i) => <button key={s} className={screen === s || (s === "Ask NagrikAI" && askAiOpen) ? "active" : ""} onClick={() => go(s)}><span>{String(i + 1).padStart(2, "0")}</span>{s}</button>)}</div>
       <p className="index-note">Use this panel to preview every designed screen. The bottom navigation and in-screen actions are also connected.</p>
     </aside>
   </div>;
@@ -4767,7 +4953,26 @@ function MapFilters({
     </div>
   );
 }
-function CaptureReport({ issue, setIssue, description, setDescription, photo, setPhoto, category, setCategory, userLocation, locationStatus, locationDetails, onLocate, go, notify }) {
+function CaptureReport({
+  issue,
+  setIssue,
+  description,
+  setDescription,
+  photo,
+  setPhoto,
+  setPhotoSource,
+  setGalleryLocationConfirmed,
+  category,
+  setCategory,
+  userLocation,
+  reportLocation,
+  locationStatus,
+  locationDetails,
+  onLocate,
+  onAdjustLocation,
+  go,
+  notify,
+}) {
   const canReview = Boolean(
     issue.trim().length >= 3 &&
     issue.trim().length <= 140 &&
@@ -4780,8 +4985,9 @@ function CaptureReport({ issue, setIssue, description, setDescription, photo, se
   );
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
+  const [locationPickerOpen, setLocationPickerOpen] = useState(false);
 
-  const handlePhotoSelect = (event) => {
+  const handlePhotoSelect = async (event, source = "camera") => {
     const file = event.target.files?.[0];
     event.target.value = "";
 
@@ -4797,12 +5003,47 @@ function CaptureReport({ issue, setIssue, description, setDescription, photo, se
       return;
     }
 
+    setPhotoSource(source);
+    setGalleryLocationConfirmed(source === "gallery" ? null : true);
+
+    if (source === "gallery") {
+      try {
+        const tags = await ExifReader.load(file, { expanded: true });
+        const latitude = tags?.gps?.Latitude;
+        const longitude = tags?.gps?.Longitude;
+        if (Number.isFinite(latitude) && Number.isFinite(longitude) && Number.isFinite(reportLocation?.lat) && Number.isFinite(reportLocation?.lng)) {
+          const distance = haversineMeters(reportLocation.lat, reportLocation.lng, latitude, longitude);
+          const matches = distance !== null && distance <= 250;
+          setGalleryLocationConfirmed(matches);
+          if (!matches) {
+            notify("Gallery photo coordinates do not match the issue location.");
+            setLocationPickerOpen(true);
+          } else {
+            notify("Gallery photo location matches the issue location.");
+          }
+        } else {
+          const matches = window.confirm(
+            "Does this gallery photo show the exact location where the issue is currently reported?"
+          );
+          setGalleryLocationConfirmed(matches);
+          if (!matches) setLocationPickerOpen(true);
+        }
+      } catch {
+        const matches = window.confirm(
+          "Does this gallery photo show the exact location where the issue is currently reported?"
+        );
+        setGalleryLocationConfirmed(matches);
+        if (!matches) setLocationPickerOpen(true);
+      }
+    }
+
     const reader = new FileReader();
 
     reader.onload = () => {
       setPhoto({
         file,
-        previewUrl: reader.result
+        previewUrl: reader.result,
+        source,
       });
       notify("Photo selected successfully");
       go("Review report");
@@ -4854,11 +5095,12 @@ function CaptureReport({ issue, setIssue, description, setDescription, photo, se
         <span>ISSUE DESCRIPTION</span>
         <textarea
           value={description}
-          onChange={e => setDescription(e.target.value)}
-          maxLength={1000}
+          onChange={e => setDescription(e.target.value.slice(0, 200))}
+          maxLength={200}
           rows={4}
-          placeholder="Describe the problem..."
+          placeholder="Describe the problem (maximum 200 characters)..."
         />
+        <small className="muted">{description.length}/200 characters</small>
       </label>
 
       <Label>CATEGORY</Label>
@@ -4896,7 +5138,7 @@ function CaptureReport({ issue, setIssue, description, setDescription, photo, se
         type="file"
         accept="image/*"
         capture="environment"
-        onChange={handlePhotoSelect}
+        onChange={(event) => handlePhotoSelect(event, "camera")}
         style={{ display: "none" }}
       />
 
@@ -4904,7 +5146,7 @@ function CaptureReport({ issue, setIssue, description, setDescription, photo, se
         ref={galleryInputRef}
         type="file"
         accept="image/*"
-        onChange={handlePhotoSelect}
+        onChange={(event) => handlePhotoSelect(event, "gallery")}
         style={{ display: "none" }}
       />
 
@@ -4919,6 +5161,18 @@ function CaptureReport({ issue, setIssue, description, setDescription, photo, se
       <p className="hint">
         Select an actual image from your camera or gallery. Maximum size: 10 MB.
       </p>
+
+      <LocationPicker
+        isOpen={locationPickerOpen}
+        onClose={() => setLocationPickerOpen(false)}
+        initialLocation={reportLocation}
+        gpsLocation={userLocation}
+        onSave={({ lat, lng, details }) => {
+          onAdjustLocation({ lat, lng, details });
+          setGalleryLocationConfirmed(true);
+          setLocationPickerOpen(false);
+        }}
+      />
     </div>
   );
 }
@@ -4946,12 +5200,11 @@ function ReviewReport({ issue, description, photo, category, severity, setSeveri
     <Card>
       <div className="split">
         <b>AI image analysis</b>
-        <span className="muted">Not connected</span>
+        <span className="muted">Runs before submission</span>
       </div>
-      <p>Automated image verification is not available yet.</p>
+      <p>AI will check that the photo shows a civic issue matching the selected category.</p>
       <small className="muted">
-        Please review your photo against the title, description and category.
-        No AI detection or confidence score has been generated.
+        This advisory check runs when you check for nearby duplicates. AI does not prove the report is genuine.
       </small>
     </Card><Card><b>Issue title</b><p>{issue}</p><b>Category</b><p>{category}</p><b>Severity</b><div className="chip-wrap">{["Low", "Medium", "High"].map(x => <button className={`chip ${severity === x ? "on" : ""}`} onClick={() => setSeverity(x)} key={x}>{x}</button>)}</div>{description && <><b>Issue description</b><p>{description}</p></>}</Card><Button onClick={onCheckDuplicates} disabled={duplicateLoading}>{duplicateLoading ? "Checking nearby reports..." : "Check nearby duplicates"}</Button><Button secondary onClick={() => go("Capture report")}>Retake photo</Button></div>;
 }
@@ -4961,6 +5214,8 @@ function Duplicate({
   matches = [],
   status,
   error,
+  imageCategoryCheck,
+  imageCheckStatus,
   onRetry,
   onSubmitNew,
   newLoading,
@@ -4983,14 +5238,38 @@ function Duplicate({
 
       {status === "loading" && (
         <Card>
-          <b>Checking nearby reports...</b>
-          <p className="muted">Searching for active reports in the same category within 50 metres.</p>
+          <b>
+            {imageCheckStatus === "loading"
+              ? "AI is checking your photo..."
+              : imageCheckStatus === "verified"
+                ? "Photo check passed. Searching nearby reports..."
+                : "Checking nearby reports..."}
+          </b>
+          <p className="muted">
+            {imageCheckStatus === "loading"
+              ? "Comparing the visible issue with your selected category and description."
+              : "Searching for active reports in the same category within 50 metres."}
+          </p>
+        </Card>
+      )}
+
+      {imageCheckStatus === "verified" && imageCategoryCheck && (
+        <Card>
+          <b>AI photo/category check passed · advisory</b>
+          {imageCategoryCheck.confidence !== null && (
+            <p>Visual match confidence: {imageCategoryCheck.confidence}%</p>
+          )}
+          <small className="muted">{imageCategoryCheck.reason}</small>
         </Card>
       )}
 
       {status === "error" && (
         <Card>
-          <b>Could not check nearby reports</b>
+          <b>
+            {imageCheckStatus === "rejected" || imageCheckStatus === "error"
+              ? "Photo verification did not pass"
+              : "Could not check nearby reports"}
+          </b>
           <p>{error || "Something went wrong while checking."}</p>
           <Button secondary onClick={onRetry}>Try again</Button>
         </Card>

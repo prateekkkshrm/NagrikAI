@@ -13,6 +13,7 @@ import {
   Plus,
   Play,
   Pause,
+  X,
   Trash2,
   Tag,
   HelpCircle
@@ -408,6 +409,7 @@ function VoiceNotePlayer({ audioUrl, duration = 0, transcript = "", lang = "en" 
 
 export function AskAI({
   go,
+  onClose,
   query = "",
   setQuery,
   language = "English",
@@ -531,22 +533,30 @@ export function AskAI({
     async function loadReports() {
       if (!isSupabaseConfigured) return;
       try {
-        const { data: authData } = await supabase.auth.getUser();
-        if (authData?.user) {
-          const { data } = await supabase
-            .from("reports")
-            .select("id, report_number, title, category, status, locality, created_at")
-            .order("created_at", { ascending: false })
-            .limit(20);
-          if (active && Array.isArray(data)) {
-            setDbReports(data);
-          }
+        const { data } = await supabase
+          .from("reports")
+          .select("id, report_number, title, category, status, groundtruth_status, community_status, locality, latitude, longitude, created_at")
+          .order("created_at", { ascending: false })
+          .limit(100);
+        if (active && Array.isArray(data)) {
+          setDbReports(data);
         }
       } catch (err) {
         console.warn("AskAI reports fetch:", err);
       }
     }
     loadReports();
+
+    if (!isSupabaseConfigured) return;
+    const channel = supabase
+      .channel("ask-ai-live-reports")
+      .on("postgres_changes", { event: "*", schema: "public", table: "reports" }, loadReports)
+      .subscribe();
+
+    return () => {
+      active = false;
+      supabase.removeChannel(channel);
+    };
     return () => { active = false; };
   }, []);
 
@@ -994,8 +1004,12 @@ export function AskAI({
     <div className="page ask-ai-container">
       {/* Top Bar */}
       <div className="topbar">
-        <button className="icon-btn" onClick={() => go("Home")}>
-          <ChevronLeft size={19} />
+        <button
+          className="icon-btn"
+          onClick={() => onClose ? onClose() : go("Home")}
+          aria-label={onClose ? "Close Ask AI" : "Back to home"}
+        >
+          {onClose ? <X size={18} /> : <ChevronLeft size={19} />}
         </button>
         <b>{currentLang === "Hindi" ? "नागरिक एआई" : "Ask NagrikAI"}</b>
         <button

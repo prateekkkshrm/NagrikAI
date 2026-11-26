@@ -20,6 +20,7 @@ import {
   AI_DISCLAIMER,
   COMMUNITY_TARGET_REVIEWS,
   fetchCitizenReportsWithGroundTruth,
+  fetchGroundTruthReportsVerifiedByMe,
   fetchNearbyGroundTruthReports,
   fetchReportGroundTruthDetail,
   formatCoordinates,
@@ -52,25 +53,38 @@ function ScreenHeader({ title, back, right }) {
 export function EvidenceImage({ photoPath, alt = "Civic evidence", maxHeight = "200px" }) {
   const [url, setUrl] = useState(null);
   const [loading, setLoading] = useState(Boolean(photoPath));
+  const [previewError, setPreviewError] = useState("");
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     let active = true;
     if (!photoPath) {
       setUrl(null);
       setLoading(false);
+      setPreviewError("");
       return;
     }
     setLoading(true);
-    getSignedEvidenceUrl(photoPath).then((signed) => {
-      if (active) {
-        setUrl(signed);
-        setLoading(false);
-      }
-    });
+    setUrl(null);
+    setPreviewError("");
+    getSignedEvidenceUrl(photoPath, retryKey > 0)
+      .then((signed) => {
+        if (active) {
+          setUrl(signed);
+          setLoading(false);
+          if (!signed) setPreviewError("Storage did not return a photo preview URL.");
+        }
+      })
+      .catch((error) => {
+        if (active) {
+          setPreviewError(error?.message || "Could not create a secure photo preview.");
+          setLoading(false);
+        }
+      });
     return () => {
       active = false;
     };
-  }, [photoPath]);
+  }, [photoPath, retryKey]);
 
   if (!photoPath) {
     return (
@@ -84,13 +98,27 @@ export function EvidenceImage({ photoPath, alt = "Civic evidence", maxHeight = "
     return <div className="evidence-box">Loading secure evidence photo...</div>;
   }
 
-  if (!url) {
+  if (!url && previewError) {
     return (
       <div className="evidence-box">
-        Evidence file stored privately (preview unavailable)
+        <p>Photo preview could not be loaded.</p>
+        <small className="muted">{previewError}</small>
+        <button
+          type="button"
+          className="btn secondary"
+          style={{ marginTop: "10px" }}
+          onClick={() => {
+            setLoading(true);
+            setRetryKey((key) => key + 1);
+          }}
+        >
+          Retry photo preview
+        </button>
       </div>
     );
   }
+
+  if (!url) return <div className="evidence-box">Preparing secure photo preview...</div>;
 
   return (
     <div className="gt-photo-frame">
@@ -104,6 +132,12 @@ export function EvidenceImage({ photoPath, alt = "Civic evidence", maxHeight = "
           borderRadius: "10px",
           display: "block",
         }}
+        onLoad={() => setLoading(false)}
+        onError={() => {
+          setPreviewError("The secure photo URL expired or the storage bucket denied access.");
+          setLoading(false);
+          setUrl(null);
+        }}
       />
     </div>
   );
@@ -116,12 +150,17 @@ export function GroundTruthScreen({
   selectedReportId,
   setSelectedReportId,
   onOpenReportDetails,
+  onChallengeResolution,
 }) {
   const [viewMode, setViewMode] = useState(selectedReportId ? "detail" : "queue");
+  const [detailReturnMode, setDetailReturnMode] = useState("queue");
   const [queueFilter, setQueueFilter] = useState("needs_review");
   const [nearbyReports, setNearbyReports] = useState([]);
   const [queueStatus, setQueueStatus] = useState("loading");
   const [queueError, setQueueError] = useState("");
+  const [verifiedReports, setVerifiedReports] = useState([]);
+  const [verifiedReportsStatus, setVerifiedReportsStatus] = useState("loading");
+  const [verifiedReportsError, setVerifiedReportsError] = useState("");
 
   const [detailData, setDetailData] = useState(null);
   const [detailStatus, setDetailStatus] = useState("idle");
@@ -152,6 +191,19 @@ export function GroundTruthScreen({
     }
   };
 
+  const loadVerifiedReports = async () => {
+    setVerifiedReportsStatus("loading");
+    setVerifiedReportsError("");
+    try {
+      const rows = await fetchGroundTruthReportsVerifiedByMe();
+      setVerifiedReports(rows);
+      setVerifiedReportsStatus("success");
+    } catch (err) {
+      setVerifiedReportsError(err?.message || "Could not load reports you verified.");
+      setVerifiedReportsStatus("error");
+    }
+  };
+
   const loadDetail = async (reportId) => {
     if (!reportId) return;
     setDetailStatus("loading");
@@ -169,6 +221,10 @@ export function GroundTruthScreen({
   useEffect(() => {
     loadQueue();
   }, [userLocation?.lat, userLocation?.lng]);
+
+  useEffect(() => {
+    loadVerifiedReports();
+  }, []);
 
   useEffect(() => {
     if (selectedReportId) {
@@ -193,7 +249,8 @@ export function GroundTruthScreen({
     return nearbyReports;
   }, [nearbyReports, queueFilter]);
 
-  const handleSelectReport = (reportId) => {
+  const handleSelectReport = (reportId, returnMode = "queue") => {
+    setDetailReturnMode(returnMode);
     setSelectedReportId(reportId);
     setSelectedVote("");
     setVoteComment("");
@@ -243,7 +300,11 @@ export function GroundTruthScreen({
       setSelectedVote("");
       setVoteComment("");
       setVotePhoto(null);
-      await Promise.all([loadDetail(detailData.report.id), loadQueue()]);
+      await Promise.all([
+        loadDetail(detailData.report.id),
+        loadQueue(),
+        loadVerifiedReports(),
+      ]);
     } catch (err) {
       notify(err?.message || "Could not submit your verification.");
     } finally {
@@ -286,7 +347,9 @@ export function GroundTruthScreen({
       <ScreenHeader
         title="GroundTruth AI"
         back={() => {
-          if (viewMode === "detail" && nearbyReports.length > 0) {
+          if (viewMode === "detail" && detailReturnMode === "inspector") {
+            setViewMode("inspector");
+          } else if (viewMode === "detail" && nearbyReports.length > 0) {
             setViewMode("queue");
           } else {
             go("Home");
@@ -296,7 +359,15 @@ export function GroundTruthScreen({
           <button
             type="button"
             className="icon-btn"
-            onClick={() => (viewMode === "detail" && selectedReportId ? loadDetail(selectedReportId) : loadQueue())}
+            onClick={() => {
+              if (viewMode === "detail" && selectedReportId) {
+                loadDetail(selectedReportId);
+              } else if (viewMode === "inspector") {
+                loadVerifiedReports();
+              } else {
+                loadQueue();
+              }
+            }}
             title="Refresh GroundTruth"
           >
             <RefreshCw size={16} />
@@ -320,18 +391,96 @@ export function GroundTruthScreen({
         </button>
         <button
           type="button"
-          className={viewMode === "detail" ? "on" : ""}
+          className={viewMode === "inspector" || viewMode === "detail" && detailReturnMode === "inspector" ? "on" : ""}
           onClick={() => {
-            if (!selectedReportId && nearbyReports[0]?.id) {
-              handleSelectReport(nearbyReports[0].id);
-            } else {
-              setViewMode("detail");
-            }
+            setViewMode("inspector");
+            loadVerifiedReports();
           }}
         >
           Inspector
         </button>
       </div>
+
+      {viewMode === "inspector" && (
+        <>
+          <div className="eyebrow">REPORTS YOU HAVE VERIFIED · {verifiedReports.length}</div>
+
+          {verifiedReportsStatus === "loading" && (
+            <section className="panel">
+              <b>Loading your verification history...</b>
+            </section>
+          )}
+
+          {verifiedReportsStatus === "error" && (
+            <section className="panel">
+              <b className="amber">Unable to load your verified reports</b>
+              <p className="muted">{verifiedReportsError}</p>
+              <button type="button" className="btn secondary" onClick={loadVerifiedReports}>
+                Retry
+              </button>
+            </section>
+          )}
+
+          {verifiedReportsStatus === "success" && verifiedReports.length === 0 && (
+            <section className="panel">
+              <b>You have not verified any reports yet</b>
+              <p className="muted">
+                Reports you confirm or dispute in GroundTruth will appear here.
+              </p>
+              <button type="button" className="btn secondary" onClick={() => setViewMode("queue")}>
+                Browse nearby reports
+              </button>
+            </section>
+          )}
+
+          {verifiedReportsStatus === "success" && verifiedReports.map((report) => {
+            const communityMeta = getCommunityStatusMeta(report);
+            const aiMeta = getAiVerdictMeta(report.latest_assessment, report.ai_status);
+            return (
+              <section
+                key={report.id}
+                className="panel gt-report-card"
+                role="button"
+                tabIndex={0}
+                style={{ cursor: "pointer" }}
+                aria-label={`Open GroundTruth details for report ${report.report_number}: ${report.title}`}
+                onClick={() => handleSelectReport(report.id, "inspector")}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    handleSelectReport(report.id, "inspector");
+                  }
+                }}
+              >
+                <div className="split">
+                  <b>#GN-{report.report_number} · {report.category}</b>
+                  <span className={`gt-pill ${communityMeta.tone}`}>{report.status}</span>
+                </div>
+                <h3 style={{ margin: "6px 0 4px" }}>{report.title}</h3>
+                <p className="muted" style={{ margin: "2px 0" }}>
+                  {[report.locality, report.city].filter(Boolean).join(", ") ||
+                    formatCoordinates(report.latitude, report.longitude)}
+                </p>
+                <div className="gt-dual-row">
+                  <div className="gt-mini-box">
+                    <small className="muted">YOUR VERIFICATION</small>
+                    <b className={report.my_vote === "confirm" ? "green" : "amber"}>
+                      {report.my_vote === "confirm" ? "Confirmed" : "Disputed"}
+                    </b>
+                  </div>
+                  <div className="gt-mini-box">
+                    <small className="muted">GROUNDTRUTH STATUS</small>
+                    <b className={communityMeta.tone}>{communityMeta.label}</b>
+                  </div>
+                </div>
+                <small className="muted">
+                  Verified {formatDateTime(report.my_verified_at)} · {aiMeta.label}
+                </small>
+              </section>
+            );
+          })}
+        </>
+      )}
 
       {viewMode === "queue" && (
         <>
@@ -445,7 +594,7 @@ export function GroundTruthScreen({
                     type="button"
                     className="btn"
                     style={{ margin: 0 }}
-                    onClick={() => handleSelectReport(report.id)}
+                    onClick={() => handleSelectReport(report.id, "queue")}
                   >
                     Inspect evidence & verify
                   </button>
@@ -634,6 +783,16 @@ export function GroundTruthScreen({
                 </div>
 
                 <p className="muted">{communityMeta.description}</p>
+
+                {activeReport.status === "Resolved" && onChallengeResolution && (
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    onClick={() => onChallengeResolution(activeReport.id)}
+                  >
+                    Challenge resolved status
+                  </button>
+                )}
 
                 {communityMeta.isConflicting && (
                   <div className="gt-alert-banner amber">

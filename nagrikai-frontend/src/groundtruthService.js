@@ -88,8 +88,8 @@ export function validateReportDraft({
 
   if (cleanDesc.length < 10) {
     errors.description = `Describe the issue in at least 10 characters (${cleanDesc.length}/10).`;
-  } else if (cleanDesc.length > 1000) {
-    errors.description = "Description must be 1000 characters or fewer.";
+  } else if (cleanDesc.length > 200) {
+    errors.description = `Description must be 200 characters or fewer (${cleanDesc.length}/200).`;
   }
 
   if (!REPORT_CATEGORIES.includes(category)) {
@@ -163,31 +163,34 @@ export async function removeEvidenceFileQuietly(photoPath) {
   }
 }
 
-export async function getSignedEvidenceUrl(photoPath) {
-  if (!photoPath || !isSupabaseConfigured) return null;
+export async function getSignedEvidenceUrl(photoPath, forceRefresh = false) {
+  if (!photoPath) return null;
+  if (!isSupabaseConfigured) {
+    throw new Error("Supabase is not configured.");
+  }
 
   const cached = signedUrlCache.get(photoPath);
-  if (cached && cached.expiresAt > Date.now() + 60_000) {
+  if (!forceRefresh && cached && cached.expiresAt > Date.now() + 60_000) {
     return cached.url;
   }
 
-  try {
-    const { data, error } = await supabase.storage
-      .from("report-evidence")
-      .createSignedUrl(photoPath, 3600);
+  const { data, error } = await supabase.storage
+    .from("report-evidence")
+    .createSignedUrl(photoPath, 3600);
 
-    if (error || !data?.signedUrl) {
-      return null;
-    }
-
-    signedUrlCache.set(photoPath, {
-      url: data.signedUrl,
-      expiresAt: Date.now() + 3600 * 1000,
-    });
-    return data.signedUrl;
-  } catch {
-    return null;
+  if (error) {
+    signedUrlCache.delete(photoPath);
+    throw error;
   }
+  if (!data?.signedUrl) {
+    throw new Error("Storage did not return a signed URL for this photo.");
+  }
+
+  signedUrlCache.set(photoPath, {
+    url: data.signedUrl,
+    expiresAt: Date.now() + 3600 * 1000,
+  });
+  return data.signedUrl;
 }
 
 export async function triggerGroundTruthAssessment({
@@ -233,6 +236,47 @@ export async function triggerGroundTruthAssessment({
       ok: false,
       assessment: null,
       error: err?.message || "AI assessment failed.",
+    };
+  }
+}
+
+export async function verifyReportPhotoCategory({
+  photoPath,
+  category,
+  title,
+  description,
+}) {
+  if (!isSupabaseConfigured || !photoPath) {
+    return {
+      ok: false,
+      verified: false,
+      confidence: null,
+      reason: "Supabase image verification is unavailable.",
+    };
+  }
+
+  try {
+    const { data, error } = await supabase.functions.invoke(
+      "verify-report-photo",
+      {
+        body: { photoPath, category, title, description },
+      }
+    );
+    if (error) throw error;
+
+    return {
+      ok: Boolean(data?.ok),
+      verified: data?.verified === true,
+      confidence: Number.isFinite(data?.confidence) ? data.confidence : null,
+      reason: data?.reason || "The image could not be verified.",
+      raw: data || null,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      verified: false,
+      confidence: null,
+      reason: err?.message || "Image verification is unavailable.",
     };
   }
 }
@@ -392,6 +436,44 @@ export async function fetchCitizenReportsWithGroundTruth() {
   }));
 }
 
+export async function fetchGroundTruthReportsVerifiedByMe() {
+  if (!isSupabaseConfigured) {
+    throw new Error("Supabase configuration missing.");
+  }
+
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError) throw authError;
+  const user = authData?.user;
+  if (!user) throw new Error("Please sign in to view your verification history.");
+
+  const { data: verifications, error: verificationsError } = await supabase
+    .from("groundtruth_verifications")
+    .select("report_id, vote, created_at")
+    .eq("citizen_id", user.id)
+    .order("created_at", { ascending: false });
+
+  if (verificationsError) throw verificationsError;
+  if (!Array.isArray(verifications) || verifications.length === 0) return [];
+
+  const reports = await Promise.all(
+    verifications.map(async (verification) => {
+      const detail = await fetchReportGroundTruthDetail(verification.report_id);
+      if (!detail?.report) {
+        throw new Error(`Could not load report ${verification.report_id} from your verification history.`);
+      }
+
+      return {
+        ...detail.report,
+        latest_assessment: detail.assessments?.[0] || null,
+        my_vote: verification.vote,
+        my_verified_at: verification.created_at,
+      };
+    })
+  );
+
+  return reports;
+}
+
 export function getAiVerdictMeta(assessment, reportAiStatus) {
   const verdict = assessment?.verdict || (reportAiStatus === "failed" || reportAiStatus === "unavailable" ? "assessment_unavailable" : null);
 
@@ -533,5 +615,110 @@ export function getCommunityStatusMeta(report) {
         isConflicting: false,
         isInsufficient: false,
       };
+  }
+}
+
+export async function updateCitizenLocation({ lat, lng }) {
+  if (!isSupabaseConfigured || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+  try {
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData?.user) return;
+    await supabase.rpc("update_citizen_location", {
+      p_lat: lat,
+      p_lng: lng,
+    });
+  } catch {
+    // Graceful no-op if migration hasn't been applied yet
+  }
+}
+
+export async function fetchCitizenNotifications() {
+  if (!isSupabaseConfigured) return [];
+  try {
+    const { data: authData } = await supabase.auth.getUser();
+    const userId = authData?.user?.id;
+    if (!userId) return [];
+
+    const { data, error } = await supabase
+      .from("notifications")
+      .select("id, report_id, notification_type, title, body, distance_m, is_read, created_at")
+      .eq("recipient_user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(30);
+
+    if (error) return [];
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function markNotificationRead(notificationId) {
+  if (!isSupabaseConfigured || !notificationId) return;
+  try {
+    await supabase
+      .from("notifications")
+      .update({ is_read: true })
+      .eq("id", notificationId);
+  } catch {
+    // Ignore
+  }
+}
+
+export async function challengeResolvedReport({
+  parentReportId,
+  title,
+  description,
+  category,
+  photoFile,
+  photoSource = "camera",
+  galleryLocationConfirmed = null,
+  locationSource = "gps",
+  location = null,
+  aiCheck = null,
+}) {
+  if (!isSupabaseConfigured) {
+    throw new Error("Supabase is not configured.");
+  }
+  if (!parentReportId) {
+    throw new Error("Parent report ID is required to challenge resolution.");
+  }
+
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError) throw authError;
+  const user = authData?.user;
+  if (!user) throw new Error("Please sign in to challenge a report.");
+
+  const uploadedPath = await uploadEvidenceFile(photoFile, user.id);
+
+  try {
+    const { data, error } = await supabase.rpc("challenge_resolved_report", {
+      p_report_id: parentReportId,
+      p_title: title?.trim() || "Resolution challenge",
+      p_description: description?.trim() || "",
+      p_category: category || "Other",
+      p_photo_path: uploadedPath,
+      p_photo_source: photoSource,
+      p_gallery_location_confirmed: galleryLocationConfirmed,
+      p_location_source: locationSource,
+      p_lat: Number.isFinite(location?.lat) ? location.lat : null,
+      p_lng: Number.isFinite(location?.lng) ? location.lng : null,
+      p_ai_category_verified: Boolean(aiCheck?.verified),
+      p_ai_category_confidence: Number.isFinite(aiCheck?.confidence) ? aiCheck.confidence : null,
+      p_ai_category_reason: aiCheck?.reason || null,
+    });
+
+    if (error) throw error;
+
+    await triggerGroundTruthAssessment({
+      reportId: parentReportId,
+      evidenceId: data?.evidence_id || null,
+      assessmentType: "repair_check",
+    });
+
+    return data;
+  } catch (err) {
+    await removeEvidenceFileQuietly(uploadedPath);
+    throw err;
   }
 }
