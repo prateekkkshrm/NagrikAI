@@ -50,7 +50,8 @@ import {
   Info, Languages, Layers, LocateFixed, LockKeyhole, Map, MapPin, Menu,
   Mic, MicOff, Moon, Navigation, Plus, RefreshCw, Search, Send, Settings, Shield,
   ShieldCheck, SlidersHorizontal, Sparkles, Sun, Sunrise, Sunset, TrendingUp, User, Users,
-  Volume2, WifiOff, Wind, X, Camera, Image as ImageIcon, MessageCircle, BarChart3
+  Volume2, WifiOff, Wind, X, Camera, Image as ImageIcon, MessageCircle, BarChart3,
+  Phone, Mail, Calendar, Trash2
 } from "lucide-react";
 
 const GREEN = "#28d7a0";
@@ -5062,157 +5063,373 @@ function Profile({go}) {
   const [profile, setProfile] = useState(null);
   const [loadStatus, setLoadStatus] = useState("loading");
   const [loadError, setLoadError] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState(() => {
+    try {
+      return localStorage.getItem("nagrikai_citizen_avatar") || null;
+    } catch {
+      return null;
+    }
+  });
+  const [showPresets, setShowPresets] = useState(false);
+  const [avatarNotice, setAvatarNotice] = useState("");
+  const fileInputRef = useRef(null);
+
+  const CIVIC_PRESETS = [
+    { id: "p1", emoji: "👨‍💼", label: "Citizen" },
+    { id: "p2", emoji: "👩‍💼", label: "Leader" },
+    { id: "p3", emoji: "👷", label: "Engineer" },
+    { id: "p4", emoji: "🧑‍💻", label: "Tech" },
+    { id: "p5", emoji: "🌿", label: "Eco" },
+    { id: "p6", emoji: "🛡️", label: "Guardian" }
+  ];
+
+  const handleImageSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setAvatarNotice("Please select a valid image (PNG, JPG, WebP).");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setAvatarNotice("Image size must be under 5 MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result;
+      if (dataUrl) {
+        setAvatarUrl(dataUrl);
+        try {
+          localStorage.setItem("nagrikai_citizen_avatar", dataUrl);
+        } catch (storageErr) {
+          console.warn("Storage warning:", storageErr);
+        }
+        setShowPresets(false);
+        setAvatarNotice("Profile picture updated!");
+        setTimeout(() => setAvatarNotice(""), 3000);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSelectPreset = (preset) => {
+    const data = `preset:${preset.emoji}`;
+    setAvatarUrl(data);
+    try {
+      localStorage.setItem("nagrikai_citizen_avatar", data);
+    } catch {}
+    setShowPresets(false);
+    setAvatarNotice(`Avatar set to ${preset.label}!`);
+    setTimeout(() => setAvatarNotice(""), 3000);
+  };
+
+  const handleRemovePhoto = () => {
+    setAvatarUrl(null);
+    try {
+      localStorage.removeItem("nagrikai_citizen_avatar");
+    } catch {}
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+    setShowPresets(false);
+    setAvatarNotice("Profile picture removed.");
+    setTimeout(() => setAvatarNotice(""), 3000);
+  };
 
   useEffect(() => {
     let active = true;
 
+    const loadProfile = async () => {
+      if (!isSupabaseConfigured) {
+        if (active) {
+          setProfile(null);
+          setLoadError("Secure profile is unavailable. Check your Supabase configuration.");
+          setLoadStatus("error");
+        }
+        return;
+      }
 
-  
-const loadProfile = async () => {
-  if (!isSupabaseConfigured) {
-    if (active) {
-      setProfile(null);
-      setLoadError("Secure profile is unavailable. Check your Supabase configuration.");
-      setLoadStatus("error");
-    }
-    return;
-  }
+      try {
+        const { data: authData, error: authError } =
+          await supabase.auth.getUser();
 
-  try {
-    const { data: authData, error: authError } =
-      await supabase.auth.getUser();
+        if (authError) throw authError;
 
-    if (authError) throw authError;
+        const user = authData?.user;
 
-    const user = authData?.user;
+        if (!user) {
+          throw new Error("Please sign in to view your profile.");
+        }
 
-    if (!user) {
-      throw new Error("Please sign in to view your profile.");
-    }
+        const { data: citizenData, error: citizenError } = await supabase
+          .from("citizen_profiles")
+          .select("full_name, phone, email, email_verified_at, updated_at")
+          .eq("user_id", user.id)
+          .maybeSingle();
 
-    // Fetch only the authenticated citizen's profile.
-    const { data: citizenData, error: citizenError } = await supabase
-      .from("citizen_profiles")
-      .select("full_name, phone, email, email_verified_at, updated_at")
-      .eq("user_id", user.id)
-      .maybeSingle();
+        if (citizenError) throw citizenError;
 
-    if (citizenError) throw citizenError;
+        if (!citizenData) {
+          throw new Error(
+            "Your citizen profile was not found. Please sign in again."
+          );
+        }
 
-    if (!citizenData) {
-      throw new Error(
-        "Your citizen profile was not found. Please sign in again."
-      );
-    }
+        const { data: reportsData, error: reportsError } = await supabase
+          .from("reports")
+          .select("status")
+          .eq("user_id", user.id);
 
-    // Fetch only this citizen's reports.
-    const { data: reportsData, error: reportsError } = await supabase
-      .from("reports")
-      .select("status")
-      .eq("user_id", user.id);
+        if (reportsError) throw reportsError;
 
-    if (reportsError) throw reportsError;
+        const userReports = Array.isArray(reportsData)
+          ? reportsData
+          : [];
 
-    const userReports = Array.isArray(reportsData)
-      ? reportsData
-      : [];
+        const resolvedCount = userReports.filter(
+          report => report.status === "Resolved"
+        ).length;
 
-    const resolvedCount = userReports.filter(
-      report => report.status === "Resolved"
-    ).length;
+        if (active) {
+          setProfile({
+            fullName: citizenData.full_name,
+            phone: citizenData.phone,
+            email: citizenData.email,
+            joinedAt: user.created_at,
+            reportCount: userReports.length,
+            resolvedCount,
+            openCount: userReports.length - resolvedCount
+          });
 
-    if (active) {
-      setProfile({
-        fullName: citizenData.full_name,
-        phone: citizenData.phone,
-        email: citizenData.email,
-        joinedAt: user.created_at,
-        reportCount: userReports.length,
-        resolvedCount,
-        openCount: userReports.length - resolvedCount
-      });
+          setLoadError("");
+          setLoadStatus("success");
+        }
 
-      setLoadError("");
-      setLoadStatus("success");
-    }
+      } catch (error) {
+        console.error("Profile loading failed:", error);
 
-  } catch (error) {
-    console.error("Profile loading failed:", error);
-
-    if (active) {
-      setProfile(null);
-      setLoadError(error.message || "Could not load your profile.");
-      setLoadStatus("error");
-    }
-  }
-};
-
-
+        if (active) {
+          setProfile(null);
+          setLoadError(error.message || "Could not load your profile.");
+          setLoadStatus("error");
+        }
+      }
+    };
 
     loadProfile();
     return () => { active = false; };
   }, []);
 
   return (
-    <div className="page">
+    <div className="page profile-page-container">
       <StatusBarTitle title="Your civic footprint" back={() => go("Home")} />
 
-      <Card className="profile-card">
-       <div className="avatar">
-        {(profile?.fullName || "N").charAt(0).toUpperCase()}
-       </div>
-       <h2>
-  {profile?.fullName ||
-    (loadStatus === "loading" ? "Loading profile..." : "Profile unavailable")}
-</h2>
+      <Card className="profile-enhanced-card">
+        {/* Profile Picture / Avatar Interface */}
+        <div className="profile-avatar-wrapper">
+          <div
+            className="profile-avatar-interactive"
+            onClick={() => fileInputRef.current?.click()}
+            title="Click to choose a profile picture"
+          >
+            {avatarUrl ? (
+              avatarUrl.startsWith("preset:") ? (
+                <div className="avatar-preset-circle">
+                  <span>{avatarUrl.replace("preset:", "")}</span>
+                </div>
+              ) : (
+                <img
+                  src={avatarUrl}
+                  alt="Citizen Profile"
+                  className="avatar-photo-preview"
+                />
+              )
+            ) : (
+              <div className="avatar-fallback-initial">
+                {(profile?.fullName || "N").charAt(0).toUpperCase()}
+              </div>
+            )}
 
-        {loadStatus === "success" && (
-          <>
-            <p>{profile.phone}</p>
-            <p>{profile.email}</p>
-            <small className="muted">
-              Joined {profile.joinedAt
-                ? new Date(profile.joinedAt).toLocaleDateString("en-IN", {
-                    month: "long",
-                    year: "numeric"
-                  })
-                : "date unavailable"}
-            </small>
-          </>
-        )}
-        {loadStatus === "loading" && <p className="muted">Loading profile...</p>}
-        {loadStatus === "error" && <p className="amber">{loadError}</p>}
+            <button
+              type="button"
+              className="avatar-badge-trigger"
+              onClick={(e) => {
+                e.stopPropagation();
+                fileInputRef.current?.click();
+              }}
+              title="Change profile picture"
+              aria-label="Change profile picture"
+            >
+              <Camera size={14} />
+            </button>
+          </div>
+
+          {/* Hidden File Picker */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={handleImageSelect}
+          />
+
+          {/* Action Controls: Change Photo / Remove / Presets */}
+          <div className="avatar-action-controls">
+            <button
+              type="button"
+              className="avatar-btn avatar-btn-primary"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Camera size={13} />
+              <span>{avatarUrl ? "Change photo" : "Upload photo"}</span>
+            </button>
+
+            {avatarUrl ? (
+              <button
+                type="button"
+                className="avatar-btn avatar-btn-danger"
+                onClick={handleRemovePhoto}
+              >
+                <Trash2 size={13} />
+                <span>Remove</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                className={`avatar-btn avatar-btn-secondary ${showPresets ? "active" : ""}`}
+                onClick={() => setShowPresets(!showPresets)}
+              >
+                <Sparkles size={13} />
+                <span>Civic avatars</span>
+              </button>
+            )}
+          </div>
+
+          {/* Civic Preset Selection Tray */}
+          {showPresets && (
+            <div className="avatar-preset-tray">
+              <span className="preset-tray-title">Choose Civic Avatar</span>
+              <div className="preset-options-grid">
+                {CIVIC_PRESETS.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className="preset-bubble-btn"
+                    onClick={() => handleSelectPreset(p)}
+                  >
+                    <span className="preset-icon">{p.emoji}</span>
+                    <span className="preset-label">{p.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Local Notification Toast */}
+          {avatarNotice && (
+            <div className="profile-toast-message">
+              <CheckCircle2 size={13} />
+              <span>{avatarNotice}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Citizen Profile Details */}
+        <div className="profile-bio-details">
+          <div className="profile-name-heading">
+            <h2>
+              {profile?.fullName ||
+                (loadStatus === "loading" ? "Loading profile..." : "NagrikAI Citizen")}
+            </h2>
+            <span className="citizen-status-pill">
+              <ShieldCheck size={12} />
+              <span>Verified Citizen</span>
+            </span>
+          </div>
+
+          {loadStatus === "success" && (
+            <div className="profile-contact-list">
+              <div className="profile-info-row">
+                <Phone size={12} className="info-icon" />
+                <span>{profile.phone}</span>
+              </div>
+              <div className="profile-info-row">
+                <Mail size={12} className="info-icon" />
+                <span>{profile.email}</span>
+              </div>
+              <div className="profile-info-row">
+                <Calendar size={12} className="info-icon" />
+                <span>
+                  Joined {profile.joinedAt
+                    ? new Date(profile.joinedAt).toLocaleDateString("en-IN", {
+                        month: "long",
+                        year: "numeric"
+                      })
+                    : "October 2026"}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {loadStatus === "loading" && <p className="muted">Loading profile details...</p>}
+          {loadStatus === "error" && <p className="amber">{loadError}</p>}
+        </div>
       </Card>
 
+      {/* Metric Grid with Balanced Spacing */}
       {loadStatus === "success" && (
-        <div className="metric-grid">
-          <Card>
-            <strong>{profile.reportCount}</strong>
-            <small>Reports</small>
-          </Card>
-          <Card>
-            <strong>{profile.resolvedCount}</strong>
-            <small>Resolved</small>
-          </Card>
-          <Card>
-            <strong>{profile.openCount}</strong>
-            <small>Open</small>
-          </Card>
+        <div className="profile-metrics-enhanced">
+          <div className="profile-metric-box">
+            <span className="metric-number">{profile.reportCount}</span>
+            <span className="metric-tag">
+              <FileText size={11} />
+              <span>Reports</span>
+            </span>
+          </div>
+          <div className="profile-metric-box green-accent">
+            <span className="metric-number">{profile.resolvedCount}</span>
+            <span className="metric-tag">
+              <CheckCircle2 size={11} />
+              <span>Resolved</span>
+            </span>
+          </div>
+          <div className="profile-metric-box amber-accent">
+            <span className="metric-number">{profile.openCount}</span>
+            <span className="metric-tag">
+              <Clock3 size={11} />
+              <span>In Progress</span>
+            </span>
+          </div>
         </div>
       )}
 
-      {[
-        ["Your reports", "Report history"],
-        ["AI conversations", "AI conversations"],
-        ["Notifications", "Notifications"],
-        ["Accessibility", "Accessibility"],
-        ["Privacy & settings", "Privacy & settings"],
-        ["Language / English & हिन्दी", "Language"]
-      ].map(([x, y]) => (
-        <button className="menu-row" key={x} onClick={() => go(y)}>
-          {x}<ChevronRight size={16}/>
-        </button>
-      ))}
+      {/* Navigation Menu Rows with Clean Alignment & Icons */}
+      <div className="profile-menu-section">
+        {[
+          { label: "Your reports", screen: "Report history", icon: FileText, badge: profile ? `${profile.reportCount}` : null },
+          { label: "AI conversations", screen: "AI conversations", icon: MessageCircle, badge: "Voice & Text" },
+          { label: "Notifications", screen: "Notifications", icon: Bell },
+          { label: "Accessibility", screen: "Accessibility", icon: Eye },
+          { label: "Privacy & settings", screen: "Privacy & settings", icon: LockKeyhole },
+          { label: "Language / English & हिन्दी", screen: "Language", icon: Languages }
+        ].map(({ label, screen, icon: Icon, badge }) => (
+          <button className="profile-nav-row" key={label} onClick={() => go(screen)}>
+            <div className="profile-nav-left">
+              <div className="profile-nav-icon-box">
+                <Icon size={15} />
+              </div>
+              <span className="profile-nav-label">{label}</span>
+            </div>
+            <div className="profile-nav-right">
+              {badge && <span className="profile-nav-badge">{badge}</span>}
+              <ChevronRight size={15} className="chevron-icon" />
+            </div>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
