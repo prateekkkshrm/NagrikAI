@@ -21,3 +21,9 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/assess-groundtruth/deno.json"
 entrypoint = "./functions/assess-groundtruth/index.ts"
+
+[functions.admin-portal]
+enabled = true
+verify_jwt = false
+import_map = "./functions/admin-portal/deno.json"
+entrypoint = "./functions/admin-portal/index.ts"

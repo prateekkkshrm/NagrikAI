@@ -761,8 +761,10 @@ export function GroundTruthScreen({
               </section>
 
               {/* Verification History */}
+              <AuthorityResolutionCard report={activeReport} />
               <div className="eyebrow">3. VERIFICATION HISTORY ({historyList.length})</div>
-              <section className="panel timeline">
+    
+          <section className="panel timeline">
                 {historyList.length === 0 ? (
                   <p className="muted">No history events recorded yet.</p>
                 ) : (
@@ -806,6 +808,82 @@ export function GroundTruthScreen({
         </>
       )}
     </div>
+  );
+}
+
+function AuthorityResolutionCard({ report, embedded = false }) {
+  if (
+    !report ||
+    (report.status !== "Resolved" &&
+      !report.resolution_photo_path &&
+      !report.resolution_note &&
+      (!report.authenticity_verdict || report.authenticity_verdict === "unverified"))
+  ) {
+    return null;
+  }
+
+  const Wrapper = embedded ? "div" : "section";
+  const wrapperProps = embedded
+    ? {
+        style: {
+          marginBottom: "14px",
+          paddingBottom: "12px",
+          borderBottom: "1px solid rgba(255,255,255,0.08)",
+        },
+      }
+    : { className: "panel" };
+
+  return (
+    <Wrapper {...wrapperProps}>
+      <div className="split">
+        <b>Authority Review &amp; Resolution</b>
+        <span
+          className={`gt-pill ${
+            report.authenticity_verdict === "fake_report"
+              ? "danger"
+              : report.status === "Resolved" || report.authenticity_verdict === "true_report"
+                ? "green"
+                : "amber"
+          }`}
+        >
+          {report.authenticity_verdict === "fake_report"
+            ? "Flagged Fake"
+            : report.status === "Resolved"
+              ? report.resolved_on_time
+                ? "Resolved On Time"
+                : "Resolved"
+              : "Verified Genuine"}
+        </span>
+      </div>
+      {report.resolution_photo_path && (
+        <div style={{ marginTop: "8px", display: "grid", gap: "8px" }}>
+          {report.photo_path && (
+            <div>
+              <small className="muted">BEFORE (YOUR REPORT)</small>
+              <EvidenceImage photoPath={report.photo_path} alt="Before repair" maxHeight="140px" />
+            </div>
+          )}
+          <div>
+            <small className="muted">AFTER REPAIR (AUTHORITY PROOF)</small>
+            <EvidenceImage photoPath={report.resolution_photo_path} alt="Authority repair proof" maxHeight="180px" />
+          </div>
+        </div>
+      )}
+
+      {report.resolution_note && (
+        <p style={{ marginTop: "8px", marginBottom: "4px" }}>{report.resolution_note}</p>
+      )}
+      {report.authenticity_note && (
+        <small className="muted" style={{ display: "block" }}>
+          Verification note: {report.authenticity_note}
+        </small>
+      )}
+      {report.resolved_at && (
+        <small className="muted" style={{ display: "block", marginTop: "4px" }}>
+          Resolved on {formatDateTime(report.resolved_at)}
+        </small>
+      )}
+    </Wrapper>
   );
 }
 
@@ -936,7 +1014,9 @@ export function IssueDetailsScreen({
             </small>
           </section>
 
+
           <section className="panel timeline">
+            <AuthorityResolutionCard report={report} embedded />
             <b>Recent verification timeline</b>
             {history.length === 0 ? (
               <p className="muted">Submitted on {formatDateTime(report.created_at)}</p>
@@ -1126,6 +1206,22 @@ export function MyReportsScreen({
                     </div>
                   </div>
 
+                  {(report.resolution_photo_path || report.resolution_note) && (
+                    <div className="gt-subcard" style={{ marginTop: "8px" }}>
+                      <small className="muted">AUTHORITY REPAIR UPDATE</small>
+                      {report.resolution_note && (
+                        <p style={{ margin: "4px 0" }}>{report.resolution_note}</p>
+                      )}
+                      {report.resolution_photo_path && (
+                        <EvidenceImage
+                          photoPath={report.resolution_photo_path}
+                          alt="After repair proof"
+                          maxHeight="140px"
+                        />
+                      )}
+                    </div>
+                  )}
+
                   <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
                     <button
                       type="button"
@@ -1291,7 +1387,9 @@ export function TrackingScreen({ go, selectedReportId, onOpenGroundTruth }) {
             </div>
           </section>
 
+
           <section className="panel timeline">
+            <AuthorityResolutionCard report={report} embedded />
             <b>Audit & verification log</b>
             {history.length === 0 ? (
               <p className="muted">No events recorded yet.</p>

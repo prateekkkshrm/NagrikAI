@@ -357,7 +357,7 @@ export async function fetchCitizenReportsWithGroundTruth() {
   const { data: reports, error: reportsError } = await supabase
     .from("reports")
     .select(
-      "id, report_number, user_id, citizen_id, title, description, category, severity, status, latitude, longitude, location_source, locality, city, state, photo_path, ai_status, community_status, groundtruth_status, confirm_count, dispute_count, verification_count, evidence_count, created_at, updated_at"
+      "id, report_number, user_id, citizen_id, title, description, category, severity, status, latitude, longitude, location_source, locality, city, state, photo_path, resolution_photo_path, resolution_note, resolved_at, resolved_on_time, authenticity_verdict, authenticity_note, ai_status, community_status, groundtruth_status, confirm_count, dispute_count, verification_count, evidence_count, created_at, updated_at"
     )
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });

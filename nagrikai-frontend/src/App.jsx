@@ -7,6 +7,7 @@ import {
   GroundTruthScreen,
   IssueDetailsScreen,
   MyReportsScreen,
+  EvidenceImage,
   TrackingScreen,
 } from "./GroundTruthScreens";
 import {
@@ -258,6 +259,8 @@ function App() {
   const [selectedReportId, setSelectedReportId] = useState(null);
   const [liveNearbyReports, setLiveNearbyReports] = useState([]);
   const [liveReportsStatus, setLiveReportsStatus] = useState("idle");
+  const [authoMeter, setAuthoMeter] = useState(null);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   useEffect(() => {
     let mounted = true;
@@ -918,6 +921,24 @@ function App() {
     if (authSession?.user && isSupabaseConfigured) {
       refreshLiveReports(userLocation);
       supabase
+        .from("civic_trust_metrics")
+        .select("authority_trust_pct, total_resolved, resolved_on_time_count, resolved_late_count")
+        .eq("id", "greater_noida")
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data) setAuthoMeter(data);
+        })
+        .catch(() => { });
+      supabase
+        .from("user_notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", authSession.user.id)
+        .eq("is_read", false)
+        .then(({ count }) => {
+          if (typeof count === "number") setUnreadNotifications(count);
+        })
+        .catch(() => { });
+      supabase
         .from("reports")
         .select("id", { count: "exact", head: true })
         .eq("user_id", authSession.user.id)
@@ -926,6 +947,50 @@ function App() {
         })
         .catch(() => { });
     }
+  }, [authSession?.user?.id, userLocation?.lat, userLocation?.lng]);
+
+  useEffect(() => {
+    if (!authSession?.user?.id || !isSupabaseConfigured) return;
+
+    const userId = authSession.user.id;
+    const channel = supabase
+      .channel(`nagrikai-sync-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "reports" },
+        () => {
+          refreshLiveReports(userLocation);
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "user_notifications",
+          filter: `user_id=eq.${userId}`,
+        },
+        (payload) => {
+          setUnreadNotifications((c) => c + 1);
+          if (payload?.new?.title) {
+            notify(payload.new.title);
+          }
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "civic_trust_metrics" },
+        (payload) => {
+          if (payload?.new) {
+            setAuthoMeter(payload.new);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [authSession?.user?.id, userLocation?.lat, userLocation?.lng]);
 
   const activeReportLocation = reportLocation || userLocation;
@@ -1093,6 +1158,24 @@ function App() {
       setLocationSource("gps");
 
       refreshLiveReports(userLocation);
+      supabase
+        .from("civic_trust_metrics")
+        .select("authority_trust_pct, total_resolved, resolved_on_time_count, resolved_late_count")
+        .eq("id", "greater_noida")
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data) setAuthoMeter(data);
+        })
+        .catch(() => { });
+      supabase
+        .from("user_notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", authSession.user.id)
+        .eq("is_read", false)
+        .then(({ count }) => {
+          if (typeof count === "number") setUnreadNotifications(count);
+        })
+        .catch(() => { });
       go("Report submitted");
       notify(
         aiResult.ok
@@ -1178,6 +1261,24 @@ function App() {
       setLocationSource("gps");
 
       refreshLiveReports(userLocation);
+      supabase
+        .from("civic_trust_metrics")
+        .select("authority_trust_pct, total_resolved, resolved_on_time_count, resolved_late_count")
+        .eq("id", "greater_noida")
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data) setAuthoMeter(data);
+        })
+        .catch(() => { });
+      supabase
+        .from("user_notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", authSession.user.id)
+        .eq("is_read", false)
+        .then(({ count }) => {
+          if (typeof count === "number") setUnreadNotifications(count);
+        })
+        .catch(() => { });
       go("Report submitted");
       notify("Supporting evidence added to the existing report.");
     } catch (error) {
@@ -1249,6 +1350,8 @@ function App() {
             liveReports={liveNearbyReports}
             liveReportsStatus={liveReportsStatus}
             onRefreshReports={() => refreshLiveReports(userLocation)}
+            authoMeter={authoMeter}
+            unreadNotifications={unreadNotifications}
             onOpenGroundTruth={openReportInGroundTruth}
             onOpenReportDetails={openReportDetails}
           />
@@ -1395,7 +1498,7 @@ function App() {
           />
         )}
         {screen === "Civic navigation" && <NavigationScreen go={go} />}
-        {screen === "City analytics" && <Analytics go={go} />}
+        {screen === "City analytics" && <Analytics go={go} liveReports={liveNearbyReports} authoMeter={authoMeter} />}
         {screen === "Profile" && <Profile go={go} reportCount={reportCount} onLogout={handleLogout} authLoading={authLoading} />}
         {screen === "Report history" && (
           <MyReportsScreen
@@ -1405,7 +1508,20 @@ function App() {
             onSelectTracking={openReportTracking}
           />
         )}
-        {screen === "Notifications" && <Notifications go={go} enabled={notifications} setEnabled={setNotifications} />}
+
+
+
+        {screen === "Notifications" && (
+          <Notifications
+            go={go}
+            enabled={notifications}
+            setEnabled={setNotifications}
+            onOpenReportDetails={openReportDetails}
+            onClearUnread={() => setUnreadNotifications(0)}
+            liveReports={liveNearbyReports}
+          />
+        )}
+
         {screen === "Accessibility" && <Accessibility go={go} values={accessibility} setValues={setAccessibility} />}
         {screen === "Privacy & settings" && <Privacy go={go} privacy={privacy} setPrivacy={setPrivacy} />}
         {screen === "Loading" && <Loading go={go} />}
@@ -1961,6 +2077,8 @@ function HomeScreen({
   liveReports = [],
   liveReportsStatus = "idle",
   onRefreshReports,
+  authoMeter = null,
+  unreadNotifications = 0,
   onOpenGroundTruth,
   onOpenReportDetails
 }) {
@@ -2071,7 +2189,22 @@ function HomeScreen({
           className="icon-btn"
           onClick={() => go("Notifications")}
         >
-          <Bell size={18} />
+          <span style={{ position: "relative", display: "inline-flex" }}>
+            <Bell size={18} />
+            {unreadNotifications > 0 && (
+              <span
+                style={{
+                  position: "absolute",
+                  top: -2,
+                  right: -2,
+                  width: 8,
+                  height: 8,
+                  borderRadius: "999px",
+                  background: "#ff4d6d",
+                }}
+              />
+            )}
+          </span>
         </button>
       </div>
 
@@ -2227,6 +2360,24 @@ function HomeScreen({
 
         <small className="muted">
           Calculated from live civic reports and community corroboration in your area.
+        </small>
+        <div style={{ marginTop: "12px", paddingTop: "10px", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+          <div className="split">
+            <b>AUTHO-METER · AUTHORITY TRUST</b>
+            <span className="gt-pill green">
+              {authoMeter?.authority_trust_pct ?? 78}%
+            </span>
+          </div>
+          <div className="progress" style={{ marginTop: "6px" }}>
+            <i style={{ width: `${authoMeter?.authority_trust_pct ?? 78}%` }} />
+          </div>
+          <small className="muted">
+            {authoMeter
+              ? `${authoMeter.resolved_on_time_count || 0} resolved on time · ${authoMeter.resolved_late_count || 0} delayed`
+              : "Rises when civic issues are resolved within SLA."}
+          </small>
+        </div>
+        <small style={{ display: "none" }}>
         </small>
       </Card>
 
@@ -5679,8 +5830,87 @@ function NavigationScreen({ go }) {
     </div>
   );
 }
-function Analytics({ go }) {
-  return <div className="page"><StatusBarTitle title="City intelligence" back={() => go("Home")} /><Label>GREATER NOIDA / LAST 30 DAYS</Label><div className="metric-grid"><Card><strong>1,284</strong><small>Reports</small></Card><Card><strong>68%</strong><small>Resolved</small></Card><Card><strong>2.8d</strong><small>Median fix</small></Card></div><Card><div className="split"><b>REPORTS BY WEEK</b><span className="green">↓ 18%</span></div><div className="bars">{[68, 55, 74, 62].map((v, i) => <div key={i}><i style={{ height: v + "%" }} /><small>W{i + 1}</small></div>)}</div></Card><Card><b>Where the city needs attention</b><p>1 &nbsp; Pari Chowk <span className="right">86 reports</span></p><p>2 &nbsp; Alpha II <span className="right">54 reports</span></p><p>3 &nbsp; Surajpur <span className="right">39 reports</span></p></Card><p className="hint">Sample data • Not an official civic statistics source.</p></div>;
+
+
+
+
+function Analytics({ go, liveReports = [], authoMeter = null }) {
+  const total = liveReports.length;
+  const resolved = liveReports.filter((r) => r.status === "Resolved").length;
+  const resolvedPct = total > 0 ? Math.round((resolved / total) * 100) : 0;
+  const avgHrs = Number(authoMeter?.avg_resolution_hours || 0);
+
+  const areaCounts = {};
+  liveReports.forEach((r) => {
+    const area = r.locality || r.city || "Other area";
+    areaCounts[area] = (areaCounts[area] || 0) + 1;
+  });
+  const topAreas = Object.entries(areaCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3);
+
+  const categoryCounts = {};
+  liveReports.forEach((r) => {
+    const c = r.category || "Other";
+    categoryCounts[c] = (categoryCounts[c] || 0) + 1;
+  });
+  const catEntries = Object.entries(categoryCounts).slice(0, 4);
+  const maxCat = catEntries.reduce((m, [, v]) => Math.max(m, v), 1);
+
+  return (
+    <div className="page">
+      <StatusBarTitle title="City intelligence" back={() => go("Home")} />
+      <Label>LIVE CIVIC METRICS · SUPABASE</Label>
+      <div className="metric-grid">
+        <Card>
+          <strong>{total}</strong>
+          <small>Nearby Reports</small>
+        </Card>
+        <Card>
+          <strong>{resolvedPct}%</strong>
+          <small>Resolved</small>
+        </Card>
+        <Card>
+          <strong>{avgHrs > 0 ? `${avgHrs}h` : "—"}</strong>
+          <small>Avg Fix</small>
+        </Card>
+      </div>
+      <Card>
+        <div className="split">
+          <b>REPORTS BY CATEGORY</b>
+          <span className="green">Autho-meter {authoMeter?.authority_trust_pct ?? "—"}%</span>
+        </div>
+        {catEntries.length === 0 ? (
+          <p className="muted">No live reports in your area yet.</p>
+        ) : (
+          <div className="bars">
+            {catEntries.map(([cat, count]) => (
+              <div key={cat}>
+                <i style={{ height: `${Math.round((count / maxCat) * 100)}%` }} />
+                <small>{cat.slice(0, 6)}</small>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+      <Card>
+        <b>Where the city needs attention</b>
+        {topAreas.length === 0 ? (
+          <p className="muted">Waiting for live reports to identify hotspots.</p>
+        ) : (
+          topAreas.map(([area, count], idx) => (
+            <p key={area}>
+              {idx + 1} &nbsp; {area} <span className="right">{count} report{count === 1 ? "" : "s"}</span>
+            </p>
+          ))
+        )}
+      </Card>
+      <p className="hint">Live statistics calculated directly from Supabase reports.</p>
+    </div>
+  );
+
+
+
 }
 
 const CIVIC_PRESETS = [
@@ -5785,6 +6015,18 @@ function Profile({ go, onLogout, authLoading }) {
           );
         }
 
+        let trustMeta = { trust_score: 75, true_reports_count: 0, fake_reports_count: 0 };
+        try {
+          const { data: trustRow } = await supabase
+            .from("citizen_profiles")
+            .select("trust_score, true_reports_count, fake_reports_count")
+            .eq("user_id", user.id)
+            .maybeSingle();
+          if (trustRow) trustMeta = trustRow;
+        } catch {
+          // Trust columns optional until admin migration runs.
+        }
+
         const { data: reportsData, error: reportsError } = await supabase
           .from("reports")
           .select("status")
@@ -5808,7 +6050,10 @@ function Profile({ go, onLogout, authLoading }) {
             joinedAt: user.created_at,
             reportCount: userReports.length,
             resolvedCount,
-            openCount: userReports.length - resolvedCount
+            openCount: userReports.length - resolvedCount,
+            trustScore: Number(trustMeta.trust_score ?? 75),
+            trueReportsCount: Number(trustMeta.true_reports_count ?? 0),
+            fakeReportsCount: Number(trustMeta.fake_reports_count ?? 0)
           });
 
           setLoadError("");
@@ -5986,6 +6231,22 @@ function Profile({ go, onLogout, authLoading }) {
         </div>
       </Card>
 
+      {loadStatus === "success" && (
+        <Card className="insight" style={{ marginBottom: "10px" }}>
+          <div className="split">
+            <b>CIVIC REPORTER TRUST %</b>
+            <span className={`gt-pill ${profile.trustScore >= 70 ? "green" : profile.trustScore >= 50 ? "amber" : "danger"}`}>
+              {profile.trustScore}%
+            </span>
+          </div>
+          <div className="progress" style={{ marginTop: "6px" }}>
+            <i style={{ width: `${profile.trustScore}%` }} />
+          </div>
+          <small className="muted">
+            {profile.trueReportsCount} verified true · {profile.fakeReportsCount} flagged fake. True reports raise your trust score.
+          </small>
+        </Card>
+      )}
       {/* Metric Grid with Balanced Spacing */}
       {loadStatus === "success" && (
         <div className="profile-metrics-enhanced">
@@ -6117,8 +6378,152 @@ function History({ go }) {
     </div>
   );
 }
-function Notifications({ go, enabled, setEnabled }) {
-  return <div className="page"><StatusBarTitle title="Notifications" back={() => go("Profile")} /><Label>TODAY</Label>{[["Repair claimed. You decide.", "New repair evidence for #GN-2048. Help verify it on the ground.", "8 min ago"], ["Your city briefing is ready", "A clearer route, rising AQI, and the hazards near you.", "34 min ago"], ["Road hazard near Alpha II", "A new community report is within 500 m of your saved area.", "1 hour ago"]].map(([a, b, c]) => <Card key={a}><b>{a}</b><p>{b}</p><small className="green">{c}</small></Card>)}<Card className="split"><b>Nearby alerts</b><button className={`switch ${enabled ? "yes" : ""}`} onClick={() => setEnabled(!enabled)}><i /></button></Card><p className="hint">Sample notifications • No push service connected</p></div>;
+
+
+
+
+function Notifications({ go, enabled, setEnabled, liveReports = [], onOpenReportDetails, onClearUnread }) {
+  const [items, setItems] = useState([]);
+  const [status, setStatus] = useState("loading");
+
+  useEffect(() => {
+    let active = true;
+    const loadNotifications = async () => {
+      const nextItems = [];
+      if (isSupabaseConfigured) {
+        try {
+          const { data: authData } = await supabase.auth.getUser();
+          const userId = authData?.user?.id;
+          if (userId) {
+            try {
+              const { data: adminNotes } = await supabase
+                .from("user_notifications")
+                .select("id, report_id, type, title, body, resolution_photo_path, trust_delta, is_read, created_at")
+                .eq("user_id", userId)
+                .order("created_at", { ascending: false })
+                .limit(15);
+
+              if (Array.isArray(adminNotes) && adminNotes.length > 0) {
+                adminNotes.forEach((n) => {
+                  nextItems.push({
+                    id: `admin-${n.id}`,
+                    reportId: n.report_id,
+                    title: n.title,
+                    body: n.body,
+                    resolutionPhotoPath: n.resolution_photo_path,
+                    trustDelta: n.trust_delta || 0,
+                    isAdminUpdate: true,
+                    time: n.created_at
+                      ? new Date(n.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })
+                      : "",
+                  });
+                });
+
+                const unreadIds = adminNotes.filter((n) => !n.is_read).map((n) => n.id);
+                if (unreadIds.length > 0) {
+                  supabase
+                    .from("user_notifications")
+                    .update({ is_read: true })
+                    .in("id", unreadIds)
+                    .then(() => onClearUnread?.())
+                    .catch(() => {});
+                }
+              }
+            } catch {
+              // user_notifications table optional before migration
+            }
+            const { data } = await supabase
+              .from("reports")
+              .select("id, report_number, title, status, created_at")
+              .eq("user_id", userId)
+              .order("created_at", { ascending: false })
+              .limit(10);
+            if (Array.isArray(data)) {
+              data.forEach((r) => {
+                nextItems.push({
+                  id: `my-${r.id}`,
+                  title: `Report #GN-${r.report_number}: ${r.status || "Submitted"}`,
+                  body: r.title,
+                  time: r.created_at
+                    ? new Date(r.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })
+                    : "",
+                });
+              });
+            }
+          }
+        } catch {
+          // Ignore notification fetch errors and fall back to empty/nearby list.
+        }
+      }
+
+      if (enabled && Array.isArray(liveReports)) {
+        liveReports.slice(0, 5).forEach((r) => {
+          nextItems.push({
+            id: `near-${r.id}`,
+            title: `Nearby: ${r.category || "Civic issue"}`,
+            body: r.title,
+            time: r.locality || "Nearby",
+          });
+        });
+      }
+
+      if (active) {
+        setItems(nextItems);
+        setStatus("success");
+      }
+    };
+    loadNotifications();
+    return () => { active = false; };
+  }, [enabled, liveReports]);
+
+  return (
+    <div className="page">
+      <StatusBarTitle title="Notifications" back={() => go("Profile")} />
+      <Card className="split">
+        <b>Nearby alerts</b>
+        <button className={`switch ${enabled ? "yes" : ""}`} onClick={() => setEnabled(!enabled)}>
+          <i />
+        </button>
+      </Card>
+      <Label>RECENT ACTIVITY</Label>
+      {status === "loading" && <p className="muted">Loading notifications...</p>}
+      {status === "success" && items.length === 0 && (
+        <Card>
+          <p className="muted">No notifications yet. Activity on your reports and nearby issues will appear here.</p>
+        </Card>
+      )}
+      {status === "success" && items.map((item) => (
+        <Card key={item.id}>
+          <b>{item.title}</b>
+          <p>{item.body}</p>
+          {item.trustDelta ? (
+            <span className={`gt-pill ${item.trustDelta > 0 ? "green" : "danger"}`} style={{ display: "inline-block", marginBottom: "6px" }}>
+              {item.trustDelta > 0 ? `+${item.trustDelta}% Civic Trust` : `${item.trustDelta}% Civic Trust`}
+            </span>
+          ) : null}
+          {item.resolutionPhotoPath && (
+            <div style={{ margin: "8px 0" }}>
+              <small className="muted">AUTHORITY REPAIR PHOTO</small>
+              <EvidenceImage photoPath={item.resolutionPhotoPath} alt="Resolution proof" maxHeight="160px" />
+            </div>
+          )}
+          <div className="split" style={{ marginTop: "6px" }}>
+            {item.time ? <small className="green">{item.time}</small> : <span />}
+            {item.reportId && onOpenReportDetails && (
+              <button
+                type="button"
+                className="chip"
+                onClick={() => onOpenReportDetails(item.reportId)}
+              >
+                View issue
+              </button>
+            )}
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+
 }
 function Accessibility({ go, values, setValues }) {
   const rows = [["text", "Larger text", "Adjust device's preferred text scale."], ["motion", "Reduce motion", "Keep transitions and animations light."], ["voice", "Voice guidance", "Read civic summaries and key actions aloud."], ["contrast", "High-contrast labels", "Increase contrast on colour indicators."]];
