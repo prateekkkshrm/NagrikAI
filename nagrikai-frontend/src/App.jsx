@@ -71,75 +71,124 @@ const navItems = [
   { id: "Profile", label: "Profile", icon: User }
 ];
 
-function calculateCpcbAqi(hourly) {
-  if (!hourly?.time) return null;
-
-  const pastIndexes = hourly.time
-    .map((time, index) => ({
-      index,
-      timestamp: new Date(time).getTime()
-    }))
-    .filter(item => Number.isFinite(item.timestamp) && item.timestamp <= Date.now())
-    .slice(-24)
-    .map(item => item.index);
-
-  if (pastIndexes.length < 16) return null;
+function calculateCpcbAqi(airQualityOrHourly) {
+  if (!airQualityOrHourly) return null;
+  const hourly = airQualityOrHourly.hourly ? airQualityOrHourly.hourly : airQualityOrHourly;
+  const current = airQualityOrHourly.current ? airQualityOrHourly.current : (airQualityOrHourly.pm2_5 !== undefined ? airQualityOrHourly : null);
 
   const pollutantBreakpoints = {
-    pm2_5: [[0, 30, 0, 50], [30, 60, 50, 100], [60, 90, 100, 200], [90, 120, 200, 300], [120, 250, 300, 400]],
-    pm10: [[0, 50, 0, 50], [50, 100, 50, 100], [100, 250, 100, 200], [250, 350, 200, 300], [350, 430, 300, 400]],
-    nitrogen_dioxide: [[0, 40, 0, 50], [40, 80, 50, 100], [80, 180, 100, 200], [180, 280, 200, 300], [280, 400, 300, 400]],
-    sulphur_dioxide: [[0, 40, 0, 50], [40, 80, 50, 100], [80, 380, 100, 200], [380, 800, 200, 300], [800, 1600, 300, 400]]
+    pm2_5: [
+      [0, 30, 0, 50],
+      [30, 60, 51, 100],
+      [60, 90, 101, 200],
+      [90, 120, 201, 300],
+      [120, 250, 301, 400],
+      [250, 500, 401, 500]
+    ],
+    pm10: [
+      [0, 50, 0, 50],
+      [50, 100, 51, 100],
+      [100, 250, 101, 200],
+      [250, 350, 201, 300],
+      [350, 430, 301, 400],
+      [430, 600, 401, 500]
+    ],
+    nitrogen_dioxide: [
+      [0, 40, 0, 50],
+      [40, 80, 51, 100],
+      [80, 180, 101, 200],
+      [180, 280, 201, 300],
+      [280, 400, 301, 400],
+      [400, 600, 401, 500]
+    ],
+    sulphur_dioxide: [
+      [0, 40, 0, 50],
+      [40, 80, 51, 100],
+      [80, 380, 101, 200],
+      [380, 800, 201, 300],
+      [800, 1600, 301, 400],
+      [1600, 2400, 401, 500]
+    ]
   };
 
   const averages = {};
   const subIndices = {};
 
+  let validIndexes = [];
+  if (Array.isArray(hourly?.time) && hourly.time.length > 0) {
+    const now = Date.now();
+    const parsed = hourly.time.map((time, index) => {
+      const ts = new Date(time.includes("Z") || time.includes("+") ? time : time + ":00Z").getTime();
+      return { index, ts: Number.isFinite(ts) ? ts : new Date(time).getTime() };
+    });
+
+    const past = parsed.filter(item => Number.isFinite(item.ts) && item.ts <= now + 3600000);
+    if (past.length > 0) {
+      validIndexes = past.slice(-24).map(item => item.index);
+    } else {
+      validIndexes = parsed.slice(0, 24).map(item => item.index);
+    }
+  }
+
   Object.keys(pollutantBreakpoints).forEach(pollutant => {
-    const values = hourly[pollutant];
-    if (!Array.isArray(values)) return;
+    const values = hourly?.[pollutant];
+    let avg = null;
 
-    const samples = pastIndexes
-      .map(index => values[index])
-      .filter(value => typeof value === "number" && Number.isFinite(value));
-
-    if (samples.length < 16) return;
-
-    const average = samples.reduce((sum, value) => sum + value, 0) / samples.length;
-    averages[pollutant] = average;
-
-    const ranges = pollutantBreakpoints[pollutant];
-    if (average > ranges[ranges.length - 1][1]) {
-      subIndices[pollutant] = 401;
-      return;
+    if (Array.isArray(values) && validIndexes.length > 0) {
+      const samples = validIndexes
+        .map(i => values[i])
+        .filter(v => typeof v === "number" && Number.isFinite(v));
+      if (samples.length > 0) {
+        avg = samples.reduce((s, v) => s + v, 0) / samples.length;
+      }
     }
 
-    for (const [cLow, cHigh, iLow, iHigh] of ranges) {
-      if (average <= cHigh) {
-        subIndices[pollutant] = Math.round(((iHigh - iLow) / (cHigh - cLow)) * (average - cLow) + iLow);
-        break;
+    if (avg === null && current && typeof current[pollutant] === "number" && Number.isFinite(current[pollutant])) {
+      avg = current[pollutant];
+    }
+
+    if (typeof avg === "number" && Number.isFinite(avg)) {
+      averages[pollutant] = avg;
+      const ranges = pollutantBreakpoints[pollutant];
+      const maxRange = ranges[ranges.length - 1];
+      if (avg >= maxRange[1]) {
+        subIndices[pollutant] = 500;
+      } else {
+        for (const [cLow, cHigh, iLow, iHigh] of ranges) {
+          if (avg <= cHigh) {
+            subIndices[pollutant] = Math.round(
+              ((iHigh - iLow) / (cHigh - cLow)) * (avg - cLow) + iLow
+            );
+            break;
+          }
+        }
       }
     }
   });
 
   const validPollutants = Object.keys(subIndices);
-  const hasParticulateMatter =
-    validPollutants.includes("pm2_5") || validPollutants.includes("pm10");
-
-  if (validPollutants.length < 3 || !hasParticulateMatter) {
-    return null;
+  if (validPollutants.length > 0) {
+    const worstPollutant = validPollutants.reduce((worst, pollutant) =>
+      subIndices[pollutant] > subIndices[worst] ? pollutant : worst
+    );
+    return {
+      value: subIndices[worstPollutant],
+      pollutant: worstPollutant,
+      averages,
+      subIndices
+    };
   }
 
-  const worstPollutant = validPollutants.reduce((worst, pollutant) =>
-    subIndices[pollutant] > subIndices[worst] ? pollutant : worst
-  );
+  if (current?.us_aqi && Number.isFinite(current.us_aqi)) {
+    return {
+      value: Math.round(current.us_aqi),
+      pollutant: "us_aqi",
+      averages,
+      subIndices
+    };
+  }
 
-  return {
-    value: subIndices[worstPollutant],
-    pollutant: worstPollutant,
-    averages,
-    subIndices
-  };
+  return null;
 }
 
 function getAqiDetails(aqi) {
@@ -309,7 +358,7 @@ function App() {
             { signal: controller.signal }
           ),
           fetch(
-            `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${userLocation.lat}&longitude=${userLocation.lng}&hourly=pm2_5,pm10,nitrogen_dioxide,sulphur_dioxide,ozone,carbon_monoxide&past_days=1&forecast_days=1&timezone=auto`,
+            `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${userLocation.lat}&longitude=${userLocation.lng}&current=european_aqi,us_aqi,pm10,pm2_5,nitrogen_dioxide,sulphur_dioxide,ozone,carbon_monoxide&hourly=pm2_5,pm10,nitrogen_dioxide,sulphur_dioxide,ozone,carbon_monoxide&past_days=1&forecast_days=1&timezone=auto`,
             { signal: controller.signal }
           )
         ]);
@@ -1356,14 +1405,7 @@ function App() {
             onSelectTracking={openReportTracking}
           />
         )}
-        {screen === "Notifications" && (
-          <Notifications
-            go={go}
-            enabled={notifications}
-            setEnabled={setNotifications}
-            liveReports={liveNearbyReports}
-          />
-        )}
+        {screen === "Notifications" && <Notifications go={go} enabled={notifications} setEnabled={setNotifications} />}
         {screen === "Accessibility" && <Accessibility go={go} values={accessibility} setValues={setAccessibility} />}
         {screen === "Privacy & settings" && <Privacy go={go} privacy={privacy} setPrivacy={setPrivacy} />}
         {screen === "Loading" && <Loading go={go} />}
@@ -1939,7 +1981,7 @@ function HomeScreen({
   const currentWeather = weatherData?.current;
   const dailyWeather = weatherData?.daily;
   const hourlyWeather = weatherData?.hourly;
-  const aqiResult = calculateCpcbAqi(weatherData?.air_quality?.hourly);
+  const aqiResult = calculateCpcbAqi(weatherData?.air_quality);
   const aqiVal = aqiResult?.value ?? null;
   const aqiInfo = getAqiDetails(aqiVal);
   const needsVerificationCount = liveReports.filter(r =>
@@ -2137,7 +2179,7 @@ function HomeScreen({
                 </b>
 
                 <small>
-                  {hourlyWeather.precipitation_probability?.[index] ?? "—"}%
+                  {hourlyWeather.precipitation_probability?.[index] ?? "—"}%
                   rain
                 </small>
               </div>
@@ -2180,7 +2222,7 @@ function HomeScreen({
         </div>
 
         <strong className="score">
-          {cityHealthScore !== null ? `${cityHealthScore} / 100` : "—"}
+          {cityHealthScore !== null ? `${cityHealthScore} / 100` : "—"}
         </strong>
 
         <small className="muted">
@@ -3506,7 +3548,7 @@ return (
           <p>Latitude: {userLocation.lat.toFixed(6)}</p>
           <p>Longitude: {userLocation.lng.toFixed(6)}</p>
           <small className="muted">
-            GPS accuracy: Ã‚Â±{Math.round(userLocation.accuracy)} metres
+            GPS accuracy: ±{Math.round(userLocation.accuracy)} metres
           </small>
         </>
       )}
@@ -3974,7 +4016,7 @@ return (
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
 
-            {/* Ã¢â€â‚¬Ã¢â€â‚¬ Distance boundary circle Ã¢â€â‚¬Ã¢â€â‚¬ */}
+            {/* ── Distance boundary circle ── */}
             {position && (
               <Circle
                 center={position}
@@ -3989,7 +4031,7 @@ return (
               />
             )}
 
-            {/* Ã¢â€â‚¬Ã¢â€â‚¬ Intelligence Layer: Traffic flow Ã¢â€â‚¬Ã¢â€â‚¬ */}
+            {/* ── Intelligence Layer: Traffic flow ── */}
             {position && intelligenceLayers.includes("Traffic flow") && (
               <>
                 <Polyline
@@ -4025,7 +4067,7 @@ return (
               </>
             )}
 
-            {/* Ã¢â€â‚¬Ã¢â€â‚¬ Intelligence Layer: Issue density heatmap Ã¢â€â‚¬Ã¢â€â‚¬ */}
+            {/* ── Intelligence Layer: Issue density heatmap ── */}
             {position && intelligenceLayers.includes("Issue density heatmap") && (
               <>
                 <Circle
@@ -4045,7 +4087,7 @@ return (
               </>
             )}
 
-            {/* Ã¢â€â‚¬Ã¢â€â‚¬ Intelligence Layer: Predicted waterlogging Ã¢â€â‚¬Ã¢â€â‚¬ */}
+            {/* ── Intelligence Layer: Predicted waterlogging ── */}
             {position && intelligenceLayers.includes("Predicted waterlogging") && (
               <Circle
                 center={[position[0] + 0.0065, position[1] - 0.0055]}
@@ -4056,7 +4098,7 @@ return (
               </Circle>
             )}
 
-            {/* Ã¢â€â‚¬Ã¢â€â‚¬ Filtered civic issues markers Ã¢â€â‚¬Ã¢â€â‚¬ */}
+            {/* ── Filtered civic issues markers ── */}
             {visibleIssues.map(issue => {
               const COLOR_MAP = {
                 "Potholes & damaged roads": "#ff5252",
@@ -4203,7 +4245,7 @@ return (
       Filtered by distance radius ({distance}) and active categories.
     </p>
 
-    {/* Ã¢â€â‚¬Ã¢â€â‚¬ Map legend & active layers Ã¢â€â‚¬Ã¢â€â‚¬ */}
+    {/* ── Map legend & active layers ── */}
     <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "10px" }}>
       <div style={{
         display: "flex",
@@ -4240,14 +4282,14 @@ return (
               border: "1px solid #16a9e0",
               color: "#75c8ff"
             }}>
-              Ã¢Å“Â¦ {layer}
+              ✦ {layer}
             </span>
           ))}
         </div>
       )}
     </div>
 
-    {/* Ã¢â€â‚¬Ã¢â€â‚¬ Inline filter panel Ã¢â€â‚¬Ã¢â€â‚¬ */}
+    {/* ── Inline filter panel ── */}
     <div style={{ marginTop: "12px" }}>
       <button
         onClick={() => setFiltersOpen(v => !v)}
@@ -4311,7 +4353,7 @@ return (
               >
                 <span>{opt}</span>
                 <span style={{ color: filters.includes(opt) ? "#28d7a0" : "#5a7080" }}>
-                  {filters.includes(opt) ? "Ã¢Å“â€œ" : "Ã¢â€”â€¹"}
+                  {filters.includes(opt) ? <Check size={16} /> : <span style={{ opacity: 0.35 }}>○</span>}
                 </span>
               </button>
             ))}
@@ -4538,7 +4580,7 @@ function MapFilters({
         {opts.map(x => (
           <button className="filter-option" onClick={() => toggleFilter(x)} key={x}>
             <span>{x}</span>
-            <span className={filters.includes(x) ? "green" : ""}>{filters.includes(x) ? "\u2713" : "\u25CB"}</span>
+            <span className={filters.includes(x) ? "green" : ""}>{filters.includes(x) ? <Check size={16} /> : <span style={{ opacity: 0.35 }}>○</span>}</span>
           </button>
         ))}
       </Card>
@@ -4695,11 +4737,7 @@ function CaptureReport({ issue, setIssue, description, setDescription, photo, se
           </b>
           <MapPin size={16} />
         </div>
-        <small className="muted">
-          {reportLocation && Number.isFinite(Number(reportLocation.lat)) && Number.isFinite(Number(reportLocation.lng))
-            ? `${Number(reportLocation.lat).toFixed(4)}, ${Number(reportLocation.lng).toFixed(4)} • GPS coordinates`
-            : "Waiting for GPS coordinates"}
-        </small>
+        <small className="muted">28.4744, 77.5040 • GPS is approximate</small>
       </Card>
 
       <input
@@ -4905,19 +4943,7 @@ function GroundTruth({ go }) {
   return <div className="page"><StatusBarTitle title="GroundTruth AI" back={() => go("Issue details")} /><Label>EVIDENCE, NOT JUST A STATUS CHANGE</Label><h1>Was it actually fixed?</h1><p className="muted">Compare the claim with what's on the ground.</p><Card><small className="muted">BEFORE · 12 NOV</small><div className="evidence-box">Road damage detected</div><small className="muted">AFTER · 14 NOV</small><div className="evidence-box after">Latest image submitted</div><h3 className="green">Likely repaired · 88%</h3><p>Demo assessment only. Surface appears filled, but location match and durability need human review.</p><span className="severity">Pending</span></Card><Button onClick={() => go("Capture report")}>Request on-site verification</Button><Button secondary onClick={() => go("Issue details")}>Back to issue</Button><p className="hint">AI cannot certify a repair. A field review is required.</p></div>;
 }
 function Authority({ go }) {
-  return (
-    <div className="page">
-      <StatusBarTitle title="Who owns this issue?" back={() => go("Explore map")} />
-      <Label>JURISDICTION HANDOFF</Label>
-      <h1>The right desk.<br />Not another dead end.</h1>
-      <Card>
-        <b>Authority routing</b>
-        <p className="muted">Direct municipal portal integration is not yet connected. Use your report's GPS coordinates and evidence from Report history to submit to your local civic authority.</p>
-      </Card>
-      <Button onClick={() => go("Report history")}>Open report history</Button>
-      <Button secondary onClick={() => go("Explore map")}>Back to map</Button>
-    </div>
-  );
+  return <div className="page"><StatusBarTitle title="Who owns this issue?" back={() => go("Issue details")} /><Label>JURISDICTION MATCH • DEMO</Label><h1>The right desk.<br />Not another dead end.</h1><Card><h3>Greater Noida Industrial Development Authority</h3><b className="green">Civil / Road Maintenance</b><p>Suggested for Alpha II internal roads based on location.</p><small className="muted">Jurisdiction confidence: 92% • Verify before submission</small></Card><Card><b>Ready to send</b><p>✓ GPS location & issue summary</p><p>✓ Timestamped photographic evidence</p><p>✓ Community confirmations</p></Card><Button onClick={() => go("Complaint handoff")}>Prepare official complaint</Button><Button secondary onClick={() => go("Reference tracking")}>Track an existing reference</Button></div>;
 }
 function Handoff({ go, notify }) {
   return <div className="page"><StatusBarTitle title="Official complaint" back={() => go("Responsible authority")} /><Label>REVIEW BEFORE YOU HAND OFF</Label><Card><b className="green">To: GNIDA · Road Maintenance</b><h3>Subject: Road damage near Alpha II market</h3><p>A deep pothole on Alpha II main road poses a risk to two-wheelers. Please inspect and repair the road surface.</p><small className="muted">Location: 28.4744, 77.5040</small></Card><Card><b>Share evidence and issue location</b><p className="muted">You will be redirected to the official portal for personal details, if required.</p></Card>
@@ -4927,7 +4953,7 @@ function Handoff({ go, notify }) {
     >
       Official handoff unavailable
     </Button>
-    <Button secondary onClick={() => go("Responsible authority")}>Back to authority</Button><p className="hint">SIMULATED NOTIFICATION Ã¢â‚¬â€ no government portal connection.</p></div>;
+    <Button secondary onClick={() => go("Responsible authority")}>Back to authority</Button><p className="hint">SIMULATED NOTIFICATION — no government portal connection.</p></div>;
 }
 function Tracking({ go }) {
   return (
@@ -5045,7 +5071,7 @@ function Weather({
   };
 
   const getUvRating = (uv) => {
-    if (typeof uv !== "number") return "—";
+    if (typeof uv !== "number") return "—";
     const rounded = Math.round(uv);
     if (uv <= 2) return `${rounded} (Low)`;
     if (uv <= 5) return `${rounded} (Mod)`;
@@ -5055,122 +5081,11 @@ function Weather({
   };
 
 
-  const calculateCpcbAqi = (hourly) => {
-    if (!hourly?.time) return null;
-
-    // Use the latest 24 elapsed hours, not forecast hours.
-    const pastIndexes = hourly.time
-      .map((time, index) => ({
-        index,
-        timestamp: new Date(time).getTime()
-      }))
-      .filter(item =>
-        Number.isFinite(item.timestamp) &&
-        item.timestamp <= Date.now()
-      )
-      .slice(-24)
-      .map(item => item.index);
-
-    if (pastIndexes.length < 16) return null;
-
-    const pollutantBreakpoints = {
-      pm2_5: [
-        [0, 30, 0, 50],
-        [30, 60, 50, 100],
-        [60, 90, 100, 200],
-        [90, 120, 200, 300],
-        [120, 250, 300, 400]
-      ],
-      pm10: [
-        [0, 50, 0, 50],
-        [50, 100, 50, 100],
-        [100, 250, 100, 200],
-        [250, 350, 200, 300],
-        [350, 430, 300, 400]
-      ],
-      nitrogen_dioxide: [
-        [0, 40, 0, 50],
-        [40, 80, 50, 100],
-        [80, 180, 100, 200],
-        [180, 280, 200, 300],
-        [280, 400, 300, 400]
-      ],
-      sulphur_dioxide: [
-        [0, 40, 0, 50],
-        [40, 80, 50, 100],
-        [80, 380, 100, 200],
-        [380, 800, 200, 300],
-        [800, 1600, 300, 400]
-      ]
-    };
-
-    const averages = {};
-    const subIndices = {};
-
-    Object.keys(pollutantBreakpoints).forEach(pollutant => {
-      const values = hourly[pollutant];
-
-      if (!Array.isArray(values)) return;
-
-      const samples = pastIndexes
-        .map(index => values[index])
-        .filter(value =>
-          typeof value === "number" &&
-          Number.isFinite(value)
-        );
-
-      if (samples.length < 16) return;
-
-      const average =
-        samples.reduce((sum, value) => sum + value, 0) /
-        samples.length;
-
-      averages[pollutant] = average;
-
-      const ranges = pollutantBreakpoints[pollutant];
-
-      if (average > ranges[ranges.length - 1][1]) {
-        subIndices[pollutant] = 401;
-        return;
-      }
-
-      for (const [cLow, cHigh, iLow, iHigh] of ranges) {
-        if (average <= cHigh) {
-          subIndices[pollutant] = Math.round(
-            ((iHigh - iLow) / (cHigh - cLow)) *
-            (average - cLow) + iLow
-          );
-          break;
-        }
-      }
-    });
-
-    const validPollutants = Object.keys(subIndices);
-    const hasParticulateMatter =
-      validPollutants.includes("pm2_5") ||
-      validPollutants.includes("pm10");
-
-    if (validPollutants.length < 3 || !hasParticulateMatter) {
-      return null;
-    }
-
-    const worstPollutant = validPollutants.reduce((worst, pollutant) =>
-      subIndices[pollutant] > subIndices[worst]
-        ? pollutant
-        : worst
-    );
-
-    return {
-      value: subIndices[worstPollutant],
-      pollutant: worstPollutant,
-      averages,
-      subIndices
-    };
-  };
+  // CPCB AQI calculation inherited from top-level calculateCpcbAqi
 
 
   const formatSunTime = (timeStr) => {
-    if (!timeStr) return "—";
+    if (!timeStr) return "—";
     const [datePart, timePart] = timeStr.split("T");
     if (!timePart) return timeStr;
     const [yr, mo, dy] = datePart.split("-").map(Number);
@@ -5240,7 +5155,7 @@ function Weather({
     });
   };
 
-  const aqiResult = calculateCpcbAqi(airQuality?.hourly);
+  const aqiResult = calculateCpcbAqi(airQuality);
   const aqiVal = aqiResult?.value ?? null;
 
   const getAqiDetails = (aqi) => {
@@ -5466,7 +5381,7 @@ function Weather({
                     {typeof rainProb === "number" && rainProb > 0 ? (
                       <span className="rain-val">{rainProb}%</span>
                     ) : (
-                      <small style={{ color: "#5a6e7c" }}>—</small>
+                      <small style={{ color: "#5a6e7c" }}>—</small>
                     )}
                   </div>
                 );
@@ -5555,7 +5470,7 @@ function Weather({
 
             <div className="aqi-val-row">
               <span className="aqi-number" style={{ color: aqiInfo.color }}>
-                {aqiVal === null ? "—" : aqiVal}
+                {aqiVal === null ? "—" : aqiVal}
               </span>
               <small className="muted">AQI · {aqiInfo.label}</small>
             </div>
@@ -5571,14 +5486,14 @@ function Weather({
               <span>
                 <b>PM2.5:</b>{" "}
                 {typeof aqiResult?.averages?.pm2_5 === "number"
-                  ? `${Math.round(aqiResult.averages.pm2_5)} Ã‚Âµg/mÃ‚Â³`
+                  ? `${Math.round(aqiResult.averages.pm2_5)} µg/m³`
                   : "Unavailable"}
               </span>
 
               <span>
                 <b>PM10:</b>{" "}
                 {typeof aqiResult?.averages?.pm10 === "number"
-                  ? `${Math.round(aqiResult.averages.pm10)} Ã‚Âµg/mÃ‚Â³`
+                  ? `${Math.round(aqiResult.averages.pm10)} µg/m³`
                   : "Unavailable"}
               </span>
             </div>
@@ -5662,7 +5577,7 @@ function Weather({
                   </small>
                   {rainChance > 15 && (
                     <span style={{ fontSize: "9px", color: "#70c8ff", fontWeight: "600" }}>
-            ●
+                      💧 {rainChance}%
                     </span>
                   )}
                 </div>
@@ -5697,245 +5612,135 @@ function Weather({
 }
 
 function LegacyAskAI({ go, query, setQuery }) {
-  return <div className="page"><StatusBarTitle title="Ask NagrikAI" back={() => go("Home")} /><Label>ÃƒÂ¢Ã…â€œÃ‚Â¦ CITY-AWARE AI</Label><div className="chat-bubble user">How should I get to Pari Chowk today?</div><Card><b className="green">Skip the jam. Keep the morning.</b><p>From Alpha II, take the Knowledge Park route, add 8 min but avoids the reported pothole and slow traffic near Pari Chowk.</p><p>Pari Chowk is auctioning for a parking lot. Let's skip the role.</p><small className="muted">Based on 2 reports • Sample traffic data</small></Card><Button onClick={() => go("Civic navigation")}>Show safer route</Button><Button secondary onClick={() => go("Weather & air")}>What is the air quality like?</Button><div className="chat-input"><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Ask about your city..." /><button onClick={() => { setQuery(""); }}><Send size={17} /></button></div><p className="hint">AI responses are simulated in this frontend prototype.</p></div>;
-  return <div className="page"><StatusBarTitle title="Ask NagrikAI" back={() => go("Home")} /><Label>✦ CITY-AWARE AI</Label><Card><p className="muted">Use the main Ask NagrikAI assistant for live civic answers.</p></Card><Button onClick={() => go("Ask NagrikAI")}>Open Ask NagrikAI</Button></div>;
+  return <div className="page"><StatusBarTitle title="Ask NagrikAI" back={() => go("Home")} /><Label>✦ CITY-AWARE AI</Label><div className="chat-bubble user">How should I get to Pari Chowk today?</div><Card><b className="green">Skip the jam. Keep the morning.</b><p>From Alpha II, take the Knowledge Park route, add 8 min but avoids the reported pothole and slow traffic near Pari Chowk.</p><p>Pari Chowk is auctioning for a parking lot. Let's skip the role.</p><small className="muted">Based on 2 reports • Sample traffic data</small></Card><Button onClick={() => go("Civic navigation")}>Show safer route</Button><Button secondary onClick={() => go("Weather & air")}>What is the air quality like?</Button><div className="chat-input"><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Ask about your city..." /><button onClick={() => { setQuery(""); }}><Send size={17} /></button></div><p className="hint">AI responses are simulated in this frontend prototype.</p></div>;
 }
 function LegacyVoice({ recording, setRecording, go }) {
-  return <div className="page"><StatusBarTitle title="Speak your city" back={() => go("Ask NagrikAI")} /><Label>VOICE MODE • ENGLISH / हिन्दी</Label><h1>Go ahead.<br />I'm listening.</h1><button className={`voice-orb ${recording ? "recording" : ""}`} onClick={() => setRecording(!recording)}><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /></button><p className="green center">{recording ? "● Recording — tap to stop" : "● Ready"}</p><Button onClick={() => go("Civic navigation")}>Open Civic navigation</Button><Button secondary onClick={() => setRecording(false)}>{recording ? "Stop recording" : "Cancel recording"}</Button></div>;
+  return <div className="page"><StatusBarTitle title="Speak your city" back={() => go("Ask NagrikAI")} /><Label>VOICE MODE • ENGLISH / हिन्दी</Label><h1>Go ahead.<br />I'm listening.</h1><button className={`voice-orb ${recording ? "recording" : ""}`} onClick={() => setRecording(!recording)}><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /></button><p className="green center">{recording ? "• Recording — tap to stop" : "• Ready to review · 00:04"}</p><Card><b>TRANSCRIPT</b><p>“Alpha II se Pari Chowk jaane ka safer route batao.”</p></Card><Button onClick={() => go("Civic navigation")}>Use this question</Button><Button secondary onClick={() => setRecording(false)}>{recording ? "Stop recording" : "Cancel recording"}</Button><p className="hint">Microphone permission is not requested in this demo. Connect Web Speech API for live voice.</p></div>;
 }
-function NavigationScreen({ go, userLocation, locationDetails, liveReports = [], onLocate }) {
-  const [destinationInput, setDestinationInput] = useState("");
-  const [routeStatus, setRouteStatus] = useState("idle");
-  const [routeError, setRouteError] = useState("");
-  const [routes, setRoutes] = useState([]);
-  const [destLabel, setDestLabel] = useState("");
-
-  const originLabel = useMemo(() => {
-    const parts = [locationDetails?.locality, locationDetails?.city, locationDetails?.state]
-      .filter((value, index, all) => value && all.indexOf(value) === index);
-    if (parts.length > 0) return parts.join(", ");
-    if (userLocation?.lat && userLocation?.lng) {
-      return `${Number(userLocation.lat).toFixed(4)}, ${Number(userLocation.lng).toFixed(4)}`;
-    }
-    return "Current location not detected";
-  }, [locationDetails, userLocation]);
-
-  const nearbyHazards = useMemo(() => {
-    if (!Array.isArray(liveReports)) return [];
-    return liveReports
-      .filter(r => r.status !== "Resolved")
-      .slice(0, 5);
-  }, [liveReports]);
-
-  const handleFindRoute = async (e) => {
-    e.preventDefault();
-    const queryText = destinationInput.trim();
-    if (!queryText) return;
-    if (!userLocation?.lat || !userLocation?.lng) {
-      setRouteError("Enable location first so we can route from your current position.");
-      setRouteStatus("error");
-      return;
-    }
-
-    setRouteStatus("loading");
-    setRouteError("");
-    try {
-      const geoRes = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryText)}`
-      );
-      if (!geoRes.ok) throw new Error("Could not look up destination.");
-      const geoData = await geoRes.json();
-      if (!Array.isArray(geoData) || geoData.length === 0) {
-        throw new Error("Destination not found. Try a more specific place name.");
-      }
-
-      const targetLat = Number(geoData[0].lat);
-      const targetLng = Number(geoData[0].lon);
-      setDestLabel(geoData[0].display_name?.split(",").slice(0, 2).join(", ") || queryText);
-
-      const osrmRes = await fetch(
-        `https://router.project-osrm.org/route/v1/driving/${userLocation.lng},${userLocation.lat};${targetLng},${targetLat}?overview=false&alternatives=true`
-      );
-      if (!osrmRes.ok) throw new Error("Routing service unavailable.");
-      const osrmData = await osrmRes.json();
-      const fetchedRoutes = Array.isArray(osrmData?.routes) ? osrmData.routes : [];
-      if (fetchedRoutes.length === 0) {
-        throw new Error("No drivable route found to this destination.");
-      }
-
-      setRoutes(
-        fetchedRoutes.map((r, idx) => ({
-          id: idx,
-          distanceKm: (Number(r.distance || 0) / 1000).toFixed(1),
-          durationMin: Math.max(1, Math.round(Number(r.duration || 0) / 60)),
-        }))
-      );
-      setRouteStatus("success");
-    } catch (err) {
-      setRoutes([]);
-      setRouteError(err.message || "Could not calculate route.");
-      setRouteStatus("error");
-    }
-  };
-
+function NavigationScreen({ go }) {
   return (
     <div className="page">
       <StatusBarTitle title="Safer ways forward" back={() => go("Explore map")} />
+
       <Card>
-        <small className="muted">FROM</small>
-        <div className="split" style={{ marginTop: 4 }}>
-          <b>{originLabel}</b>
-          {!userLocation && (
-            <button type="button" className="chip active" onClick={onLocate}>
-              Detect GPS
-            </button>
-          )}
-        </div>
+        <small className="muted">FROM &nbsp; Alpha II market</small>
+        <b>TO &nbsp; Pari Chowk metro station</b>
       </Card>
 
-      <form onSubmit={handleFindRoute} style={{ display: "flex", gap: 8, margin: "10px 0" }}>
-        <input
-          value={destinationInput}
-          onChange={(e) => setDestinationInput(e.target.value)}
-          placeholder="Enter destination..."
-          style={{ flex: 1 }}
-        />
-        <Button type="submit" disabled={routeStatus === "loading" || !destinationInput.trim()}>
-          {routeStatus === "loading" ? "Routing..." : "Route"}
-        </Button>
-      </form>
+      {/* Map preview — tapping opens the full Explore Map */}
+      <button
+        type="button"
+        onClick={() => go("Explore map")}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: "100%",
+          height: "160px",
+          borderRadius: "12px",
+          border: "1px solid #25333e",
+          background: "linear-gradient(135deg, #0d1d2b 0%, #102236 60%, #0d2030 100%)",
+          cursor: "pointer",
+          margin: "12px 0",
+          position: "relative",
+          overflow: "hidden"
+        }}
+        aria-label="Open full map"
+      >
+        <div style={{
+          position: "absolute", inset: 0,
+          background: "radial-gradient(ellipse at 40% 60%, rgba(40,215,160,0.08) 0%, transparent 70%)"
+        }} />
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px", zIndex: 1 }}>
+          <MapPin size={28} color="#28d7a0" />
+          <span style={{ color: "#28d7a0", fontSize: "13px", fontWeight: 700 }}>View on Map</span>
+          <span style={{ color: "#6b8898", fontSize: "11px" }}>Tap to open full Explore Map</span>
+        </div>
+      </button>
 
-      {routeStatus === "error" && (
-        <Card>
-          <p className="amber">{routeError}</p>
-        </Card>
-      )}
+      <Card>
+        <div className="split">
+          <b>Via Knowledge Park • 4.6 km</b>
+          <b className="green">12 min</b>
+        </div>
+        <p className="muted">Avoids 1 pothole &amp; a slow-traffic segment</p>
+      </Card>
 
-      {routeStatus === "success" && routes.length > 0 && (
-        <>
-          <Label>ROUTES TO {destLabel.toUpperCase()}</Label>
-          {routes.map((r, idx) => (
-            <Card key={r.id}>
-              <div className="split">
-                <b>{idx === 0 ? "Recommended route" : `Alternative ${idx}`} • {r.distanceKm} km</b>
-                <b className={idx === 0 ? "green" : "amber"}>{r.durationMin} min</b>
-              </div>
-            </Card>
-          ))}
-        </>
-      )}
+      <Card>
+        <div className="split">
+          <b>Shortest · Alpha II road</b>
+          <span className="amber">18 min</span>
+        </div>
+        <p className="muted">3.0 km • 1 reported road hazard</p>
+      </Card>
 
-      <Label>ACTIVE NEARBY HAZARDS ({nearbyHazards.length})</Label>
-      {nearbyHazards.length === 0 ? (
-        <Card>
-          <p className="muted">No active civic hazards reported nearby.</p>
-        </Card>
-      ) : (
-        nearbyHazards.map((h) => (
-          <Card key={h.id}>
-            <div className="split">
-              <b>{h.title}</b>
-              <span className={h.severity === "High" ? "amber" : "muted"}>{h.severity || "Medium"}</span>
-            </div>
-            <small className="muted">{h.category}{h.locality ? ` • ${h.locality}` : ""}</small>
-          </Card>
-        ))
-      )}
-
-      <Button onClick={() => go("Explore map")}>Open live map</Button>
+      <Button onClick={() => go("Explore map")}>View hazards on route</Button>
+      <p className="hint">Routes and travel times are illustrative. Not for live navigation.</p>
     </div>
   );
 }
 function Analytics({ go }) {
-  return <div className="page"><StatusBarTitle title="City intelligence" back={() => go("Home")} /><Label>GREATER NOIDA / LAST 30 DAYS</Label><div className="metric-grid"><Card><strong>1,284</strong><small>Reports</small></Card><Card><strong>68%</strong><small>Resolved</small></Card><Card><strong>2.8d</strong><small>Median fix</small></Card></div><Card><div className="split"><b>REPORTS BY WEEK</b><span className="green">Ã¢Ë†â€™18%</span></div><div className="bars">{[68, 55, 74, 62].map((v, i) => <div key={i}><i style={{ height: v + "%" }} /><small>W{i + 1}</small></div>)}</div></Card><Card><b>Where the city needs attention</b><p>1 &nbsp; Pari Chowk <span className="right">86 reports</span></p><p>2 &nbsp; Alpha II <span className="right">54 reports</span></p><p>3 &nbsp; Surajpur <span className="right">39 reports</span></p></Card><p className="hint">Sample data • Not an official civic statistics source.</p></div>;
+  return <div className="page"><StatusBarTitle title="City intelligence" back={() => go("Home")} /><Label>GREATER NOIDA / LAST 30 DAYS</Label><div className="metric-grid"><Card><strong>1,284</strong><small>Reports</small></Card><Card><strong>68%</strong><small>Resolved</small></Card><Card><strong>2.8d</strong><small>Median fix</small></Card></div><Card><div className="split"><b>REPORTS BY WEEK</b><span className="green">↓ 18%</span></div><div className="bars">{[68, 55, 74, 62].map((v, i) => <div key={i}><i style={{ height: v + "%" }} /><small>W{i + 1}</small></div>)}</div></Card><Card><b>Where the city needs attention</b><p>1 &nbsp; Pari Chowk <span className="right">86 reports</span></p><p>2 &nbsp; Alpha II <span className="right">54 reports</span></p><p>3 &nbsp; Surajpur <span className="right">39 reports</span></p></Card><p className="hint">Sample data • Not an official civic statistics source.</p></div>;
 }
+
+const CIVIC_PRESETS = [
+  { id: "shield", emoji: "🛡️", label: "Guardian" },
+  { id: "tree", emoji: "🌳", label: "Eco Citizen" },
+  { id: "road", emoji: "🛣️", label: "Road Watcher" },
+  { id: "water", emoji: "💧", label: "Water Watch" },
+  { id: "light", emoji: "💡", label: "Lightkeeper" },
+  { id: "star", emoji: "⭐", label: "City Star" },
+  { id: "leaf", emoji: "🍃", label: "Green Voice" },
+  { id: "bell", emoji: "🔔", label: "Alert Civic" },
+];
 
 function Profile({ go, onLogout, authLoading }) {
   const [profile, setProfile] = useState(null);
   const [loadStatus, setLoadStatus] = useState("loading");
   const [loadError, setLoadError] = useState("");
-  const [avatarUrl, setAvatarUrl] = useState(() => {
-    try {
-      return localStorage.getItem(PROFILE_AVATAR_STORAGE_KEY) || "";
-    } catch {
-      return "";
-    }
-  });
+
+  // Avatar / profile picture state
+  const [avatarUrl, setAvatarUrl] = useState(null);
   const [showPresets, setShowPresets] = useState(false);
   const [avatarNotice, setAvatarNotice] = useState("");
   const fileInputRef = useRef(null);
-  const noticeTimerRef = useRef(null);
 
-  const showAvatarNotice = (message) => {
-    setAvatarNotice(message);
-    if (noticeTimerRef.current) {
-      clearTimeout(noticeTimerRef.current);
-    }
-    noticeTimerRef.current = setTimeout(() => {
-      setAvatarNotice("");
-    }, 3000);
-  };
-
-  useEffect(() => {
-    return () => {
-      if (noticeTimerRef.current) {
-        clearTimeout(noticeTimerRef.current);
-      }
-    };
-  }, []);
-
-  const persistAvatar = (value) => {
-    try {
-      if (value) {
-        localStorage.setItem(PROFILE_AVATAR_STORAGE_KEY, value);
-      } else {
-        localStorage.removeItem(PROFILE_AVATAR_STORAGE_KEY);
-      }
-    } catch {
-      // Ignore storage quota or access errors.
-    }
+  const showNotice = (msg) => {
+    setAvatarNotice(msg);
+    setTimeout(() => setAvatarNotice(""), 3000);
   };
 
   const handleImageSelect = (e) => {
     const file = e.target.files?.[0];
-    e.target.value = "";
     if (!file) return;
-
     if (!file.type.startsWith("image/")) {
-      showAvatarNotice("Please select a valid image file.");
+      showNotice("Please select a valid image file.");
       return;
     }
-
     if (file.size > 5 * 1024 * 1024) {
-      showAvatarNotice("Image must be under 5 MB.");
+      showNotice("Image must be smaller than 5 MB.");
       return;
     }
-
     const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : "";
-      if (!result) return;
-      setAvatarUrl(result);
-      persistAvatar(result);
+    reader.onload = (ev) => {
+      setAvatarUrl(ev.target.result);
       setShowPresets(false);
-      showAvatarNotice("Profile photo updated.");
+      showNotice("Profile photo updated!");
     };
     reader.readAsDataURL(file);
+    // Reset so same file can be re-selected
+    e.target.value = "";
   };
 
   const handleRemovePhoto = () => {
-    setAvatarUrl("");
-    persistAvatar("");
-    setShowPresets(false);
-    showAvatarNotice("Profile photo removed.");
+    setAvatarUrl(null);
+    showNotice("Profile photo removed.");
   };
 
   const handleSelectPreset = (preset) => {
-    const value = `preset:${preset.emoji}`;
-    setAvatarUrl(value);
-    persistAvatar(value);
+    setAvatarUrl(`preset:${preset.emoji}`);
     setShowPresets(false);
-    showAvatarNotice(`Selected ${preset.label} avatar.`);
+    showNotice(`Civic avatar "${preset.label}" selected!`);
   };
 
   useEffect(() => {
@@ -6220,11 +6025,6 @@ function Profile({ go, onLogout, authLoading }) {
           {x}<ChevronRight size={16} />
         </button>
       ))}
-      <div style={{ marginTop: 24 }}>
-        <Button secondary onClick={onLogout} disabled={authLoading}>
-          {authLoading ? "Logging out..." : "Log out"}
-        </Button>
-      </div>
     </div>
   );
 }
@@ -6317,104 +6117,24 @@ function History({ go }) {
     </div>
   );
 }
-function Notifications({ go, enabled, setEnabled, liveReports = [] }) {
-  const [items, setItems] = useState([]);
-  const [status, setStatus] = useState("loading");
-
-  useEffect(() => {
-    let active = true;
-    const loadNotifications = async () => {
-      const nextItems = [];
-      if (isSupabaseConfigured) {
-        try {
-          const { data: authData } = await supabase.auth.getUser();
-          const userId = authData?.user?.id;
-          if (userId) {
-            const { data } = await supabase
-              .from("reports")
-              .select("id, report_number, title, status, created_at")
-              .eq("user_id", userId)
-              .order("created_at", { ascending: false })
-              .limit(10);
-            if (Array.isArray(data)) {
-              data.forEach((r) => {
-                nextItems.push({
-                  id: `my-${r.id}`,
-                  title: `Report #GN-${r.report_number}: ${r.status || "Submitted"}`,
-                  body: r.title,
-                  time: r.created_at
-                    ? new Date(r.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })
-                    : "",
-                });
-              });
-            }
-          }
-        } catch {
-          // Ignore notification fetch errors and fall back to empty/nearby list.
-        }
-      }
-
-      if (enabled && Array.isArray(liveReports)) {
-        liveReports.slice(0, 5).forEach((r) => {
-          nextItems.push({
-            id: `near-${r.id}`,
-            title: `Nearby: ${r.category || "Civic issue"}`,
-            body: r.title,
-            time: r.locality || "Nearby",
-          });
-        });
-      }
-
-      if (active) {
-        setItems(nextItems);
-        setStatus("success");
-      }
-    };
-    loadNotifications();
-    return () => { active = false; };
-  }, [enabled, liveReports]);
-
-  return (
-    <div className="page">
-      <StatusBarTitle title="Notifications" back={() => go("Profile")} />
-      <Card className="split">
-        <b>Nearby alerts</b>
-        <button className={`switch ${enabled ? "yes" : ""}`} onClick={() => setEnabled(!enabled)}>
-          <i />
-        </button>
-      </Card>
-      <Label>RECENT ACTIVITY</Label>
-      {status === "loading" && <p className="muted">Loading notifications...</p>}
-      {status === "success" && items.length === 0 && (
-        <Card>
-          <p className="muted">No notifications yet. Activity on your reports and nearby issues will appear here.</p>
-        </Card>
-      )}
-      {status === "success" && items.map((item) => (
-        <Card key={item.id}>
-          <b>{item.title}</b>
-          <p>{item.body}</p>
-          {item.time && <small className="green">{item.time}</small>}
-        </Card>
-      ))}
-    </div>
-  );
+function Notifications({ go, enabled, setEnabled }) {
+  return <div className="page"><StatusBarTitle title="Notifications" back={() => go("Profile")} /><Label>TODAY</Label>{[["Repair claimed. You decide.", "New repair evidence for #GN-2048. Help verify it on the ground.", "8 min ago"], ["Your city briefing is ready", "A clearer route, rising AQI, and the hazards near you.", "34 min ago"], ["Road hazard near Alpha II", "A new community report is within 500 m of your saved area.", "1 hour ago"]].map(([a, b, c]) => <Card key={a}><b>{a}</b><p>{b}</p><small className="green">{c}</small></Card>)}<Card className="split"><b>Nearby alerts</b><button className={`switch ${enabled ? "yes" : ""}`} onClick={() => setEnabled(!enabled)}><i /></button></Card><p className="hint">Sample notifications • No push service connected</p></div>;
 }
 function Accessibility({ go, values, setValues }) {
   const rows = [["text", "Larger text", "Adjust device's preferred text scale."], ["motion", "Reduce motion", "Keep transitions and animations light."], ["voice", "Voice guidance", "Read civic summaries and key actions aloud."], ["contrast", "High-contrast labels", "Increase contrast on colour indicators."]];
-  return <div className="page"><StatusBarTitle title="Made for everyone" back={() => go("Profile")} /><h1>Comfort is not optional.</h1><p className="muted">Tune the interface to how you see, hear and move.</p>{rows.map(([id, title, desc]) => <Card key={id}><div className="split"><b>{title}</b><button className={`switch ${values[id] ? "yes" : ""}`} onClick={() => setValues(v => ({ ...v, [id]: !v[id] }))}><i /></button></div><small className="muted">{desc}</small></Card>)}</div>;
+  return <div className="page"><StatusBarTitle title="Made for everyone" back={() => go("Profile")} /><h1>Comfort is not optional.</h1><p className="muted">Tune the interface to how you see, hear and move.</p>{rows.map(([id, title, desc]) => <Card key={id}><div className="split"><b>{title}</b><button className={`switch ${values[id] ? "yes" : ""}`} onClick={() => setValues(v => ({ ...v, [id]: !v[id] }))}><i /></button></div><small className="muted">{desc}</small></Card>)}<Card><b>Road hazard ahead</b><p className="amber">High severity · 240 m away</p><small className="muted">Preview of an accessible alert card</small></Card></div>;
 }
 function Privacy({ go, privacy, setPrivacy }) {
-  return <div className="page"><StatusBarTitle title="Privacy & settings" back={() => go("Profile")} /><Label>YOUR DATA, YOUR CALL</Label><Card><div className="split"><b>Precise location</b><button className={`switch ${privacy ? "yes" : ""}`} onClick={() => setPrivacy(!privacy)}><i /></button></div><p className="muted">Only while capturing a report or requesting a route.</p></Card><Card><div className="split"><b>Anonymous public reports</b><span className="green">On</span></div><p className="muted">Hide your name from the community.</p></Card><Card><div className="split"><b>Personalised AI suggestions</b><span className="muted">Off</span></div><p className="muted">Use saved areas and preferences, not private messages.</p></Card>{["Language / English & \u0939\u093F\u0928\u094D\u0926\u0940", "Accessibility"].map(x => <button className="menu-row" key={x} onClick={() => go(x === "Accessibility" ? x : "Language")}>{x}<ChevronRight size={16} /></button>)}</div>;
+  return <div className="page"><StatusBarTitle title="Privacy & settings" back={() => go("Profile")} /><Label>YOUR DATA, YOUR CALL</Label><Card><div className="split"><b>Precise location</b><button className={`switch ${privacy ? "yes" : ""}`} onClick={() => setPrivacy(!privacy)}><i /></button></div><p className="muted">Only while capturing a report or requesting a route.</p></Card><Card><div className="split"><b>Anonymous public reports</b><span className="green">On</span></div><p className="muted">Hide your name from the community.</p></Card><Card><div className="split"><b>Personalised AI suggestions</b><span className="muted">Off</span></div><p className="muted">Use saved areas and preferences, not private messages.</p></Card>{["Language / English & \u0939\u093F\u0928\u094D\u0926\u0940", "Accessibility", "Preview offline recovery"].map(x => <button className="menu-row" key={x} onClick={() => go(x === "Accessibility" ? x : "Language")}>{x}<ChevronRight size={16} /></button>)}<p className="hint">Prototype only. No real personal data is collected or transmitted.</p></div>;
 }
 function Loading({ go }) {
-  return <div className="page"><StatusBarTitle title="Syncing your city" back={() => go("Home")} /><Label>GETTING THE LATEST CITY SNAPSHOT</Label>{[1, 2, 3].map(x => <Card key={x}><div className="skeleton long" /><div className="skeleton short" /><div className="skeleton medium" /></Card>)}<h3 className="green center">Connecting the dots...</h3><p className="muted center">Loading live reports, weather, and nearby conditions.</p><Button onClick={() => go("Home")}>Continue to Home</Button></div>;
+  return <div className="page"><StatusBarTitle title="Syncing your city" back={() => go("Home")} /><Label>GETTING THE LATEST CITY SNAPSHOT</Label>{[1, 2, 3].map(x => <Card key={x}><div className="skeleton long" /><div className="skeleton short" /><div className="skeleton medium" /></Card>)}<h3 className="green center">Connecting the dots...</h3><p className="muted center">Reports, weather and road conditions.<br />Sample data for this prototype.</p><Button onClick={() => go("Home")}>Continue to Home</Button></div>;
 }
 function Empty({ go }) {
   return <div className="page"><StatusBarTitle title="Your reports" back={() => go("Report history")} /><div className="empty-state"><FileText size={34} /><h2>No reports. Yet.</h2><p>A safer street can start with one well-documented report.</p></div><Button onClick={() => go("Capture report")}>Make your first report</Button><Button secondary onClick={() => go("Explore map")}>Explore issues near you</Button><Card><b>A useful report takes a minute.</b><p className="muted">Add a clear photo, confirm the location, and let AI help with the details.</p></Card></div>;
 }
 function Offline({ go }) {
-  return <div className="page"><StatusBarTitle title="You're offline" back={() => go("Home")} /><div className="offline-icon"><WifiOff size={34} /></div><h1>Signal lost.<br />Your voice isn't.</h1><p className="muted">Couldn't refresh your city feed. Check your connection and try again.</p><Button onClick={() => go("Loading")}>Try again</Button><Button secondary onClick={() => go("Home")}>Return Home</Button></div>;
+  return <div className="page"><StatusBarTitle title="You're offline" back={() => go("Home")} /><div className="offline-icon"><WifiOff size={34} /></div><h1>Signal lost.<br />Your voice isn't.</h1><p className="muted">I couldn't refresh your city feed. Check your connection and try again.</p><Card><b className="green">Last saved snapshot: 09:20 IST</b></Card><Button onClick={() => go("Loading")}>Try again</Button><Button secondary onClick={() => go("Home")}>View saved city snapshot</Button><Card><b>Your draft stays with you.</b><p className="muted">In the production app, pending reports are kept on-device until you reconnect.</p></Card></div>;
 }
 
 export default App;
