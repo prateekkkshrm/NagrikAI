@@ -312,6 +312,22 @@ export async function fetchNearbyGroundTruthReports({
   return Array.isArray(data) ? data : [];
 }
 
+function unwrapNoteObjects(value) {
+  if (Array.isArray(value)) {
+    return value.map(unwrapNoteObjects);
+  }
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value);
+    if (entries.length === 1 && entries[0][0] === "note") {
+      return unwrapNoteObjects(entries[0][1]);
+    }
+    return Object.fromEntries(
+      entries.map(([key, nestedValue]) => [key, unwrapNoteObjects(nestedValue)])
+    );
+  }
+  return value;
+}
+
 export async function fetchReportGroundTruthDetail(reportId) {
   if (!isSupabaseConfigured) {
     throw new Error("Supabase configuration missing.");
@@ -333,7 +349,7 @@ export async function fetchReportGroundTruthDetail(reportId) {
     throw error;
   }
 
-  return data;
+  return unwrapNoteObjects(data);
 }
 
 export async function submitCommunityVerification({

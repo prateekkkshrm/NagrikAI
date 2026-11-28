@@ -50,6 +50,15 @@ function ScreenHeader({ title, back, right }) {
   );
 }
 
+function toDisplayText(value) {
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (value && typeof value === "object") {
+    if ("note" in value) return toDisplayText(value.note);
+    return JSON.stringify(value);
+  }
+  return "";
+}
+
 export function EvidenceImage({ photoPath, alt = "Civic evidence", maxHeight = "200px" }) {
   const [url, setUrl] = useState(null);
   const [loading, setLoading] = useState(Boolean(photoPath));
@@ -674,7 +683,9 @@ export function GroundTruthScreen({
                     {evidenceList.map((ev) => (
                       <div key={ev.id} className="gt-subcard">
                         <EvidenceImage photoPath={ev.photo_path} alt="Supporting evidence" maxHeight="160px" />
-                        {ev.note && <p style={{ margin: "6px 0 2px" }}>{ev.note}</p>}
+                        {toDisplayText(ev.note) && (
+                          <p style={{ margin: "6px 0 2px" }}>{toDisplayText(ev.note)}</p>
+                        )}
                         <small className="muted">
                           Role: {ev.evidence_role || "supporting"} · {formatDateTime(ev.created_at)}
                         </small>
@@ -937,7 +948,7 @@ export function GroundTruthScreen({
                       </b>
                       {event.details && (
                         <span className="muted" style={{ display: "block", fontSize: "11px" }}>
-                          {event.details}
+                          {toDisplayText(event.details)}
                         </span>
                       )}
                       <small className="muted">{formatDateTime(event.created_at)}</small>
@@ -971,11 +982,13 @@ export function GroundTruthScreen({
 }
 
 function AuthorityResolutionCard({ report, embedded = false }) {
+  const resolutionNote = toDisplayText(report?.resolution_note);
+  const authenticityNote = toDisplayText(report?.authenticity_note);
   if (
     !report ||
     (report.status !== "Resolved" &&
       !report.resolution_photo_path &&
-      !report.resolution_note &&
+      !resolutionNote &&
       (!report.authenticity_verdict || report.authenticity_verdict === "unverified"))
   ) {
     return null;
@@ -1029,12 +1042,12 @@ function AuthorityResolutionCard({ report, embedded = false }) {
         </div>
       )}
 
-      {report.resolution_note && (
-        <p style={{ marginTop: "8px", marginBottom: "4px" }}>{report.resolution_note}</p>
+      {resolutionNote && (
+        <p style={{ marginTop: "8px", marginBottom: "4px" }}>{resolutionNote}</p>
       )}
-      {report.authenticity_note && (
+      {authenticityNote && (
         <small className="muted" style={{ display: "block" }}>
-          Verification note: {report.authenticity_note}
+          Verification note: {authenticityNote}
         </small>
       )}
       {report.resolved_at && (
@@ -1369,7 +1382,7 @@ export function MyReportsScreen({
                     <div className="gt-subcard" style={{ marginTop: "8px" }}>
                       <small className="muted">AUTHORITY REPAIR UPDATE</small>
                       {report.resolution_note && (
-                        <p style={{ margin: "4px 0" }}>{report.resolution_note}</p>
+                        <p style={{ margin: "4px 0" }}>{toDisplayText(report.resolution_note)}</p>
                       )}
                       {report.resolution_photo_path && (
                         <EvidenceImage
@@ -1558,7 +1571,7 @@ export function TrackingScreen({ go, selectedReportId, onOpenGroundTruth }) {
                   <b>{h.title}</b>
                   {h.details && (
                     <span className="muted" style={{ display: "block", fontSize: "11px" }}>
-                      {h.details}
+                      {toDisplayText(h.details)}
                     </span>
                   )}
                   <small className="muted">{formatDateTime(h.created_at)}</small>

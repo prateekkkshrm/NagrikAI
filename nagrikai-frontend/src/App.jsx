@@ -58,6 +58,7 @@ import {
 } from "lucide-react";
 
 const GREEN = "#28d7a0";
+const MAX_REPORT_GPS_ACCURACY_METERS = 30;
 const screens = [
   "Splash", "Welcome", "Language", "Login", "Email verification", "Home", "Explore map", "Map filters",
   "Capture report", "Review report", "Possible duplicate", "Report submitted", "Issue details",
@@ -481,11 +482,11 @@ function App() {
   const detectUserLocation = async () => {
     setLocationStatus("loading");
     setLocationError("");
+    setLocationDetails(null);
 
     try {
-      let position;
-
-      if (Capacitor.isNativePlatform()) {
+      const isNative = Capacitor.isNativePlatform();
+      if (isNative) {
         let permission = await Geolocation.checkPermissions();
 
         if (
@@ -501,57 +502,99 @@ function App() {
         ) {
           throw new Error("Location permission denied.");
         }
-
-        position = await Geolocation.getCurrentPosition({
-          enableHighAccuracy: true,
-          timeout: 20000,
-          maximumAge: 0
-        });
-      } else {
-        if (!navigator.geolocation) {
-          throw new Error("Location is not supported by this browser.");
-        }
-
-        // Multi-attempt strategy: collect up to 5 readings over 10s, pick the most accurate
-        position = await new Promise((resolve, reject) => {
-          let bestPosition = null;
-          let watchId = null;
-          let attempts = 0;
-          const MAX_ATTEMPTS = 5;
-          const COLLECT_MS = 10000;
-
-          const finish = () => {
-            if (watchId !== null) navigator.geolocation.clearWatch(watchId);
-            if (bestPosition) resolve(bestPosition);
-            else reject(new Error("No position obtained."));
-          };
-
-          const timer = setTimeout(finish, COLLECT_MS);
-
-          watchId = navigator.geolocation.watchPosition(
-            (pos) => {
-              attempts++;
-              if (!bestPosition || pos.coords.accuracy < bestPosition.coords.accuracy) {
-                bestPosition = pos;
-              }
-              if (pos.coords.accuracy < 50 || attempts >= MAX_ATTEMPTS) {
-                clearTimeout(timer);
-                finish();
-              }
-            },
-            (err) => {
-              clearTimeout(timer);
-              if (watchId !== null) navigator.geolocation.clearWatch(watchId);
-              reject(err);
-            },
-            {
-              enableHighAccuracy: true,
-              timeout: 10000,
-              maximumAge: 0
-            }
-          );
-        });
+      } else if (!navigator.geolocation) {
+        throw new Error("Location is not supported by this browser.");
       }
+
+      const position = await new Promise((resolve, reject) => {
+        const MIN_SAMPLES = 3;
+        const MIN_COLLECTION_MS = 3000;
+        const MAX_COLLECTION_MS = 20000;
+        const startedAt = Date.now();
+        let bestPosition = null;
+        let sampleCount = 0;
+        let watchId = null;
+        let timer = null;
+        let settled = false;
+
+        const clearLocationWatch = () => {
+          if (watchId === null) return;
+          if (isNative) {
+            Geolocation.clearWatch({ id: watchId }).catch((error) => {
+              console.warn("Could not stop location updates:", error?.message || error);
+            });
+          } else {
+            navigator.geolocation.clearWatch(watchId);
+          }
+          watchId = null;
+        };
+
+        const finish = (error) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          clearLocationWatch();
+          if (bestPosition) resolve(bestPosition);
+          else reject(error || Object.assign(new Error("No GPS position was received."), { code: 3 }));
+        };
+
+        const onPosition = (positionUpdate) => {
+          const coords = positionUpdate?.coords;
+          if (
+            !coords ||
+            !Number.isFinite(coords.latitude) ||
+            !Number.isFinite(coords.longitude) ||
+            !Number.isFinite(coords.accuracy) ||
+            coords.latitude < -90 ||
+            coords.latitude > 90 ||
+            coords.longitude < -180 ||
+            coords.longitude > 180 ||
+            coords.accuracy < 0
+          ) {
+            return;
+          }
+
+          sampleCount += 1;
+          if (!bestPosition || coords.accuracy < bestPosition.coords.accuracy) {
+            bestPosition = positionUpdate;
+          }
+
+          if (
+            sampleCount >= MIN_SAMPLES &&
+            Date.now() - startedAt >= MIN_COLLECTION_MS &&
+            bestPosition.coords.accuracy <= MAX_REPORT_GPS_ACCURACY_METERS
+          ) {
+            finish();
+          }
+        };
+
+        timer = setTimeout(() => finish(), MAX_COLLECTION_MS);
+
+        if (isNative) {
+          Geolocation.watchPosition(
+            { enableHighAccuracy: true, timeout: MAX_COLLECTION_MS, maximumAge: 0 },
+            (positionUpdate, error) => {
+              if (error) finish(error);
+              else onPosition(positionUpdate);
+            }
+          )
+            .then((id) => {
+              watchId = id;
+              if (settled) clearLocationWatch();
+            })
+            .catch(finish);
+        } else {
+          try {
+            watchId = navigator.geolocation.watchPosition(
+              onPosition,
+              finish,
+              { enableHighAccuracy: true, timeout: MAX_COLLECTION_MS, maximumAge: 0 }
+            );
+          } catch (error) {
+            finish(error);
+          }
+        }
+      });
 
       const location = {
         lat: position.coords.latitude,
@@ -560,7 +603,11 @@ function App() {
       };
 
       setUserLocation(location);
-      setLocationStatus(location.accuracy > 500 ? "low-accuracy" : "success");
+      setLocationStatus(
+        location.accuracy > MAX_REPORT_GPS_ACCURACY_METERS
+          ? "low-accuracy"
+          : "success"
+      );
       if (isSupabaseConfigured) {
         supabase.rpc("update_citizen_location", {
           p_lat: location.lat,
@@ -593,8 +640,8 @@ function App() {
         });
 
       const accuracyM = Math.round(location.accuracy);
-      const accuracyMsg = location.accuracy > 500
-        ? `Low GPS accuracy (\u00b1${accuracyM}m). Location may be off. Use the search icon to set your location manually.`
+      const accuracyMsg = location.accuracy > MAX_REPORT_GPS_ACCURACY_METERS
+        ? `Low GPS accuracy (\u00b1${accuracyM}m). Retry outdoors or set the exact point on the map.`
         : `Location detected. Accuracy: \u00b1${accuracyM} metres`;
       notify(accuracyMsg);
 
@@ -1061,6 +1108,25 @@ function App() {
       ? reportLocationDetails
       : locationDetails;
 
+  const hasPreciseReportLocation = () =>
+    locationSource === "manual_adjusted"
+      ? Number.isFinite(activeReportLocation?.lat) &&
+        Number.isFinite(activeReportLocation?.lng)
+      : locationStatus === "success" &&
+        Number.isFinite(activeReportLocation?.accuracy) &&
+        activeReportLocation.accuracy <= MAX_REPORT_GPS_ACCURACY_METERS;
+  const requirePreciseReportLocation = () => {
+    if (hasPreciseReportLocation()) return true;
+
+    const accuracy = activeReportLocation?.accuracy;
+    notify(
+      Number.isFinite(accuracy)
+        ? `GPS accuracy is ±${Math.round(accuracy)}m. Wait for a better fix or set the exact point on the map.`
+        : "Precise GPS is required. Detect your location or set the exact point on the map."
+    );
+    return false;
+  };
+
   const toggleFilter = (name) => setFilters(v => v.includes(name) ? v.filter(x => x !== name) : [...v, name]);
   const checkNearbyReports = async () => {
     if (duplicateStatus === "loading") return;
@@ -1084,6 +1150,8 @@ function App() {
       notify(firstErr || "Complete all required report fields before checking duplicates.");
       return;
     }
+
+    if (!requirePreciseReportLocation()) return;
 
     if (!isSupabaseConfigured) {
       notify("Secure reporting is unavailable. Check your Supabase configuration.");
@@ -1169,6 +1237,8 @@ function App() {
       notify(firstErr || "Enter a title of 3–140 characters, a description of at least 10 characters, and complete all required fields.");
       return;
     }
+
+    if (!requirePreciseReportLocation()) return;
 
     if (!isSupabaseConfigured) {
       notify("Report submission is unavailable. Check your Supabase configuration.");
@@ -4968,20 +5038,25 @@ function CaptureReport({
   reportLocation,
   locationStatus,
   locationDetails,
+  locationSource,
   onLocate,
   onAdjustLocation,
+  onResetLocation,
   go,
   notify,
 }) {
+  const hasReportLocation = Boolean(
+    Number.isFinite(reportLocation?.lat) &&
+    Number.isFinite(reportLocation?.lng)
+  );
   const canReview = Boolean(
     issue.trim().length >= 3 &&
     issue.trim().length <= 140 &&
     description.trim().length >= 10 &&
     photo?.file &&
     category &&
-    locationStatus === "success" &&
-    Number.isFinite(userLocation?.lat) &&
-    Number.isFinite(userLocation?.lng)
+    hasReportLocation &&
+    (locationSource === "manual_adjusted" || locationStatus === "success")
   );
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
@@ -5120,17 +5195,43 @@ function CaptureReport({
       <Card>
         <div className="split">
           <b>
-            {locationStatus === "success"
+            {locationSource === "manual_adjusted"
+              ? "Map-adjusted report location"
+              : locationStatus === "success"
               ? [locationDetails?.locality, locationDetails?.city, locationDetails?.state, locationDetails?.country]
                 .filter((value, index, all) => value && all.indexOf(value) === index)
                 .join(", ") || "Current location detected"
+              : locationStatus === "low-accuracy"
+                ? "GPS fix is not precise enough"
               : locationStatus === "loading"
                 ? "Detecting your location..."
                 : "Location not detected"}
           </b>
           <MapPin size={16} />
         </div>
-        <small className="muted">28.4744, 77.5040 • GPS is approximate</small>
+        <small className="muted">
+          {hasReportLocation
+            ? `${reportLocation.lat.toFixed(6)}, ${reportLocation.lng.toFixed(6)}`
+            : "Coordinates unavailable"}
+          {" · "}
+          {locationSource === "manual_adjusted"
+            ? "Selected on map; confirm the exact issue point"
+            : Number.isFinite(reportLocation?.accuracy)
+              ? `GPS accuracy ±${Math.round(reportLocation.accuracy)}m`
+              : "GPS accuracy unavailable"}
+        </small>
+        <Button secondary onClick={() => setLocationPickerOpen(true)}>
+          <MapPin size={15} /> Set exact point on map
+        </Button>
+        {locationSource === "manual_adjusted" ? (
+          <Button secondary onClick={onResetLocation}>
+            Use GPS location
+          </Button>
+        ) : (
+          <Button secondary onClick={onLocate} disabled={locationStatus === "loading"}>
+            {locationStatus === "loading" ? "Getting a precise GPS fix..." : "Refresh GPS location"}
+          </Button>
+        )}
       </Card>
 
       <input
