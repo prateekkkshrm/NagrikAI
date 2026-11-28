@@ -30,7 +30,6 @@
   - [Deploying Supabase Edge Functions](#deploying-supabase-edge-functions)
 - [Mobile Build (Android / Capacitor)](#-mobile-build-android--capacitor)
 - [Civic Intelligence & Algorithms](#-civic-intelligence--algorithms)
-- [Contributing](#-contributing)
 - [License](#-license)
 
 ---
@@ -255,27 +254,6 @@ Where:
 - $[B_{LO}, B_{HI}]$ represents breakpoint concentration ranges
 - $[I_{LO}, I_{HI}]$ represents corresponding AQI sub-index ranges
 - The overall **AQI** is taken as $\max(\text{Sub-Index}_i)$ with categories from **Good (0–50)** to **Severe (401–500)**.
-
----
-
-## 🤝 Contributing
-
-Contributions are welcomed! Follow these steps:
-
-1. Fork the repository.
-2. Create a feature branch:
-   ```bash
-   git checkout -b feature/civic-improvement
-   ```
-3. Commit your changes:
-   ```bash
-   git commit -m "feat: add real-time waterlogging layer"
-   ```
-4. Push to the branch:
-   ```bash
-   git push origin feature/civic-improvement
-   ```
-5. Open a Pull Request.
 
 ---
 
