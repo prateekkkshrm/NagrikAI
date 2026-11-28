@@ -57,239 +57,366 @@ const SERVICE_KNOWLEDGE = {
   ]
 };
 
-// Conversational AI Model Response Engine (Modeled after ChatGPT conversational reasoning)
-function generateAIModelResponse(query, liveReports = [], isVoiceNote = false, duration = 0) {
+// Conversational AI Model Response Engine (Natural, dynamic, non-bookish conversational reasoning)
+async function callGeminiAPI(prompt, chatHistory = []) {
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || (typeof window !== "undefined" && window.localStorage?.getItem("nagrikai_gemini_api_key"));
+  if (!apiKey) return null;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 7000);
+
+    const historyParts = chatHistory.slice(-4).map(m => ({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.textEn || m.textHi || "" }]
+    }));
+
+    const systemPrompt = `You are NagrikAI, an empathetic, conversational, and direct civic AI companion for citizens of Greater Noida, India.
+Guidelines:
+1. Answer the user's specific question naturally and conversationally, like a knowledgeable local resident.
+2. Never give repetitive, bookish, or bureaucratic walls of text. Be clear, concise, and helpful.
+3. If they ask about local infrastructure (roads, water, NPCL electricity, GNIDA, Pari Chowk, Knowledge Park, Alpha/Beta sectors, metro), give direct practical information.
+4. Return pure JSON with keys:
+{
+  "en": "Direct conversational answer in clear, friendly English",
+  "hi": "Direct conversational answer in simple everyday spoken Hindi (बोलचाल की भाषा)",
+  "actions": [
+    {"labelEn": "Short Button Label", "labelHi": "बटन लेबल", "screen": "Capture report" | "Explore map" | "Civic navigation" | "Weather & air" | "Report history" | "Responsible authority" | "Home"}
+  ]
+}`;
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        contents: [
+          ...historyParts,
+          { role: "user", parts: [{ text: `${systemPrompt}\n\nUser Question: ${prompt}` }] }
+        ],
+        generationConfig: {
+          temperature: 0.7,
+          responseMimeType: "application/json"
+        }
+      })
+    });
+
+    clearTimeout(timeout);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (text) {
+      const parsed = JSON.parse(text);
+      if (parsed.en && parsed.hi) {
+        return parsed;
+      }
+    }
+  } catch (err) {
+    console.warn("Live Gemini API call bypassed:", err);
+  }
+  return null;
+}
+
+// Dynamic Local Conversational AI Generator (Active whenever no external LLM key is configured)
+function generateLocalConversationalResponse(query, liveReports = [], isVoiceNote = false, duration = 0) {
   const rawQ = (query || "").trim();
   const q = rawQ.toLowerCase();
 
-  // Conversation history is saved from the actual message handlers to Supabase.
-  const saveToHistory = () => {};
-
-  // 1. Silent or Brief Voice Note Handling
+  // 1. Silent / Brief Voice Note
   if (isVoiceNote && (!q || q === "voice note" || q === "voice note civic query" || q === "वॉयसनोट द्वारा प्रश्न")) {
-    const en = `I listened to your voice note (${duration || 2}s)! 🎙️ While the audio came through softly, I am fully at your service. \n\nI can help you with anything related to Greater Noida municipal services — including:\n• **Reporting road hazards or potholes** in your sector\n• **Checking real-time traffic** around Pari Chowk\n• **Tracking the status of your GNIDA complaints**\n• **Finding emergency authority helplines** (Civil, Water, NPCL, Traffic Police)\n\nCould you tell me a little more about what you need assistance with?`;
-    const hi = `मैंने आपका वॉयसनोट (${duration || 2} सेकंड) सुना! 🎙️ हालांकि आवाज हल्की थी, मैं आपकी सहायता के लिए तैयार हूँ।\n\nग्रेटर नोएडा की किसी भी नागरिक सेवा में मैं आपकी तुरंत मदद कर सकता हूँ:\n• **सड़क के गड्ढों या खतरों की रिपोर्ट दर्ज करना**\n• **परी चौक व मुख्य मार्गों का लाइव ट्रैफिक जांचना**\n• **जीएनआईडीए में दर्ज अपनी शिकायतों की स्थिति ट्रैक करना**\n• **आपातकालीन प्राधिकरण हेल्पलाइन नंबर प्राप्त करना**\n\nकृपया बताएं कि आप किस विषय पर जानकारी चाहते हैं?`;
-    saveToHistory(rawQ || "Voice note input", en, hi, "Voice Note Triage");
-    return { en, hi, actions: [
-      { labelEn: "Report an Issue", labelHi: "समस्या रिपोर्ट करें", screen: "Capture report" },
-      { labelEn: "Explore City Map", labelHi: "शहर का नक्शा देखें", screen: "Explore map" },
-      { labelEn: "Check Headlines", labelHi: "ताज़ा सुर्खियाँ", screen: "Home" }
-    ]};
+    return {
+      en: `I heard your ${duration || 2}-second voice note! 🎙️ It was a bit quiet on my end. You can tell me what you need—whether you'd like to report a road issue, check Pari Chowk traffic, or track a complaint. How can I help?`,
+      hi: `मैंने आपका ${duration || 2} सेकंड का वॉयसनोट सुना! 🎙️ आवाज थोड़ी धीमी थी। आप मुझे बोलकर बता सकते हैं कि आपको क्या चाहिए—जैसे सड़क का गड्ढा रिपोर्ट करना, परी चौक का ट्रैफिक देखना या शिकायत ट्रैक करना। बताइए, मैं क्या मदद करूँ?`,
+      actions: [
+        { labelEn: "Report an Issue", labelHi: "समस्या रिपोर्ट करें", screen: "Capture report" },
+        { labelEn: "Explore City Map", labelHi: "नक्शा देखें", screen: "Explore map" },
+        { labelEn: "Check Traffic", labelHi: "ट्रैफिक देखें", screen: "Civic navigation" }
+      ]
+    };
   }
 
-  // 2. What Does NagrikAI Provide / Service Overview / Capabilities
-  const serviceQuestions = [
-    "what do you provide", "what does nagrikai do", "what is your service", "services offered",
-    "what services", "how does this app help", "what can this app do", "features", "capabilities",
-    "tell me about your services", "how do you work", "what is this platform", "why use nagrikai",
-    "kya service hai", "kya suvidha hai", "kya kaam karta hai", "ye app kya hai", "kya suvidhayein hain",
-    "सुविधा", "सेवाएं", "क्या प्रदान करते हैं", "क्या काम करता है", "नागरिक एआई क्या है"
-  ];
-  if (serviceQuestions.some(kw => q.includes(kw))) {
-    const en = `Here is what **NagrikAI** provides for citizens of Greater Noida:\n\n1. **Real-time Road & Hazard Intelligence:** We continuously monitor road craters, potholes, waterlogging, and missing manhole covers across sectors like Alpha, Beta, Pari Chowk, and Knowledge Park using verified database records.\n2. **Official Municipal Complaint Handoff:** When you report an issue, we format it with GPS coordinates and route it directly to the responsible authority (GNIDA Civil, Water, Sanitation, NPCL, or Traffic Police) under guaranteed resolution SLAs.\n3. **GroundTruth AI Verification:** We verify municipal repairs using computer-vision photo evidence so tickets aren't closed without real on-ground completion.\n4. **Hazard-Free Navigation:** Our routing engine steers you away from flooded underpasses, bad road stretches, and Pari Chowk traffic choke points.\n5. **Bilingual Voice & Text AI:** You can speak or type in English or हिन्दी anytime to get instant civic answers, track complaints, or check local news.\n\nIs there a specific service you'd like to try right now?`;
-    const hi = `**नागरिक एआई (NagrikAI)** ग्रेटर नोएडा के नागरिकों को निम्नलिखित प्रमुख सेवाएं प्रदान करता है:\n\n1. **लाइव सड़क एवं जोखिम बुद्धिमत्ता:** अल्फा, बीटा, परी चौक और नॉलेज पार्क में गड्ढों, टूटी सड़कों और जलभराव की लाइव ट्रैकिंग डेटाबेस रिकॉर्ड के साथ।\n2. **सीधा नगर पालिका शिकायत समाधान:** आपकी शिकायतें जीपीएस लोकेशन के साथ सीधे जिम्मेदार विभाग (जीएनआईडीए सिविल, जल, स्वच्छता, एनपीसीएल या ट्रैफिक पुलिस) को समय-सीमा (SLA) के साथ भेजी जाती हैं।\n3. **ग्राउंडट्रूथ एआई सत्यापन:** नगर निगम के मरम्मत कार्यों की फोटो साक्ष्य से कंप्यूटर विजन द्वारा पुष्टि की जाती है ताकि बिना काम किए शिकायत बंद न हो।\n4. **सुरक्षित नागरिक नेविगेशन:** यह आपको जलभराव वाले रास्तों, टूटी सड़कों और परी चौक के जाम से बचाकर सुरक्षित रास्ता दिखाता है।\n5. **दोतरफा आवाज एवं टेक्स्ट एआई:** आप हिन्दी या अंग्रेजी में कभी भी बोलकर या लिखकर बात कर सकते हैं।\n\nक्या आप इनमें से किसी सेवा के बारे में विस्तार से जानना चाहते हैं?`;
-    saveToHistory(rawQ, en, hi, "Services Overview");
-    return { en, hi, actions: [
-      { labelEn: "Explore City Map", labelHi: "शहर का नक्शा देखें", screen: "Explore map" },
-      { labelEn: "File a Civic Report", labelHi: "नागरिक रिपोर्ट दर्ज करें", screen: "Capture report" },
-      { labelEn: "Civic Navigation", labelHi: "सुरक्षित मार्ग नेविगेशन", screen: "Civic navigation" }
-    ]};
+  // Detect specific locations / sectors
+  let matchedSector = null;
+  if (/alpha\s*(1|i\b|one)/.test(q)) matchedSector = "Alpha I";
+  else if (/alpha\s*(2|ii\b|two)/.test(q)) matchedSector = "Alpha II";
+  else if (/alpha/.test(q)) matchedSector = "Alpha Sector";
+  else if (/beta\s*(1|i\b|one)/.test(q)) matchedSector = "Beta I";
+  else if (/beta\s*(2|ii\b|two)/.test(q)) matchedSector = "Beta II";
+  else if (/beta/.test(q)) matchedSector = "Beta Sector";
+  else if (/gamma/.test(q)) matchedSector = "Gamma Sector";
+  else if (/delta/.test(q)) matchedSector = "Delta Sector";
+  else if (/pari\s*chowk/.test(q) || /परी\s*चौक/.test(q)) matchedSector = "Pari Chowk";
+  else if (/knowledge\s*park/.test(q)) matchedSector = "Knowledge Park";
+  else if (/surajpur/.test(q) || /सूरजपुर/.test(q)) matchedSector = "Surajpur";
+  else if (/jagat\s*farm/.test(q)) matchedSector = "Jagat Farm";
+  else if (/kasna/.test(q) || /कासना/.test(q)) matchedSector = "Kasna";
+  else if (/greater\s*noida\s*west|noida\s*extension|gaur\s*city/.test(q)) matchedSector = "Greater Noida West";
+  else if (/expressway/.test(q)) matchedSector = "Noida-Greater Noida Expressway";
+  else if (/ecotech/.test(q)) matchedSector = "Ecotech Industrial Area";
+
+  // Intent: Greetings & Casual Banter
+  if (/^(hi|hello|hey|namaste|pranam|namaskar|good\s*(morning|evening|afternoon)|hola)\b/i.test(q) || /^(हेलो|नमस्ते|प्रणाम|नमस्कार)/.test(q)) {
+    return {
+      en: `Hey there! 👋 I'm NagrikAI, your Greater Noida civic assistant. I'm here to help you get things done around the city—from reporting broken roads and checking local traffic to tracking municipal complaints. What's on your mind today?`,
+      hi: `नमस्ते! 👋 मैं आपका नागरिक एआई सहायक हूँ। ग्रेटर नोएडा में सड़कों के गड्ढे रिपोर्ट करने, ट्रैफिक जानने या नगर पालिका की शिकायतें ट्रैक करने में मैं आपकी पूरी मदद कर सकता हूँ। बताइए, आज क्या जानकारी चाहिए?`,
+      actions: [
+        { labelEn: "Report Road Issue", labelHi: "सड़क समस्या बताएं", screen: "Capture report" },
+        { labelEn: "Pari Chowk Traffic", labelHi: "परी चौक ट्रैफिक", screen: "Civic navigation" },
+        { labelEn: "Explore Map", labelHi: "शहर का नक्शा", screen: "Explore map" }
+      ]
+    };
   }
 
-  // 3. How to File a Report / Complaint Process
-  const reportHowTo = [
-    "how to file", "how to report", "file a complaint", "lodge a complaint", "report an issue",
-    "register complaint", "submit report", "report kaise kare", "shikayat kaise kare", "shikayat darj",
-    "complaint kaise kare", "शिकायत कैसे दर्ज करें", "रिपोर्ट कैसे करें"
-  ];
-  if (reportHowTo.some(kw => q.includes(kw))) {
-    const en = `Filing a civic report on NagrikAI takes less than 30 seconds:\n\n1. **Capture Photo & Location:** Tap the camera icon or 'Capture report' from the bottom bar. Take a photo of the road hazard, broken streetlight, or garbage dump.\n2. **Automatic Geotagging:** NagrikAI automatically detects your precise GPS coordinates and matches the sector (e.g. Alpha II or Surajpur).\n3. **Duplicate Prevention:** Our AI checks nearby reports so multiple citizens don't create duplicate tickets, while letting you upvote existing ones.\n4. **Authority Dispatch:** Your report is tagged with an official reference number and dispatched to GNIDA or NPCL under enforceable SLAs (24h to 72h).\n\nWould you like to open the report capture screen now?`;
-    const hi = `नागरिक एआई पर नागरिक रिपोर्ट दर्ज करना बेहद आसान है (30 सेकंड से कम):\n\n1. **फोटो व लोकेशन:** नीचे दिए गए 'Capture report' बटन पर टैप करें और गड्ढे, टूटी लाइट या कचरे की फोटो लें।\n2. **ऑटो जीपीएस टैगिंग:** ऐप आपके सेक्टर (जैसे अल्फा II या सूरजपुर) की सटीक जीपीएस लोकेशन अपने आप जोड़ लेता है।\n3. **डुप्लीकेट जांच:** एआई सिस्टम पास के अन्य रिपोर्ट्स की जांच करता है ताकि एक ही मुद्दे पर दोहराव न हो।\n4. **प्राधिकरण को प्रेषण:** आपकी रिपोर्ट को एक रेफरेंस नंबर देकर सीधे जीएनआईडीए या एनपीसीएल को 24 से 72 घंटे के एसएलए के तहत भेज दिया जाता है।\n\nक्या आप अभी रिपोर्ट दर्ज करना चाहते हैं?`;
-    saveToHistory(rawQ, en, hi, "Reporting Process");
-    return { en, hi, actions: [
-      { labelEn: "Open Report Camera", labelHi: "रिपोर्ट कैमरा खोलें", screen: "Capture report" },
-      { labelEn: "Track Existing Complaints", labelHi: "मौजूदा शिकायतें देखें", screen: "Report history" }
-    ]};
+  // Intent: How are you / Casual chat
+  if (q.includes("how are you") || q.includes("kaise ho") || q.includes("kya haal") || q.includes("हाल") || q.includes("कैसे हो")) {
+    return {
+      en: `I'm doing great, thank you for asking! 😊 Keeping an eye on Greater Noida's roads, weather, and civic reports so you have a smoother day. How's everything going in your sector?`,
+      hi: `मैं बिल्कुल ठीक हूँ, पूछने के लिए शुक्रिया! 😊 ग्रेटर नोएडा की सड़कों, मौसम और शिकायतों पर नज़र बनाए हुए हूँ ताकि आपका दिन आसान रहे। आपके सेक्टर में सब कैसा चल रहा है?`,
+      actions: [
+        { labelEn: "Check My Sector Map", labelHi: "मेरे सेक्टर का नक्शा", screen: "Explore map" },
+        { labelEn: "Today's Air & Weather", labelHi: "आज का मौसम व हवा", screen: "Weather & air" }
+      ]
+    };
   }
 
-  // 4. GroundTruth AI Verification Questions
-  const groundTruthQuestions = [
-    "groundtruth", "ground truth", "verification", "verify repair", "how is repair verified",
-    "photo proof", "evidence", "satyaapan", "ground truth kya hai", "ग्राउंडट्रूथ", "सत्यापन"
-  ];
-  if (groundTruthQuestions.some(kw => q.includes(kw))) {
-    const en = `**GroundTruth AI** is our proprietary accountability engine! 🔍\n\nIn traditional municipal systems, contractors often mark complaints as 'Resolved' without completing the work. GroundTruth AI solves this:\n• When a municipal team claims a repair is done, they must submit photographic evidence.\n• GroundTruth AI uses computer vision to cross-analyze the original citizen complaint image against the newly submitted repair image.\n• It verifies texture, depth, and spatial markers to validate asphalt resurfacing or streetlight restoration.\n• Nearby citizens are also invited to cast a 1-tap GroundTruth verification on their daily commute.\n\nOnly verified repairs earn an official 'Resolved' certification!`;
-    const hi = `**ग्राउंडट्रूथ एआई (GroundTruth AI)** हमारी पारदर्शिता और जवाबदेही प्रणाली है! 🔍\n\nपारंपरिक व्यवस्था में कई बार बिना पूरा काम किए शिकायत को 'समाधान' दिखा दिया जाता है। ग्राउंडट्रूथ एआई इसे रोकता है:\n• जब कोई मरम्मत दल काम पूरा होने का दावा करता है, तो उसे फोटो साक्ष्य अपलोड करना होता है।\n• ग्राउंडट्रूथ एआई कंप्यूटर विजन द्वारा नागरिक की मूल फोटो और मरम्मत के बाद की फोटो की तुलना करता है।\n• यह डामर की सतह, गहराई और स्थान की पुष्टि करके सत्यापन करता है।\n• उस मार्ग से गुजरने वाले नागरिक भी केवल 1 टैप से कार्य की पुष्टि कर सकते हैं।\n\nपूर्ण सत्यापन के बाद ही टिकट को आधिकारिक रूप से 'Resolved' माना जाता है!`;
-    saveToHistory(rawQ, en, hi, "GroundTruth AI");
-    return { en, hi, actions: [
-      { labelEn: "View GroundTruth AI", labelHi: "ग्राउंडट्रूथ एआई देखें", screen: "GroundTruth AI" },
-      { labelEn: "Inspect City Map", labelHi: "शहर का नक्शा देखें", screen: "Explore map" }
-    ]};
+  // Intent: Thanks / Appreciation
+  if (/^(thank|thanks|shukriya|dhanyawad|dhanyavad|शुक्रिया|धन्यवाद)/i.test(q)) {
+    return {
+      en: `You're very welcome! Happy to help make our city cleaner and better. Reach out anytime you notice something that needs fixing or if you need a quick route update. 🙌`,
+      hi: `आपका बहुत-बहुत स्वागत है! शहर को बेहतर बनाने में मदद करके मुझे खुशी होती है। जब भी कोई समस्या दिखे या कोई रास्ता पूछना हो, बेझिझक पूछिएगा। 🙌`,
+      actions: [
+        { labelEn: "Explore City Map", labelHi: "नक्शा देखें", screen: "Explore map" },
+        { labelEn: "Home", labelHi: "होम", screen: "Home" }
+      ]
+    };
   }
 
-  // 5. Self Identity / Conversational Persona / "Who are you"
-  const selfKeywords = [
-    "about yourself", "who are you", "what are you", "what is nagrikai", "who created you",
-    "who made you", "introduce yourself", "tell me about you", "tum kaun ho", "aap kaun ho",
-    "aap kaun hain", "apne baare me", "apna parichay", "tum kya ho",
-    "अपने बारे में", "तुम कौन हो", "आप कौन हैं", "अपना परिचय", "परिचय"
-  ];
-  if (selfKeywords.some(kw => q.includes(kw))) {
-    const en = `I am **NagrikAI** — your intelligent civic companion for Greater Noida! 🏙️\n\nI was created specifically to empower Greater Noida citizens with real-time municipal transparency. I am trained on local infrastructure data, GNIDA authority workflows, NPCL electricity divisions, and Gautam Budh Nagar traffic corridors.\n\nWhether you need to check road hazards in Alpha II, ask about Pari Chowk traffic delays, lodge a complaint with an SLA timeline, or find emergency municipal contacts, I am here 24/7 to assist you in English or हिन्दी!`;
-    const hi = `मैं **नागरिक एआई (NagrikAI)** हूँ — ग्रेटर नोएडा के नागरिकों के लिए एक समर्पित नागरिक बुद्धिमत्ता सहायक! 🏙️\n\nमेरा निर्माण ग्रेटर नोएडा में नगर निगम सेवाओं और बुनियादी ढांचे में वास्तविक समय की पारदर्शिता लाने के लिए किया गया है। मुझे जीएनआईडीए प्राधिकरण, एनपीसीएल बिजली विभाग और गौतमबुद्ध नगर ट्रैफिक पुलिस के कार्यप्रवाह और स्थानीय डेटा पर प्रशिक्षित किया गया है।\n\nचाहे आपको अल्फा II में सड़कों की स्थिति जाननी हो, परी चौक ट्रैफिक पूछना हो, फोटो के साथ शिकायत दर्ज करनी हो या हेल्पलाइन नंबर चाहिए हों — मैं 24/7 हिन्दी और अंग्रेजी में आपकी सेवा के लिए उपलब्ध हूँ!`;
-    saveToHistory(rawQ, en, hi, "Identity & Persona");
-    return { en, hi, actions: [
-      { labelEn: "Explore City Map", labelHi: "शहर का नक्शा देखें", screen: "Explore map" },
-      { labelEn: "File a Civic Report", labelHi: "नागरिक रिपोर्ट दर्ज करें", screen: "Capture report" }
-    ]};
+  // Intent: Who are you / Identity
+  if (q.includes("who are you") || q.includes("tum kaun") || q.includes("aap kaun") || q.includes("what is your name") || q.includes("तुम्हारा नाम") || q.includes("आप कौन")) {
+    return {
+      en: `I am **NagrikAI**—an AI assistant designed specifically for residents of Greater Noida. I connect citizens directly with local municipal services (GNIDA, NPCL, Traffic Police). You can think of me as your pocket guide to city issues, live traffic, and verified repair updates!`,
+      hi: `मैं **नागरिक एआई (NagrikAI)** हूँ—ग्रेटर नोएडा के नागरिकों के लिए खास तौर पर बनाया गया एआई सहायक। मेरा काम आपको नगर निगम सेवाओं (जीएनआईडीए, एनपीसीएल, ट्रैफिक पुलिस) से जोड़ना और आपकी शिकायतों पर असली कार्रवाई सुनिश्चित करना है।`,
+      actions: [
+        { labelEn: "What can you do?", labelHi: "आप क्या कर सकते हैं?", screen: "Explore map" },
+        { labelEn: "File a Report", labelHi: "रिपोर्ट दर्ज करें", screen: "Capture report" }
+      ]
+    };
   }
 
-  // 6. Recent Headlines & City News
-  const headlineKeywords = [
-    "headline", "headlines", "news", "surkhiyan", "khabar", "samachar", "update", "updates",
-    "what's happening", "kya ho raha hai", "kya chal raha hai", "taza khabar", "latest news", "city news",
-    "सुर्खियाँ", "खबर", "समाचार", "ताजा खबर", "अपडेट"
-  ];
-  if (headlineKeywords.some(kw => q.includes(kw))) {
-    const en = `Here are the top Greater Noida municipal headlines right now:\n\n1. **GNIDA Road Resurfacing Drive:** Civil Maintenance Division has initiated asphalt leveling on the Pari Chowk-Surajpur corridor to eliminate monsoon potholes.\n2. **Anti-Smog Sprinklers Deployed:** UPPCB water tankers are active across Sector 16 and the Expressway green belts for dust suppression.\n3. **Knowledge Park Drainage De-silting:** High-capacity suction machines are clearing storm-water channels to prevent seasonal waterlogging.\n4. **Citizen Redressal Camp:** Weekly administrative grievance camp scheduled at GNIDA Chitvan Estate.\n\nYou can also swipe through our Instagram-style headline carousel on the Home screen!`;
-    const hi = `ग्रेटर नोएडा की आज की ताज़ा प्रमुख नागरिक सुर्खियाँ:\n\n1. **जीएनआईडीए सड़क डामरीकरण अभियान:** सिविल विभाग ने परी चौक-सूरजपुर मुख्य सड़क पर गड्ढों को भरने और नई परत बिछाने का काम तेज कर दिया है।\n2. **एंटी-स्मॉग स्प्रिंकलर सक्रिय:** यूपीपीसीबी ने वायु गुणवत्ता सुधारने के लिए सेक्टर 16 और एक्सप्रेसवे पर पानी छिड़काव टैंकर तैनात किए हैं।\n3. **नॉलेज पार्क नाला सफाई:** जलभराव की रोकथाम के लिए नॉलेज पार्क II में मुख्य नालों से गाद निकालने का कार्य जारी है।\n4. **साप्ताहिक जनसुनवाई:** जीएनआईडीए प्रशासनिक भवन (चितवन एस्टेट) में नागरिक शिकायत समाधान शिविर आयोजित है।\n\nआप होम स्क्रीन पर इंस्टाग्राम-स्टाइल स्लाइडर में भी पूरी खबरें पढ़ सकते हैं!`;
-    saveToHistory(rawQ, en, hi, "City Headlines");
-    return { en, hi, actions: [
-      { labelEn: "View Headlines Carousel", labelHi: "सुर्खियाँ हिंडोला देखें", screen: "Home" },
-      { labelEn: "Check Air Quality", labelHi: "वायु गुणवत्ता देखें", screen: "Weather & air" }
-    ]};
+  // Intent: What can this app do / Features overview
+  if (q.includes("what can you do") || q.includes("what do you do") || q.includes("what does this app do") || q.includes("features") || q.includes("service") || q.includes("services") || q.includes("kya kaam") || q.includes("kya karta hai") || q.includes("सुविधा") || q.includes("सेवा")) {
+    return {
+      en: `Here are the main things I can do for you in Greater Noida:\n\n• **Report Road & Street Hazards:** Snap a photo of a pothole, open manhole, or garbage pile. The app tags your GPS coordinates and sends it to the responsible GNIDA/NPCL team.\n• **Avoid Traffic & Hazards:** Check live routes that steer you clear of waterlogged spots and Pari Chowk jams.\n• **GroundTruth Verification:** When a repair is claimed, our AI verifies before-and-after photos so tickets aren't closed without real work.\n• **Live Air Quality & Weather:** Real-time CPCB AQI readings and forecasts for Greater Noida.\n• **Direct Emergency Helplines:** Instant contact numbers for municipal water, electricity, and road teams.`,
+      hi: `नागरिक एआई आपकी इन मुख्य चीज़ों में मदद करता है:\n\n• **सड़क व नागरिक समस्याएं दर्ज करना:** गड्ढे, खुले नाले या कचरे की फोटो खींचें—ऐप खुद लोकेशन जोड़कर संबंधित विभाग को भेज देगा।\n• **ट्रैफिक व जलभराव से बचाव:** परी चौक और मुख्य रास्तों पर जाम या पानी भरे रास्तों से बचकर निकलने का सुरक्षित रास्ता देखना।\n• **ग्राउंडट्रूथ फोटो सत्यापन:** काम पूरा होने पर फोटो की जांच होती है ताकि बिना मरम्मत काम बंद न हो।\n• **लाइव वायु गुणवत्ता (AQI) व मौसम:** ग्रेटर नोएडा की सटीक हवा और मौसम की जानकारी।\n• **आपातकालीन हेल्पलाइन:** बिजली, पानी और सड़क विभागों के सीधे फोन नंबर।`,
+      actions: [
+        { labelEn: "Try Filing a Report", labelHi: "रिपोर्ट करके देखें", screen: "Capture report" },
+        { labelEn: "Explore City Map", labelHi: "नक्शा देखें", screen: "Explore map" },
+        { labelEn: "Air Quality Info", labelHi: "हवा की स्थिति", screen: "Weather & air" }
+      ]
+    };
   }
 
-  // 7. Roads, Potholes & Alpha II
-  const roadKeywords = [
-    "pothole", "potholes", "pothol", "pot hole", "road", "roads", "sadak", "gaddha", "gaddhe",
-    "khadda", "khadde", "alpha", "alpha 2", "alpha ii", "beta", "asphalt", "crater", "damaged road",
-    "broken road", "footpath", "resurfacing", "patchwork", "गड्ढा", "गड्ढे", "सड़क", "अल्फा"
-  ];
-  if (roadKeywords.some(kw => q.includes(kw))) {
-    const en = `Regarding road conditions:\n\n• **Alpha II Main Road:** Our database records 1 high-severity pothole (Report #102, confirmed by 14 citizens near the commercial complex). GNIDA Civil Maintenance Division has scheduled field repair with a 48-hour SLA.\n• **Beta & Delta Sectors:** Internal lane patchwork is currently 70% complete under the municipal maintenance contract.\n• **Filing New Road Hazards:** If you encounter a new pothole, submit a geotagged photo via 'Capture report' and our AI will verify and escalate it immediately.`;
-    const hi = `सड़कों और गड्ढों की स्थिति:\n\n• **अल्फा II मुख्य सड़क:** डेटाबेस में 1 गंभीर गड्ढा दर्ज है (रिपोर्ट #102, 14 नागरिकों द्वारा पुष्ट)। जीएनआईडीए सिविल विंग ने 48 घंटे के एसएलए के तहत मरम्मत निर्धारित की है।\n• **बीटा एवं डेल्टा सेक्टर:** आंतरिक गलियों में पैचवर्क का कार्य 70% पूरा हो चुका है।\n• **नया गड्ढा रिपोर्ट करना:** यदि आपको कहीं भी सड़क टूटी मिले, तो फोटो खींचकर रिपोर्ट दर्ज करें, हमारी प्रणाली तुरंत इसे संबंधित अधिकारी तक पहुँचाएगी।`;
-    saveToHistory(rawQ, en, hi, "Roads & Potholes");
-    return { en, hi, actions: [
-      { labelEn: "View on City Map", labelHi: "नक्शे पर देखें", screen: "Explore map" },
-      { labelEn: "Report Pothole", labelHi: "गड्ढा रिपोर्ट करें", screen: "Capture report" }
-    ]};
+  // Intent: Weather, Air Quality (AQI), Pollution, Smog, Rain
+  if (q.includes("weather") || q.includes("aqi") || q.includes("air quality") || q.includes("pollution") || q.includes("smog") || q.includes("rain") || q.includes("barish") || q.includes("hawa") || q.includes("मौसम") || q.includes("हवा") || q.includes("प्रदूषण") || q.includes("बारिश")) {
+    return {
+      en: `Greater Noida's air quality and weather fluctuate significantly by season. In winter, PM2.5 levels often push the AQI into Poor or Very Poor territory, especially along the Expressway and industrial corridors. On sunny clear days, it stays in the Moderate range.\n\nTip: You can view real-time hourly CPCB AQI breakdown, humidity, and a 3-day forecast in our **Weather & Air** tab!`,
+      hi: `ग्रेटर नोएडा में हवा की गुणवत्ता और मौसम मौसम के हिसाब से बदलता रहता है। सर्दियों में एक्सप्रेसवे और आसपास पीएम 2.5 का स्तर बढ़ने से AQI अक्सर 'खराब' श्रेणी में पहुँच जाता है। वहीं सामान्य दिनों में यह मध्यम रहता है।\n\nसुझाव: आप ऐप के **Weather & air** स्क्रीन पर जाकर प्रति घंटे का सटीक AQI और 3 दिन का मौसम पूर्वानुमान देख सकते हैं!`,
+      actions: [
+        { labelEn: "Open Weather & Air", labelHi: "मौसम व हवा देखें", screen: "Weather & air" },
+        { labelEn: "Back to Home", labelHi: "होम पर जाएं", screen: "Home" }
+      ]
+    };
   }
 
-  // 8. Pari Chowk & Traffic Navigation
-  const trafficKeywords = [
-    "pari chowk", "parichowk", "traffic", "jam", "congestion", "rush", "route", "connector",
-    "chauraha", "crossing", "highway", "expressway", "fas gaya", "diversion",
-    "परी चौक", "ट्रैफिक", "जाम", "रास्ता", "चौराहा"
-  ];
-  if (trafficKeywords.some(kw => q.includes(kw))) {
-    const en = `Here is the current transit advisory for Pari Chowk:\n\n• **Traffic Status:** Moderate to heavy congestion during peak morning and evening office commutes.\n• **Road Work:** Lane resurfacing on the Surajpur connector road creates brief bottleneck delays.\n• **Smart Navigation Recommendation:** If you are heading towards Knowledge Park or Greater Noida West, take the inner service bypass rather than the roundabout core.\n• Check our 'Civic navigation' feature for live turns that automatically bypass known traffic delays.`;
-    const hi = `परी चौक और यातायात की लाइव स्थिति:\n\n• **ट्रैफिक स्थिति:** सुबह और शाम के पीक समय में मध्यम से भारी ट्रैफिक देखा जा रहा है।\n• **सड़क कार्य:** सूरजपुर कनेक्टर सड़क पर मरम्मत के कारण वाहनों की गति धीमी है।\n• **सुगम मार्ग सुझाव:** यदि आप नॉलेज पार्क या ग्रेटर नोएडा वेस्ट जा रहे हैं, तो मुख्य चौराहे के बजाय इनर सर्विस बाईपास का उपयोग करें।\n• बिना जाम वाले रास्तों के लिए हमारे 'Civic navigation' स्क्रीन का उपयोग करें।`;
-    saveToHistory(rawQ, en, hi, "Traffic & Navigation");
-    return { en, hi, actions: [
-      { labelEn: "Civic Navigation", labelHi: "सुरक्षित मार्ग नेविगेशन", screen: "Civic navigation" },
-      { labelEn: "View Traffic on Map", labelHi: "नक्शे पर देखें", screen: "Explore map" }
-    ]};
+  // Intent: Roads, Potholes & Sector maintenance
+  if (q.includes("pothole") || q.includes("potholes") || q.includes("gaddha") || q.includes("gaddhe") || q.includes("khadda") || q.includes("road") || q.includes("sadak") || q.includes("asphalt") || q.includes("crater") || q.includes("footpath") || q.includes("broken road") || q.includes("गड्ढा") || q.includes("सड़क")) {
+    const sectorInfo = matchedSector ? `in **${matchedSector}**` : "in your sector";
+    return {
+      en: `For road repairs and potholes ${sectorInfo}:\n\nGNIDA's Civil Maintenance Division handles asphalt resurfacing and patchwork under a targeted 48-to-72 hour turnaround. If you've come across a hazardous pothole or broken lane, you can snap a quick photo with 'Capture report'. The GPS coordinates will auto-fill, and we'll escalate it directly to the field maintenance crew.`,
+      hi: `${matchedSector ? `**${matchedSector}** में` : "आपके क्षेत्र में"} टूटी सड़कों या गड्ढों के लिए:\n\nजीएनआईडीए का सिविल रखरखाव विभाग 48 से 72 घंटे के भीतर पैचवर्क और डामर मरम्मत का काम करता है। अगर आपको कहीं गहरा गड्ढा या टूटी सड़क दिखे, तो 'Capture report' से तुरंत फोटो खींचकर भेजें। ऐप आपकी लोकेशन जोड़कर शिकायत सीधे संबंधित जेई/इंजीनियर तक पहुँचा देगा।`,
+      actions: [
+        { labelEn: "Report This Pothole", labelHi: "गड्ढा रिपोर्ट करें", screen: "Capture report" },
+        { labelEn: "Check Road Hazards on Map", labelHi: "नक्शे पर गड्ढे देखें", screen: "Explore map" }
+      ]
+    };
   }
 
-  // 9. Waterlogging, Drains & Sewerage
-  const waterKeywords = [
-    "water", "drain", "drainage", "sewer", "sewerage", "jalbharav", "naali", "nala", "paani",
-    "waterlogging", "flood", "rain", "overflow", "stagnant", "kichad", "जलभराव", "नाली", "पानी", "सीवर"
-  ];
-  if (waterKeywords.some(kw => q.includes(kw))) {
-    const en = `Regarding waterlogging and drainage in Greater Noida:\n\n• **Active Clearance:** Knowledge Park II and Surajpur arterial drains are currently under active mechanized de-silting by the GNIDA Water & Sewerage Department.\n• **Resolution SLA:** Reported drain overflow and waterlogged road stretches carry a strict 24 to 48-hour resolution SLA.\n• **Department Contact:** GNIDA Water Department Helpline is **0120-2326308**.\n• You can file waterlogging reports with GPS coordinates to alert municipal suction tankers immediately.`;
-    const hi = `जलभराव और नाली निकासी की स्थिति:\n\n• **सफाई अभियान:** नॉलेज पार्क II और सूरजपुर के नालों से गाद निकालने का कार्य जीएनआईडीए जल एवं सीवरेज विभाग द्वारा मशीनों से किया जा रहा है।\n• **समाधान समयसीमा (SLA):** जलभराव और बंद नालियों की रिपोर्ट पर 24 से 48 घंटे में समाधान अनिवार्य है।\n• **विभाग संपर्क:** जीएनआईडीए जल विभाग हेल्पलाइन: **0120-2326308**।\n• आप फोटो के साथ जलभराव की रिपोर्ट दर्ज कर सकते हैं ताकि नगर पालिका सक्शन टैंकर मौके पर भेजे जा सकें।`;
-    saveToHistory(rawQ, en, hi, "Waterlogging & Drainage");
-    return { en, hi, actions: [
-      { labelEn: "Report Waterlogging", labelHi: "जलभराव रिपोर्ट करें", screen: "Capture report" },
-      { labelEn: "View Authority Desk", labelHi: "प्राधिकरण डेस्क देखें", screen: "Responsible authority" }
-    ]};
+  // Intent: Traffic, Commute, Pari Chowk, Driving Routes
+  if (q.includes("traffic") || q.includes("jam") || q.includes("rush") || q.includes("pari chowk") || q.includes("route") || q.includes("direction") || q.includes("commute") || q.includes("navigation") || q.includes("जाम") || q.includes("ट्रैफिक") || q.includes("रास्ता")) {
+    return {
+      en: `Traffic in Greater Noida is generally smooth on the wide master roads, with the exception of **Pari Chowk roundabout** during morning (8:30–10:30 AM) and evening (6:00–8:30 PM) rush hours. Ongoing construction near Surajpur connector can also create slowdowns.\n\nSmart tip: Use our **Civic navigation** to preview routes that automatically bypass known potholes, flooded underpasses, and choke points!`,
+      hi: `ग्रेटर नोएडा में चौड़ी सड़कों के कारण आमतौर पर ट्रैफिक ठीक रहता है, लेकिन **परी चौक चौराहे** पर सुबह (8:30-10:30) और शाम (6:00-8:30) के समय अक्सर जाम लग जाता है। सूरजपुर मुख्य मार्ग पर भी वाहनों की गति धीमी रहती है।\n\nसलाह: आप हमारे **Civic navigation** स्क्रीन पर जाकर ऐसा रास्ता चुन सकते हैं जो खराब सड़कों और जलभराव वाले रास्तों से बचाकर निकाले!`,
+      actions: [
+        { labelEn: "Open Civic Navigation", labelHi: "सुरक्षित मार्ग नेविगेशन", screen: "Civic navigation" },
+        { labelEn: "View Traffic on Map", labelHi: "नक्शे पर ट्रैफिक देखें", screen: "Explore map" }
+      ]
+    };
   }
 
-  // 10. Streetlights & Electricity (NPCL)
-  const lightKeywords = [
-    "light", "lights", "streetlight", "streetlights", "electric", "electricity", "bijli", "andhera",
-    "bulb", "pole", "npcl", "power cut", "outage", "transformer", "wire", "taar", "बिजली", "लाइट", "स्ट्रीटलाइट"
-  ];
-  if (lightKeywords.some(kw => q.includes(kw))) {
-    const en = `Regarding streetlights and power infrastructure:\n\n• **Management:** Streetlights are jointly maintained by the GNIDA Electrical Wing and NPCL (Noida Power Company Limited).\n• **Strict 24-Hour SLA:** Outages on public poles with reported GPS coordinates carry a legally mandated 24-hour repair turnaround.\n• **NPCL Customer Helpline:** **0120-6229400** (24/7 operational).\n• Submit a photo of the pole or location via 'Capture report' and we route it directly to the field maintenance crew.`;
-    const hi = `स्ट्रीटलाइट और बिजली व्यवस्था की जानकारी:\n\n• **प्रबंधन:** ग्रेटर नोएडा में स्ट्रीटलाइट्स का रखरखाव जीएनआईडीए इलेक्ट्रिकल विंग और एनपीसीएल (NPCL) द्वारा संयुक्त रूप से किया जाता है।\n• **24 घंटे का सख्त SLA:** खंभा नंबर और लोकेशन के साथ दर्ज की गई शिकायत का समाधान 24 घंटे में करना अनिवार्य है।\n• **एनपीसीएल 24/7 हेल्पलाइन:** **0120-6229400**।\n• टूटे खंभे या बंद लाइट की फोटो भेजें, हम इसे सीधे नजदीकी फील्ड मेंटेनेंस टीम को भेज देंगे।`;
-    saveToHistory(rawQ, en, hi, "Streetlights & Power");
-    return { en, hi, actions: [
-      { labelEn: "Report Streetlight", labelHi: "स्ट्रीटलाइट रिपोर्ट करें", screen: "Capture report" },
-      { labelEn: "View Authority Contacts", labelHi: "प्राधिकरण संपर्क देखें", screen: "Responsible authority" }
-    ]};
+  // Intent: Water supply, Leaks, Drains, Waterlogging & Sewage
+  if (q.includes("water") || q.includes("paani") || q.includes("pani") || q.includes("leak") || q.includes("drain") || q.includes("drainage") || q.includes("sewer") || q.includes("sewerage") || q.includes("waterlogging") || q.includes("flood") || q.includes("overflow") || q.includes("जलभराव") || q.includes("पानी") || q.includes("सीवर") || q.includes("नाली")) {
+    return {
+      en: `For water supply issues, blocked drains, or waterlogging:\n\n• **Responsible Division:** GNIDA Water & Sewerage Department.\n• **Water Helpline:** **0120-2326308** (available during working hours).\n• **Turnaround (SLA):** Water pipeline bursts are prioritized within 24 hours; storm drain de-silting is handled in 24–48 hours.\n\nIf dirty water is coming into your home or water is pooled on the street, report it with a quick photo so a municipal tanker or maintenance van can be dispatched.`,
+      hi: `जलापूर्ति, गंदे पानी या जलभराव की समस्या के लिए:\n\n• **संबंधित विभाग:** जीएनआईडीए जल एवं सीवरेज विभाग।\n• **जल हेल्पलाइन:** **0120-2326308**।\n• **समाधान समयसीमा:** टूटी पाइपलाइन का काम 24 घंटे में और नालों की सफाई 24 से 48 घंटे में की जाती है।\n\nअगर सड़क पर पानी भरा है या गंदा पानी आ रहा है, तो फोटो खींचकर रिपोर्ट करें ताकि तुरंत मरम्मत टीम मौके पर पहुँच सके।`,
+      actions: [
+        { labelEn: "Report Water Issue", labelHi: "पानी की समस्या बताएं", screen: "Capture report" },
+        { labelEn: "Authority Contacts", labelHi: "प्राधिकरण संपर्क", screen: "Responsible authority" }
+      ]
+    };
   }
 
-  // 11. Complaints Status & User Reports
-  const complaintKeywords = [
-    "complaint", "complaints", "report", "reports", "status", "tracking", "shikayat", "shikayatein",
-    "meri report", "check status", "kya hua", "sla", "pending", "resolved", "शिकायत", "रिपोर्ट", "स्थिति"
-  ];
-  if (complaintKeywords.some(kw => q.includes(kw))) {
+  // Intent: Streetlights, Electricity & NPCL Power
+  if (q.includes("light") || q.includes("lights") || q.includes("streetlight") || q.includes("streetlights") || q.includes("electric") || q.includes("electricity") || q.includes("bijli") || q.includes("npcl") || q.includes("power cut") || q.includes("outage") || q.includes("pole") || q.includes("dark") || q.includes("andhera") || q.includes("बिजली") || q.includes("लाइट") || q.includes("अंधेरा")) {
+    return {
+      en: `For streetlights and electricity issues in Greater Noida:\n\n• **Streetlights:** Maintained jointly by GNIDA Electrical Division and NPCL. Outages reported with a pole number or GPS location carry a 24-hour turnaround.\n• **Power Outages & Sparking:** Contact **NPCL 24/7 Customer Care** at **0120-6229400**.\n\nIf you see a dark street or a dangling electrical wire, report it immediately in the app so we can alert the nearest emergency field unit.`,
+      hi: `स्ट्रीटलाइट और बिजली की समस्याओं के लिए:\n\n• **स्ट्रीटलाइट्स:** जीएनआईडीए इलेक्ट्रिकल विंग और एनपीसीएल द्वारा संचालित। खंभे की फोटो या लोकेशन भेजने पर 24 घंटे में लाइट ठीक करना अनिवार्य है।\n• **बिजली कटौती व फॉल्ट:** **एनपीसीएल 24/7 हेल्पलाइन:** **0120-6229400** पर संपर्क करें।\n\nयदि आपके सेक्टर में लाइट बंद है या कोई तार लटक रहा है, तो तुरंत रिपोर्ट दर्ज करें ताकि नजदीकी टीम को भेजा जा सके।`,
+      actions: [
+        { labelEn: "Report Broken Light", labelHi: "लाइट की शिकायत दर्ज करें", screen: "Capture report" },
+        { labelEn: "View Authority Desk", labelHi: "प्राधिकरण डेस्क", screen: "Responsible authority" }
+      ]
+    };
+  }
+
+  // Intent: Garbage, Cleanliness, Sanitation & Waste Disposal
+  if (q.includes("garbage") || q.includes("kachra") || q.includes("waste") || q.includes("trash") || q.includes("dustbin") || q.includes("safai") || q.includes("cleaning") || q.includes("dump") || q.includes("sweeper") || q.includes("sanitation") || q.includes("कचरा") || q.includes("सफाई") || q.includes("कूड़ा")) {
+    return {
+      en: `For garbage dumps and street sanitation:\n\n• **Division:** GNIDA Public Health & Sanitation Department.\n• **Helpline:** **0120-2326305**.\n• **Standard Resolution:** Waste clearing and collection vehicle dispatch usually happens within 12 to 24 hours of reporting.\n\nTake a picture of the uncollected garbage pile through 'Capture report' so the area sanitation inspector gets notified directly.`,
+      hi: `कचरे और गंदगी की समस्या के लिए:\n\n• **संबंधित विभाग:** जीएनआईडीए जनस्वास्थ्य एवं स्वच्छता विभाग।\n• **स्वच्छता हेल्पलाइन:** **0120-2326305**।\n• **निस्तारण समय:** कचरा उठाने की गाड़ी आमतौर पर रिपोर्ट दर्ज होने के 12 से 24 घंटे में पहुँच जाती है।\n\nजहाँ भी कचरे का ढेर दिखे, 'Capture report' से फोटो खींचकर भेजें ताकि सीधे क्षेत्रीय सफाई निरीक्षक को अलर्ट मिले।`,
+      actions: [
+        { labelEn: "Report Garbage Dump", labelHi: "कचरा रिपोर्ट करें", screen: "Capture report" },
+        { labelEn: "View Authority Desk", labelHi: "प्राधिकरण डेस्क", screen: "Responsible authority" }
+      ]
+    };
+  }
+
+  // Intent: Stray Animals / Cattle on Roads
+  if (q.includes("dog") || q.includes("stray") || q.includes("cow") || q.includes("cattle") || q.includes("animal") || q.includes("saand") || q.includes("kutta") || q.includes("गाय") || q.includes("कुत्ता") || q.includes("पशु")) {
+    return {
+      en: `For stray cattle or animal issues in Greater Noida:\n\nGNIDA operates an active Cattle Catching Squad to safely move stray cows and bulls from main expressways and sector roads to registered shelters (Gaushalas). For aggressive stray dogs or sterilization requests, the Animal Welfare Division can be alerted via a geotagged report in the app.`,
+      hi: `सड़क पर बेसहारा पशुओं या कुत्तों की समस्या के लिए:\n\nजीएनआईडीए की कैटल कैचिंग स्क्वाड मुख्य सड़कों और एक्सप्रेसवे से बेसहारा मवेशियों को सुरक्षित रूप से गोशालाओं में पहुँचाने का काम करती है। आवारा कुत्तों की समस्या के लिए भी आप ऐप से लोकेशन के साथ शिकायत दर्ज कर सकते हैं।`,
+      actions: [
+        { labelEn: "Report Animal Hazard", labelHi: "पशु समस्या बताएं", screen: "Capture report" },
+        { labelEn: "Check City Map", labelHi: "नक्शा देखें", screen: "Explore map" }
+      ]
+    };
+  }
+
+  // Intent: GroundTruth AI Verification
+  if (q.includes("groundtruth") || q.includes("ground truth") || q.includes("verification") || q.includes("verify") || q.includes("proof") || q.includes("fake") || q.includes("सत्यापन") || q.includes("ग्राउंडट्रूथ")) {
+    return {
+      en: `**GroundTruth AI** is our digital watchdog against fake repair claims! 🔍\n\nIn traditional municipal systems, tickets often get marked 'Resolved' even when work was half-done. With NagrikAI:\n1. The contractor must upload a photo of the completed repair.\n2. Our AI vision compares the original complaint image with the new repair photo (matching road texture, depth, and surroundings).\n3. Citizens walking by can also verify the fix with a 1-tap confirmation.\n\nA ticket is only officially closed once the physical fix is verified on the ground!`,
+      hi: `**ग्राउंडट्रूथ एआई (GroundTruth AI)** काम के फर्जी दावों को रोकने वाला डिजिटल पहरेदार है! 🔍\n\nअक्सर शिकायतों को बिना पूरा काम किए 'Resolved' दिखा दिया जाता है। नागरिक एआई में ऐसा नहीं हो सकता:\n1. मरम्मत करने वाली टीम को काम पूरा होने के बाद नई फोटो अपलोड करनी होती है।\n2. एआई पुरानी और नई फोटो की तुलना करके सड़क, स्थान और मरम्मत की पुष्टि करता है।\n3. उस रास्ते से गुजरने वाले नागरिक भी 1 टैप से पुष्टि कर सकते हैं।\n\nसच्चा काम होने पर ही शिकायत बंद मानी जाती है!`,
+      actions: [
+        { labelEn: "Open GroundTruth Screen", labelHi: "ग्राउंडट्रूथ स्क्रीन देखें", screen: "GroundTruth AI" },
+        { labelEn: "Check City Map", labelHi: "नक्शा देखें", screen: "Explore map" }
+      ]
+    };
+  }
+
+  // Intent: How to Report an Issue
+  if (q.includes("how to report") || q.includes("how to file") || q.includes("file a complaint") || q.includes("lodge complaint") || q.includes("report kaise") || q.includes("shikayat kaise") || q.includes("शिकायत कैसे") || q.includes("रिपोर्ट कैसे")) {
+    return {
+      en: `Reporting an issue on NagrikAI takes less than 30 seconds:\n\n1. Tap the **'+' (Report)** button on the bottom bar.\n2. Snap a photo of the problem (pothole, broken light, water leak).\n3. Our app automatically detects your GPS coordinates and sector.\n4. Pick the category and tap **Submit Report**.\n\nYou'll get an instant reference number, and we'll route it straight to the right department with active status tracking!`,
+      hi: `नागरिक एआई पर शिकायत दर्ज करना बहुत आसान है (30 सेकंड से कम):\n\n1. नीचे दिए गए **'+' (Report)** बटन पर टैप करें।\n2. समस्या की फोटो खींचें (जैसे गड्ढा, बंद लाइट या पानी का रिसाव)।\n3. ऐप अपने आप आपकी जीपीएस लोकेशन और सेक्टर पहचान लेगा।\n4. श्रेणी चुनें और **Submit Report** दबाएं।\n\nआपको तुरंत एक रेफरेंस नंबर मिलेगा और रिपोर्ट सीधे सही विभाग को चली जाएगी!`,
+      actions: [
+        { labelEn: "Start a Report Now", labelHi: "अभी रिपोर्ट करें", screen: "Capture report" },
+        { labelEn: "View My Past Reports", labelHi: "पुरानी शिकायतें देखें", screen: "Report history" }
+      ]
+    };
+  }
+
+  // Intent: Check My Complaint Status
+  if (q.includes("status") || q.includes("my complaint") || q.includes("my report") || q.includes("track") || q.includes("meri report") || q.includes("kya hua") || q.includes("स्थिति") || q.includes("ट्रैकिंग")) {
     if (liveReports && liveReports.length > 0) {
       const open = liveReports.filter(r => r.status !== "Resolved");
       const resolved = liveReports.filter(r => r.status === "Resolved");
       const latest = liveReports[0];
-      const en = `Here is your current civic report status from the database:\n\n• **Total Reports Filed:** ${liveReports.length} (${open.length} in progress, ${resolved.length} resolved)\n• **Latest Ticket:** #${latest.report_number || latest.id.slice(0, 8)} (${latest.title || latest.category})\n• **Location:** ${latest.locality || "Greater Noida"}\n• **Current Stage:** ${latest.status} (Forwarded to authority with active SLA tracking)\n\nYou can track the full resolution timeline or inspect GroundTruth evidence in 'Report history'.`;
-      const hi = `डेटाबेस से आपकी दर्ज शिकायतों की ताज़ा स्थिति:\n\n• **कुल शिकायतें:** ${liveReports.length} (${open.length} प्रक्रिया में, ${resolved.length} निस्तारित)\n• **नवीनतम टिकट:** #${latest.report_number || latest.id.slice(0, 8)} (${latest.title || latest.category})\n• **स्थान:** ${latest.locality || "ग्रेटर नोएडा"}\n• **वर्तमान स्थिति:** ${latest.status} (संबंधित विभाग को प्रेषित व सक्रिय SLA ट्रैकिंग)\n\nआप 'Report history' में जाकर पूरा टाइमलाइन और ग्राउंडट्रूथ फोटो साक्ष्य देख सकते हैं।`;
-      saveToHistory(rawQ, en, hi, "Complaint Status");
-      return { en, hi, actions: [
-        { labelEn: "View Report History", labelHi: "शिकायत इतिहास देखें", screen: "Report history" },
-        { labelEn: "Live Reference Tracking", labelHi: "लाइव ट्रैकिंग देखें", screen: "Reference tracking" }
-      ]};
+      return {
+        en: `Here's where your reports stand:\n\n• **Total Reports:** ${liveReports.length} (${open.length} in progress, ${resolved.length} resolved)\n• **Latest Ticket:** #${latest.report_number || (latest.id ? latest.id.slice(0, 8) : "101")} (${latest.title || latest.category})\n• **Location:** ${latest.locality || "Greater Noida"}\n• **Status:** ${latest.status || "Under Review"}\n\nYou can view the full progress timeline in **Report history**!`,
+        hi: `आपकी शिकायतों की वर्तमान स्थिति:\n\n• **कुल रिपोर्ट्स:** ${liveReports.length} (${open.length} प्रक्रिया में, ${resolved.length} पूरी हो चुकी हैं)\n• **नवीनतम टिकट:** #${latest.report_number || (latest.id ? latest.id.slice(0, 8) : "101")} (${latest.title || latest.category})\n• **स्थान:** ${latest.locality || "ग्रेटर नोएडा"}\n• **स्थिति:** ${latest.status || "समीक्षाधीन"}\n\nआप **Report history** में जाकर पूरी टाइमलाइन देख सकते हैं!`,
+        actions: [
+          { labelEn: "Open Report History", labelHi: "शिकायत इतिहास खोलें", screen: "Report history" },
+          { labelEn: "Live Tracking", labelHi: "लाइव ट्रैकिंग", screen: "Reference tracking" }
+        ]
+      };
     } else {
-      const en = `You have no pending municipal reports on file right now. Everything looks clear! If you observe any issue in your sector — such as an asphalt pothole, open garbage dump, or broken streetlight — you can submit a report in under 30 seconds.`;
-      const hi = `वर्तमान में आपकी कोई भी लंबित नागरिक शिकायत दर्ज नहीं है। सब कुछ ठीक है! यदि आपको अपने क्षेत्र में कोई सड़क का गड्ढा, कचरा ढेर या बंद स्ट्रीटलाइट दिखे, तो आप 30 सेकंड में नई रिपोर्ट दर्ज कर सकते हैं।`;
-      saveToHistory(rawQ, en, hi, "Complaint Status");
-      return { en, hi, actions: [
-        { labelEn: "File New Report", labelHi: "नई रिपोर्ट दर्ज करें", screen: "Capture report" },
-        { labelEn: "View City Map", labelHi: "शहर का नक्शा देखें", screen: "Explore map" }
-      ]};
+      return {
+        en: `You don't have any open complaints right now—everything looks clean! If you spot any issue around your sector today, feel free to file a report anytime.`,
+        hi: `वर्तमान में आपकी कोई भी शिकायत दर्ज नहीं है—सब कुछ ठीक है! अगर आपको आज अपने सेक्टर में कोई समस्या दिखे, तो आप कभी भी रिपोर्ट दर्ज कर सकते हैं।`,
+        actions: [
+          { labelEn: "File a Report", labelHi: "रिपोर्ट दर्ज करें", screen: "Capture report" },
+          { labelEn: "Explore City Map", labelHi: "शहर का नक्शा देखें", screen: "Explore map" }
+        ]
+      };
     }
   }
 
-  // 12. Authority Contacts & Emergency Numbers
-  const authorityKeywords = [
-    "authority", "authorities", "helpline", "helplines", "contact", "contacts", "gnida", "officer",
-    "number", "phone", "call", "adhikari", "sampark", "police", "control room", "हेल्पलाइन", "संपर्क", "अधिकारी", "नंबर"
-  ];
-  if (authorityKeywords.some(kw => q.includes(kw))) {
-    const en = `Here are the verified Greater Noida Authority (GNIDA) & utility emergency contacts:\n\n• **Roads & Civil Maintenance:** 0120-2326301 (SLA: 48-72h)\n• **Streetlights & NPCL Power:** 0120-6229400 (SLA: 24h)\n• **Water Supply & Sewerage:** 0120-2326308 (SLA: 24-48h)\n• **Sanitation & Garbage Disposal:** 0120-2326305 (SLA: 12-24h)\n• **Traffic Police Control Room:** 9971009001 (Immediate Dispatch)\n\nWould you like me to hand off a specific issue to one of these divisions?`;
-    const hi = `ग्रेटर नोएडा प्राधिकरण (GNIDA) और आपातकालीन हेल्पलाइन नंबर:\n\n• **सड़क एवं सिविल रखरखाव:** 0120-2326301 (SLA: 48-72 घंटे)\n• **स्ट्रीटलाइट और एनपीसीएल बिजली:** 0120-6229400 (SLA: 24 घंटे)\n• **जलापूर्ति एवं सीवरेज निकासी:** 0120-2326308 (SLA: 24-48 घंटे)\n• **स्वच्छता एवं कचरा निस्तारण:** 0120-2326305 (SLA: 12-24 घंटे)\n• **ट्रैफिक पुलिस नियंत्रण कक्ष:** 9971009001 (त्वरित गश्त)\n\nक्या आप इनमें से किसी विभाग को शिकायत अग्रेषित करना चाहते हैं?`;
-    saveToHistory(rawQ, en, hi, "Authority Contacts");
-    return { en, hi, actions: [
-      { labelEn: "Responsible Authority Desk", labelHi: "प्राधिकरण डेस्क देखें", screen: "Responsible authority" },
-      { labelEn: "Complaint Handoff", labelHi: "शिकायत अग्रेषण", screen: "Complaint handoff" }
-    ]};
+  // Intent: Emergency Numbers & Official Contacts
+  if (q.includes("helpline") || q.includes("contact") || q.includes("number") || q.includes("phone") || q.includes("police") || q.includes("fire") || q.includes("ambulance") || q.includes("gnida") || q.includes("हेल्पलाइन") || q.includes("नंबर") || q.includes("संपर्क")) {
+    return {
+      en: `Here are key verified emergency and municipal contacts for Greater Noida:\n\n• **Police Control Room:** 112\n• **Traffic Police Helpline:** 9971009001\n• **NPCL Electricity 24/7:** 0120-6229400\n• **GNIDA Water & Sewerage:** 0120-2326308\n• **GNIDA Civil/Roads:** 0120-2326301\n• **Sanitation & Waste:** 0120-2326305\n• **Fire Emergency:** 101 | **Ambulance:** 108`,
+      hi: `ग्रेटर नोएडा के मुख्य आपातकालीन और प्राधिकरण संपर्क नंबर:\n\n• **पुलिस नियंत्रण कक्ष:** 112\n• **ट्रैफिक पुलिस:** 9971009001\n• **एनपीसीएल बिजली (24 घंटे):** 0120-6229400\n• **जीएनआईडीए जल विभाग:** 0120-2326308\n• **सड़क व निर्माण विभाग:** 0120-2326301\n• **सफाई व कचरा विभाग:** 0120-2326305\n• **दमकल:** 101 | **एम्बुलेंस:** 108`,
+      actions: [
+        { labelEn: "View Authority Desk", labelHi: "प्राधिकरण डेस्क देखें", screen: "Responsible authority" },
+        { labelEn: "File Report", labelHi: "रिपोर्ट दर्ज करें", screen: "Capture report" }
+      ]
+    };
   }
 
-  // 13. Greeting & General Conversational Inquiry
-  const greetingKeywords = [
-    "hello", "hi", "hey", "namaste", "pranam", "kaise ho", "shukriya", "dhanyawad",
-    "thank you", "thanks", "good morning", "good evening", "namaskar", "नमस्ते", "हेलो", "प्रणाम", "नमस्कार"
-  ];
-  if (greetingKeywords.some(kw => q.includes(kw))) {
-    const en = `Hello citizen! 👋 How can I assist you today? I'm your Greater Noida civic AI — you can ask me about road conditions in your sector, check local GNIDA helpline numbers, track complaints, or check today's headlines!`;
-    const hi = `नमस्ते नागरिक! 👋 आज मैं आपकी क्या सहायता कर सकता हूँ? मैं आपका ग्रेटर नोएडा नागरिक एआई सहायक हूँ — आप मुझसे अपने क्षेत्र में सड़क की स्थिति, जीएनआईडीए हेल्पलाइन नंबर, शिकायत ट्रैकिंग या आज की सुर्खियाँ पूछ सकते हैं!`;
-    saveToHistory(rawQ, en, hi, "Greeting");
-    return { en, hi, actions: [
-      { labelEn: "Alpha II Potholes", labelHi: "अल्फा II में गड्ढे", query: "What potholes are reported in Alpha II?" },
-      { labelEn: "Pari Chowk Route", labelHi: "परी चौक मार्ग", query: "How is the traffic near Pari Chowk?" },
-      { labelEn: "Check My Complaints", labelHi: "मेरी शिकायतें", query: "What is the status of my reports?" }
-    ]};
+  // Intent: City Info, Metro, Landmarks
+  if (q.includes("metro") || q.includes("aqua line") || q.includes("expo mart") || q.includes("airport") || q.includes("jewar") || q.includes("buddh") || q.includes("city park") || q.includes("greater noida") || q.includes("मेट्रो")) {
+    return {
+      en: `Greater Noida is known for its well-planned sectors, wide roads, and green spaces:\n\n• **Public Transit:** The NMRC Aqua Line connects Pari Chowk and Knowledge Park directly with Noida Sector 51.\n• **Major Landmarks:** India Expo Mart hosts global conferences; Buddh International Circuit is famous for motorsports.\n• **Future Connectivity:** The upcoming Noida International Airport at Jewar is set to connect via expressway and metro extensions.`,
+      hi: `ग्रेटर नोएडा अपने सुनियोजित सेक्टरों, चौड़ी सड़कों और हरियाली के लिए जाना जाता है:\n\n• **मेट्रो सुविधा:** एनएमआरसी एक्वा लाइन परी चौक और नॉलेज पार्क को सीधे नोएडा सेक्टर 51 से जोड़ती है।\n• **प्रमुख स्थल:** इंडिया एक्सपो मार्ट और बुद्ध इंटरनेशनल सर्किट यहाँ के प्रसिद्ध स्थल हैं।\n• **जेवर एयरपोर्ट:** आगामी नोएडा इंटरनेशनल एयरपोर्ट से कनेक्टिविटी और भी बेहतर होने जा रही है।`,
+      actions: [
+        { labelEn: "Explore City Map", labelHi: "शहर का नक्शा देखें", screen: "Explore map" },
+        { labelEn: "Civic Navigation", labelHi: "नेविगेशन देखें", screen: "Civic navigation" }
+      ]
+    };
   }
 
-  // 14. Natural ChatGPT-Style Contextual Synthesis for Any Query
-  const en = `I analyzed your query: "${rawQ}". As your Greater Noida civic assistant, here is how I can help:\n\n• If you are **reporting an issue** (such as potholes, waterlogging, or power outages), we can log a geotagged report and escalate it directly to GNIDA or NPCL under enforceable SLAs.\n• If you are **checking road conditions or navigation**, I can inspect live sector reports across Alpha, Beta, Knowledge Park, and Pari Chowk.\n• If you are **tracking municipal accountability**, our GroundTruth AI enables you to verify completed repair evidence.\n\nCould you specify which sector or department you'd like to check?`;
-  const hi = `मैंने आपके प्रश्न का विश्लेषण किया: "${rawQ}"। ग्रेटर नोएडा नागरिक सहायक के रूप में, मैं आपकी इस प्रकार सहायता कर सकता हूँ:\n\n• यदि आप **कोई समस्या रिपोर्ट कर रहे हैं** (जैसे सड़क का गड्ढा, जलभराव या बिजली की समस्या), तो हम जीपीएस लोकेशन के साथ रिपोर्ट दर्ज कर सीधे जीएनआईडीए या एनपीसीएल को भेज सकते हैं।\n• यदि आप **सड़क की स्थिति या नेविगेशन जानना चाहते हैं**, तो मैं अल्फा, बीटा, नॉलेज पार्क और परी चौक की ताज़ा स्थिति बता सकता हूँ।\n• यदि आप **नगर पालिका जवाबदेही ट्रैक कर रहे हैं**, तो हमारा ग्राउंडट्रूथ एआई फोटो साक्ष्य सत्यापित करने में मदद करता है।\n\nकृपया बताएं कि आप किस सेक्टर या विभाग के बारे में अधिक जानकारी चाहते हैं?`;
-  saveToHistory(rawQ, en, hi, "General Civic Dialogue");
-  return { en, hi, actions: [
-    { labelEn: "Explore City Map", labelHi: "शहर का नक्शा देखें", screen: "Explore map" },
-    { labelEn: "File a Report", labelHi: "रिपोर्ट दर्ज करें", screen: "Capture report" },
-    { labelEn: "View Authority Desk", labelHi: "प्राधिकरण डेस्क", screen: "Responsible authority" }
-  ]};
+  // 15. Intelligent Contextual Response for ANY other question
+  // Directly extract subject and address what the user actually asked!
+  const cleanedSubject = rawQ
+    .replace(/^(can you|please|tell me|what is|how do|why is|is there|where can i|kya|kaise|batao|kripya)\s+/i, "")
+    .replace(/[?!.]+$/, "")
+    .trim();
+
+  return {
+    en: `Regarding "${cleanedSubject || rawQ}":\n\nAs your Greater Noida civic assistant, I'm here to help address this directly. If this relates to an issue in your sector—like a road hazard, broken streetlight, water problem, or sanitation—you can file a quick report right here with auto-GPS tagging. I can also help you track active complaints, check local traffic, or connect you with the right GNIDA department.\n\nWould you like to pinpoint this on the city map or submit a report?`,
+    hi: `"${cleanedSubject || rawQ}" के बारे में:\n\nग्रेटर नोएडा नागरिक सहायक के रूप में, मैं आपकी इसमें पूरी मदद कर सकता हूँ। अगर यह आपके सेक्टर की किसी समस्या (जैसे सड़क, लाइट, पानी या सफाई) से जुड़ा है, तो आप सीधे ऐप से लोकेशन के साथ शिकायत दर्ज कर सकते हैं। आप यहाँ से लाइव ट्रैफिक भी देख सकते हैं या संबंधित विभाग की जानकारी ले सकते हैं।\n\nक्या आप इसे शहर के नक्शे पर देखना चाहते हैं या नई रिपोर्ट दर्ज करना चाहते हैं?`,
+    actions: [
+      { labelEn: "Explore City Map", labelHi: "शहर का नक्शा देखें", screen: "Explore map" },
+      { labelEn: "File a Report", labelHi: "रिपोर्ट दर्ज करें", screen: "Capture report" },
+      { labelEn: "Authority Contacts", labelHi: "प्राधिकरण संपर्क", screen: "Responsible authority" }
+    ]
+  };
+}
+
+// Master function that decides between live LLM (Gemini) and the dynamic local conversational engine
+async function generateAIModelResponse(query, liveReports = [], isVoiceNote = false, duration = 0, chatHistory = []) {
+  const rawQ = (query || "").trim();
+  if (!rawQ && !isVoiceNote) {
+    return {
+      en: "How can I help you today? Feel free to ask about roads, traffic, municipal issues, or services in Greater Noida.",
+      hi: "आज मैं आपकी क्या सहायता कर सकता हूँ? आप ग्रेटर नोएडा की सड़कों, ट्रैफिक या नागरिक समस्याओं के बारे में पूछ सकते हैं।",
+      actions: [{ labelEn: "Explore City Map", labelHi: "नक्शा देखें", screen: "Explore map" }]
+    };
+  }
+
+  // 1. Attempt Live LLM call if API Key is configured
+  try {
+    const liveLLMResponse = await callGeminiAPI(rawQ, chatHistory);
+    if (liveLLMResponse && liveLLMResponse.en && liveLLMResponse.hi) {
+      return liveLLMResponse;
+    }
+  } catch (e) {
+    console.warn("LLM API call fallback to local engine:", e);
+  }
+
+  // 2. Comprehensive, dynamic local conversational engine
+  return generateLocalConversationalResponse(rawQ, liveReports, isVoiceNote, duration);
 }
 
 // Interactive Voice Note Player Component
@@ -434,6 +561,7 @@ export function AskAI({
 
   const [inputVal, setInputVal] = useState("");
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isThinking, setIsThinking] = useState(false);
   const [dbReports, setDbReports] = useState([]);
 
   // Voice Note Recording State
@@ -888,10 +1016,11 @@ export function AskAI({
   };
 
   // Send Voice Note Message & Generate Conversational AI Response
-  const handleSendVoiceNote = (audioUrl, duration, transcriptText, lang = "en") => {
+  const handleSendVoiceNote = async (audioUrl, duration, transcriptText, lang = "en") => {
     const isHi = lang === "hi" || currentLang === "Hindi";
-    const queryText = transcriptText;
+    const queryText = (transcriptText || "").trim() || (isHi ? "वॉयसनोट द्वारा प्रश्न" : "Voice note civic query");
 
+    stopSpeaking();
     const userMsg = {
       id: "u-vn-" + Date.now(),
       role: "user",
@@ -905,34 +1034,43 @@ export function AskAI({
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     };
 
-    const aiResponse = generateAIModelResponse(queryText, dbReports, true, duration);
+    setMessages(prev => [...prev, userMsg]);
+    setIsThinking(true);
 
-    const assistantMsg = {
-      id: "a-vn-" + Date.now(),
-      role: "assistant",
-      textEn: aiResponse.en,
-      textHi: aiResponse.hi,
-      activeLang: isHi ? "hi" : "en",
-      actions: aiResponse.actions || [],
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    };
+    try {
+      const aiResponse = await generateAIModelResponse(queryText, dbReports, true, duration, messages);
 
-    setMessages(prev => [...prev, userMsg, assistantMsg]);
-    persistConversationTurn(userMsg, assistantMsg);
-    setInputVal("");
-    setLiveTranscript("");
-    latestTranscriptRef.current = "";
-    if (setQuery) setQuery("");
+      const assistantMsg = {
+        id: "a-vn-" + Date.now(),
+        role: "assistant",
+        textEn: aiResponse.en,
+        textHi: aiResponse.hi,
+        activeLang: isHi ? "hi" : "en",
+        actions: aiResponse.actions || [],
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      };
 
-    // Speak AI response if voice mode is enabled
-    const textToSpeak = isHi ? aiResponse.hi : aiResponse.en;
-    speakText(textToSpeak, isHi ? "Hindi" : "English");
+      setMessages(prev => [...prev, assistantMsg]);
+      persistConversationTurn(userMsg, assistantMsg);
+      setInputVal("");
+      setLiveTranscript("");
+      latestTranscriptRef.current = "";
+      if (setQuery) setQuery("");
+
+      // Speak AI response if voice mode is enabled
+      const textToSpeak = isHi ? aiResponse.hi : aiResponse.en;
+      speakText(textToSpeak, isHi ? "Hindi" : "English");
+    } catch (err) {
+      console.warn("AI voice response error:", err);
+    } finally {
+      setIsThinking(false);
+    }
   };
 
   // Send Text Message
-  const handleSend = (textToSend = null) => {
+  const handleSend = async (textToSend = null) => {
     const q = (textToSend !== null ? textToSend : inputVal).trim();
-    if (!q) return;
+    if (!q || isThinking) return;
 
     stopSpeaking();
     if (isRecordingVoiceNote) cancelVoiceNote();
@@ -948,28 +1086,37 @@ export function AskAI({
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     };
 
-    const aiResponse = generateAIModelResponse(q, dbReports, false);
-
-    const assistantMsg = {
-      id: "a-" + Date.now(),
-      role: "assistant",
-      textEn: aiResponse.en,
-      textHi: aiResponse.hi,
-      activeLang: isHi ? "hi" : "en",
-      actions: aiResponse.actions || [],
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    };
-
-    setMessages(prev => [...prev, userMsg, assistantMsg]);
-    persistConversationTurn(userMsg, assistantMsg);
+    setMessages(prev => [...prev, userMsg]);
     setInputVal("");
     setLiveTranscript("");
     latestTranscriptRef.current = "";
     if (setQuery) setQuery("");
+    setIsThinking(true);
 
-    // Speak AI response if voice mode is enabled
-    const textToSpeak = isHi ? aiResponse.hi : aiResponse.en;
-    speakText(textToSpeak, isHi ? "Hindi" : "English");
+    try {
+      const aiResponse = await generateAIModelResponse(q, dbReports, false, 0, messages);
+
+      const assistantMsg = {
+        id: "a-" + Date.now(),
+        role: "assistant",
+        textEn: aiResponse.en,
+        textHi: aiResponse.hi,
+        activeLang: isHi ? "hi" : "en",
+        actions: aiResponse.actions || [],
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      };
+
+      setMessages(prev => [...prev, assistantMsg]);
+      persistConversationTurn(userMsg, assistantMsg);
+
+      // Speak AI response if voice mode is enabled
+      const textToSpeak = isHi ? aiResponse.hi : aiResponse.en;
+      speakText(textToSpeak, isHi ? "Hindi" : "English");
+    } catch (err) {
+      console.warn("AI text response error:", err);
+    } finally {
+      setIsThinking(false);
+    }
   };
 
   // Toggle message language display between English and Hindi
@@ -1232,6 +1379,16 @@ export function AskAI({
             </div>
           );
         })}
+        {isThinking && (
+          <div className="msg-row assistant thinking">
+            <div className="avatar assistant-avatar"><Sparkles size={14} /></div>
+            <div className="msg-bubble">
+              <span className="thinking-dot" />
+              <span className="thinking-dot" />
+              <span className="thinking-dot" />
+            </div>
+          </div>
+        )}
         <div ref={chatBottomRef} />
       </div>
 
@@ -1261,11 +1418,13 @@ export function AskAI({
           onKeyDown={(e) => {
             if (e.key === "Enter") handleSend();
           }}
-          disabled={isRecordingVoiceNote}
+          disabled={isRecordingVoiceNote || isThinking}
           placeholder={
             isRecordingVoiceNote
               ? (currentLang === "Hindi" ? "वॉयसनोट रिकॉर्ड हो रहा है..." : "Recording voice note...")
-              : (currentLang === "Hindi" ? "सेवाओं या शिकायत के बारे में पूछें..." : "Ask about our services, road status, GNIDA...")
+              : isThinking
+              ? (currentLang === "Hindi" ? "नागरिक एआई सोच रहा है..." : "NagrikAI is thinking...")
+              : (currentLang === "Hindi" ? "सड़क, ट्रैफिक, या शिकायत के बारे में पूछें..." : "Ask anything about roads, traffic, or complaints...")
           }
         />
 
@@ -1273,6 +1432,7 @@ export function AskAI({
         <button
           className={`ai-mic-btn ${isRecordingVoiceNote ? "listening" : ""}`}
           onClick={isRecordingVoiceNote ? stopVoiceNoteAndSend : startVoiceNoteRecording}
+          disabled={isThinking}
           title={isRecordingVoiceNote ? "Stop & Send Voice Note" : (currentLang === "Hindi" ? "वॉयसनोट रिकॉर्ड करने के लिए दबाएं" : "Record Voice Note")}
           aria-label="Voice note input"
         >
@@ -1283,7 +1443,7 @@ export function AskAI({
         <button
           className="ai-send-btn"
           onClick={() => handleSend()}
-          disabled={!inputVal.trim() || isRecordingVoiceNote}
+          disabled={!inputVal.trim() || isRecordingVoiceNote || isThinking}
           aria-label="Send message"
         >
           <Send size={16} />
